@@ -104,7 +104,12 @@ let catalogSnapshot: ModelChannel[] = [];
 function systemChannelSignature(channels: ModelChannel[]) {
     return channels
         .filter((channel) => channel.scope === "system")
-        .map((channel) => `${channel.id}::${channel.models.join(",")}`)
+        .map((channel) => {
+            // 签名必须带上能力合同：平台调整模型的参数合同（比例、数量、档位）时，
+            // 模型清单没变，只按 id+模型名比较会让浏览器一直用旧的合同渲染设置面板。
+            const profiles = (channel.modelProfiles || []).map((profile) => [profile.model, profile.capability, profile.protocol, profile.capabilityConfig ?? null]);
+            return `${channel.id}::${channel.models.join(",")}::${JSON.stringify(profiles)}`;
+        })
         .sort()
         .join("|");
 }

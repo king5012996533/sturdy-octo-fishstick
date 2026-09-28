@@ -336,6 +336,11 @@ func (s *Service) SaveAdminChannelModel(actor *model.User, channelID string, id 
 		return nil, BadAuthRequest("该渠道已存在模型 " + modelKey + "，请直接编辑已有模型")
 	}
 	if capability == "text" || capability == "image" || capability == "video" {
+		// 厂商目录导入与手动登记只落模型标识，能力合同留空；此时按协议与上游模型推导默认合同，
+		// 运营"启用即用"，不必先手写一整份能力 JSON 才能保存。
+		if req.CapabilityConfig == nil {
+			req.CapabilityConfig = DefaultModelCapabilityConfigForModel(string(protocol), providerModelKey)
+		}
 		if _, err := NormalizeModelCapabilityConfigForModel(capability, string(protocol), providerModelKey, req.CapabilityConfig); err != nil {
 			return nil, err
 		}

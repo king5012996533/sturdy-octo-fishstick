@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatCount, formatDateTime } from "@/lib/format-usage";
 
 import {
+    addAdminVendorCredentialModels,
     createAdminVendor,
     createAdminVendorCredential,
     deleteAdminVendor,
@@ -160,6 +161,11 @@ export function VendorsPane() {
     const [importSelected, setImportSelected] = useState<string[]>([]);
     const [importBusy, setImportBusy] = useState(false);
     const [importError, setImportError] = useState("");
+
+    const [manualOpen, setManualOpen] = useState(false);
+    const [manualIds, setManualIds] = useState("");
+    const [manualBusy, setManualBusy] = useState(false);
+    const [manualError, setManualError] = useState("");
 
     const [joinOpen, setJoinOpen] = useState(false);
     const [joinKeyword, setJoinKeyword] = useState("");
@@ -434,6 +440,34 @@ export function VendorsPane() {
             setImportBusy(false);
         }
     }, [activeCredential, detail, importSelected, load, loadCredentials, loadModels]);
+
+    /** 「手动登记」补分页目录翻不到的模型：标识先过上游核对，核对不过的不写库。 */
+    const openManual = useCallback(() => {
+        setManualOpen(true);
+        setManualIds("");
+        setManualError("");
+    }, []);
+
+    const submitManual = useCallback(async () => {
+        if (!detail || !activeCredential) return;
+        const ids = modelLinesOf(manualIds) ?? [];
+        if (!ids.length) {
+            setManualError("请至少填写一个模型标识，例如 black-forest-labs/flux-schnell");
+            return;
+        }
+        setManualBusy(true);
+        setManualError("");
+        try {
+            const result = await addAdminVendorCredentialModels(detail.id, activeCredential.id, ids);
+            setDetailNotice(result.added > 0 ? `已登记 ${formatCount(result.added)} 个模型，确认协议与能力后再启用。` : "这些模型都已存在，没有新增。");
+            setManualOpen(false);
+            await Promise.all([loadModels(detail.id, activeCredential.id), loadCredentials(detail.id), load()]);
+        } catch (addFailure) {
+            setManualError(`登记模型失败：${reasonOf(addFailure, "请核对标识是否与上游一致")}`);
+        } finally {
+            setManualBusy(false);
+        }
+    }, [activeCredential, detail, load, loadCredentials, loadModels, manualIds]);
 
     const openJoin = useCallback(() => {
         setJoinOpen(true);
@@ -823,6 +857,9 @@ export function VendorsPane() {
                                     <Button size="small" type="primary" icon={<CloudDownload className="size-3.5" />} disabled={!activeCredential} onClick={() => void openImport()}>
                                         从上游拉取
                                     </Button>
+                                    <Button size="small" icon={<Plus className="size-3.5" />} disabled={!activeCredential} onClick={openManual}>
+                                        手动登记
+                                    </Button>
                                 </span>
                             </div>
                             <Table<VendorModel>
@@ -832,7 +869,7 @@ export function VendorsPane() {
                                 dataSource={models}
                                 columns={modelColumns}
                                 pagination={false}
-                                locale={{ emptyText: activeCredential ? "该凭证还没有模型，可以从上游拉取后导入。" : "先在上面的凭证里选一条，再管理它的模型。" }}
+                                locale={{ emptyText: activeCredential ? "该凭证还没有模型：可以从上游拉取，也可以按标识手动登记。" : "先在上面的凭证里选一条，再管理它的模型。" }}
                             />
                         </div>
                     </div>
@@ -982,6 +1019,29 @@ export function VendorsPane() {
                         columns={[{ title: "上游模型标识", dataIndex: "0", key: "model" }]}
                         locale={{ emptyText: importBusy ? "正在探测上游目录…" : "上游没有返回可导入的模型。" }}
                     />
+                </div>
+            </Modal>
+
+            <Modal
+                open={manualOpen}
+                width={560}
+                title={activeCredential ? `手动登记模型 · ${activeCredential.name}` : "手动登记模型"}
+                okText="核对并登记"
+                cancelText="取消"
+                confirmLoading={manualBusy}
+                onOk={() => void submitManual()}
+                onCancel={() => setManualOpen(false)}
+            >
+                <div className="flex flex-col gap-3">
+                    {manualError ? (
+                        <div className="admin-notice is-error">
+                            <span>{manualError}</span>
+                        </div>
+                    ) : null}
+                    <p className="admin-section-desc">
+                        上游目录带分页（Replicate 一页 25 条、按发布时间倒序），常用模型常常翻不到。每行一个标识，服务端会先向上游核对，核对通过的才写库；登记后仍是停用状态，需要到上面的模型列表里确认协议与能力再启用。
+                    </p>
+                    <Input.TextArea rows={5} value={manualIds} onChange={(event) => setManualIds(event.target.value)} placeholder={"black-forest-labs/flux-schnell\nblack-forest-labs/flux-dev"} />
                 </div>
             </Modal>
 

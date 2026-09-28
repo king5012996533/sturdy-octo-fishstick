@@ -474,3 +474,40 @@ func TestValidateVideoTaskRequiresDeclaredMinimumImages(t *testing.T) {
 		t.Fatalf("validateVideoTask() error = %v", err)
 	}
 }
+
+// Replicate 是"一模型一 schema"的托管平台：能力合同必须与插件真实映射的字段一致。
+// 数量多报会让用户拿到比承诺更少的图，比例写错会直接被上游拒绝（9:21 会被前端归一成 3:7）。
+func TestDefaultImageCapabilityConfigForReplicateFamilies(t *testing.T) {
+	flux := DefaultImageCapabilityConfig("replicate-prediction-image", "black-forest-labs/flux-schnell")
+	if flux.Size.Parameter != "aspect_ratio" || flux.Size.AllowCustom {
+		t.Fatalf("flux size = %#v", flux.Size)
+	}
+	if flux.MaxOutputs != 4 || flux.References.MaxImages != 0 {
+		t.Fatalf("flux outputs=%d refs=%d, want 4/0", flux.MaxOutputs, flux.References.MaxImages)
+	}
+	if !containsCapabilityString(flux.Size.Values, "16:9") || containsCapabilityString(flux.Size.Values, "9:21") {
+		t.Fatalf("flux ratios = %#v", flux.Size.Values)
+	}
+	if err := validateImageCapabilityConfig(flux); err != nil {
+		t.Fatalf("flux capability rejected: %v", err)
+	}
+
+	imagen := DefaultImageCapabilityConfig("replicate-prediction-image", "google/imagen-4")
+	if imagen.MaxOutputs != 1 || len(imagen.Quality.Values) != 2 || imagen.Quality.Default != "1k" {
+		t.Fatalf("imagen4 tiers = %#v maxOutputs=%d", imagen.Quality, imagen.MaxOutputs)
+	}
+	if err := validateImageCapabilityConfig(imagen); err != nil {
+		t.Fatalf("imagen capability rejected: %v", err)
+	}
+
+	seedream := DefaultImageCapabilityConfig("replicate-prediction-image", "bytedance/seedream-4")
+	if seedream.MaxOutputs != 10 || seedream.Quality.Default != "2k" || len(seedream.Quality.Values) != 3 {
+		t.Fatalf("seedream tiers = %#v maxOutputs=%d", seedream.Quality, seedream.MaxOutputs)
+	}
+
+	// 未登记模型必须回落成保守形态：单张、无参考图，比例仍是上游可接受的比例字符串。
+	unknown := DefaultImageCapabilityConfig("replicate-prediction-image", "someone/unknown-image-model")
+	if unknown.MaxOutputs != 1 || unknown.References.MaxImages != 0 || unknown.Size.Parameter != "aspect_ratio" {
+		t.Fatalf("unknown replicate model = %#v / %d / %d", unknown.Size, unknown.MaxOutputs, unknown.References.MaxImages)
+	}
+}

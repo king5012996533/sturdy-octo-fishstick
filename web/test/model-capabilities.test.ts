@@ -70,3 +70,31 @@ test("BeefAPI generic newapi Seedance accepts mixed image and video references w
         videoSeconds: "5",
     }), "");
 });
+
+// Replicate 的能力合同必须逐模型对齐上游 schema：比例写成前端归一不了的值（9:21 → 3:7）
+// 会被上游拒绝，数量或参考图多报会让用户拿到比承诺更少的图。
+test("replicate image capability keeps 1:1 ratio and never normalizes to 3:7", () => {
+    const flux = defaultModelCapabilityConfig("replicate-prediction-image", "black-forest-labs/flux-schnell").image!;
+
+    assert.equal(flux.size.parameter, "aspect_ratio");
+    assert.equal(flux.size.allowCustom, false);
+    assert.equal(flux.maxOutputs, 4);
+    assert.equal(flux.references.maxImages, 0);
+    assert.ok(flux.size.values.includes("16:9"));
+    assert.ok(!flux.size.values.includes("9:21"));
+    assert.deepEqual(flux.quality.values, ["1k"]);
+});
+
+test("replicate image capability matches each upstream schema", () => {
+    const imagen = defaultModelCapabilityConfig("replicate-prediction-image", "google/imagen-4").image!;
+    assert.deepEqual(imagen.quality.values, ["1k", "2k"]);
+    assert.equal(imagen.maxOutputs, 1);
+
+    const seedream = defaultModelCapabilityConfig("replicate-prediction-image", "bytedance/seedream-4").image!;
+    assert.deepEqual(seedream.quality.values, ["1k", "2k", "4k"]);
+    assert.equal(seedream.maxOutputs, 10);
+
+    const unknown = defaultModelCapabilityConfig("replicate-prediction-image", "someone/unknown-image-model").image!;
+    assert.equal(unknown.maxOutputs, 1);
+    assert.equal(unknown.references.maxImages, 0);
+});

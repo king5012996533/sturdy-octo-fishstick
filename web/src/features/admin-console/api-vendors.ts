@@ -163,6 +163,16 @@ export function importAdminVendorCredentialModels(vendorId: string, credentialId
     );
 }
 
+/**
+ * 按标识手动登记模型。
+ *
+ * 上游目录普遍分页（Replicate 一页 25 条、按发布时间倒序），常用模型翻不到，只能由运营按 owner/name 直接登记；
+ * 服务端会逐个向上游单模型接口核对，核对不过的标识不会写库。核对是远端请求，超时口径与探测一致。
+ */
+export function addAdminVendorCredentialModels(vendorId: string, credentialId: string, models: string[]) {
+    return http.post<{ added: number; models: string[] }>(`/admin/vendors/${encodeURIComponent(vendorId)}/credentials/${encodeURIComponent(credentialId)}/models/manual`, { models }, { timeout: remoteProbeTimeoutMs });
+}
+
 /** 连通性探测在服务端执行，密钥不出库；前端只收回执（可用的模型标识列表）。 */
 export function probeAdminVendorCredential(vendorId: string, credentialId: string) {
     return http.post<{ models: string[] }>(

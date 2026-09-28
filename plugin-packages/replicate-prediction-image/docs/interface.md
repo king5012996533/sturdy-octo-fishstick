@@ -23,11 +23,11 @@
 | --- | --- | --- | --- | --- |
 | `model` | string | 是 | `path /v1/models/{model}/predictions` | 上游模型标识，owner/name 形式，进请求路径。 |
 | `prompt` | string | 是 | `prompt` | 图片提示词。 |
-| `images` | media[] | 否 | `provider image/reference fields` | 参考图或编辑源图，role 由业务层确定。 |
-| `imageCount` | integer | 否 | `n/sample_count` | 输出数量。 |
-| `aspectRatio` | string | 否 | `size/aspect_ratio` | 比例或尺寸，语义按协议说明。 |
-| `resolution` | string | 否 | `resolution/imageSize` | 分辨率档位。 |
-| `quality` | string | 否 | `quality` | 质量档位。 |
+| `images` | media[] | 否 | `input.images` | 参考图或编辑源图；支持数组参考的模型（flux-2 klein、seedream）内联转发。 |
+| `imageCount` | integer | 否 | `input.num_outputs` / `input.max_images` / `input.number_of_images` | 输出数量；按模型支持的同义字段并列下发，未知字段由上游忽略。 |
+| `aspectRatio` | string | 否 | `input.aspect_ratio` | 宽高比；能力合同已把尺寸归一成比例，插件直通上游。 |
+| `resolution` | string | 否 | `input.image_size` / `input.size` | 分辨率档位；仅 Google（1K/2K）与 ByteDance（1K/2K/4K）图片模型使用。 |
+| `quality` | string | 否 | `input.image_size` / `input.size` | 与 `resolution` 同源：档位字符串决定上游分辨率档位字段。 |
 | `providerOptions` | object | 否 | `provider-specific fields` | 插件命名空间内的厂商扩展字段。 |
 
 ## 上游请求模板逐字段清单
@@ -86,7 +86,7 @@
   "apiVersion": "beeftv.plugin/v2",
   "id": "replicate-prediction-image",
   "name": "Replicate Predictions Image",
-  "version": "2.0.0",
+  "version": "2.2.0",
   "author": "BeefTV Contributors",
   "description": "Replicate Predictions Image 独立请求协议插件。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
@@ -241,6 +241,249 @@
                           "as": "media",
                           "in": {
                             "$ref": "media.value"
+                          }
+                        }
+                      }
+                    },
+                    "aspect_ratio": {
+                      "$omitEmpty": {
+                        "$ref": "request.aspectRatio"
+                      }
+                    },
+                    "num_outputs": {
+                      "$if": {
+                        "condition": {
+                          "$gt": [
+                            {
+                              "$ref": "request.imageCount"
+                            },
+                            0
+                          ]
+                        },
+                        "then": {
+                          "$ref": "request.imageCount"
+                        }
+                      }
+                    },
+                    "max_images": {
+                      "$if": {
+                        "condition": {
+                          "$gt": [
+                            {
+                              "$ref": "request.imageCount"
+                            },
+                            0
+                          ]
+                        },
+                        "then": {
+                          "$ref": "request.imageCount"
+                        }
+                      }
+                    },
+                    "number_of_images": {
+                      "$if": {
+                        "condition": {
+                          "$gt": [
+                            {
+                              "$ref": "request.imageCount"
+                            },
+                            0
+                          ]
+                        },
+                        "then": {
+                          "$ref": "request.imageCount"
+                        }
+                      }
+                    },
+                    "image_size": {
+                      "$switch": {
+                        "cases": [
+                          {
+                            "when": {
+                              "$and": [
+                                {
+                                  "$eq": [
+                                    {
+                                      "$at": [
+                                        {
+                                          "$split": [
+                                            {
+                                              "$ref": "request.model"
+                                            },
+                                            "/"
+                                          ]
+                                        },
+                                        0
+                                      ]
+                                    },
+                                    "google"
+                                  ]
+                                },
+                                {
+                                  "$in": [
+                                    {
+                                      "$lower": {
+                                        "$trim": {
+                                          "$ref": "request.quality"
+                                        }
+                                      }
+                                    },
+                                    [
+                                      "1k",
+                                      "2k"
+                                    ]
+                                  ]
+                                }
+                              ]
+                            },
+                            "then": {
+                              "$upper": {
+                                "$trim": {
+                                  "$ref": "request.quality"
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "size": {
+                      "$switch": {
+                        "cases": [
+                          {
+                            "when": {
+                              "$and": [
+                                {
+                                  "$eq": [
+                                    {
+                                      "$at": [
+                                        {
+                                          "$split": [
+                                            {
+                                              "$ref": "request.model"
+                                            },
+                                            "/"
+                                          ]
+                                        },
+                                        0
+                                      ]
+                                    },
+                                    "bytedance"
+                                  ]
+                                },
+                                {
+                                  "$in": [
+                                    {
+                                      "$lower": {
+                                        "$trim": {
+                                          "$ref": "request.quality"
+                                        }
+                                      }
+                                    },
+                                    [
+                                      "1k",
+                                      "2k",
+                                      "4k"
+                                    ]
+                                  ]
+                                }
+                              ]
+                            },
+                            "then": {
+                              "$upper": {
+                                "$trim": {
+                                  "$ref": "request.quality"
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "image_input": {
+                      "$omitEmpty": {
+                        "$map": {
+                          "from": {
+                            "$ref": "request.images"
+                          },
+                          "as": "media",
+                          "in": {
+                            "$ref": "media.value"
+                          }
+                        }
+                      }
+                    },
+                    "image": {
+                      "$omitEmpty": {
+                        "$first": {
+                          "$map": {
+                            "from": {
+                              "$ref": "request.images"
+                            },
+                            "as": "media",
+                            "in": {
+                              "$ref": "media.value"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "input_image": {
+                      "$omitEmpty": {
+                        "$first": {
+                          "$map": {
+                            "from": {
+                              "$ref": "request.images"
+                            },
+                            "as": "media",
+                            "in": {
+                              "$ref": "media.value"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "image_reference_url": {
+                      "$omitEmpty": {
+                        "$first": {
+                          "$map": {
+                            "from": {
+                              "$ref": "request.images"
+                            },
+                            "as": "media",
+                            "in": {
+                              "$ref": "media.value"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "image_prompt": {
+                      "$omitEmpty": {
+                        "$first": {
+                          "$map": {
+                            "from": {
+                              "$ref": "request.images"
+                            },
+                            "as": "media",
+                            "in": {
+                              "$ref": "media.value"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "subject_reference": {
+                      "$omitEmpty": {
+                        "$first": {
+                          "$map": {
+                            "from": {
+                              "$ref": "request.images"
+                            },
+                            "as": "media",
+                            "in": {
+                              "$ref": "media.value"
+                            }
                           }
                         }
                       }

@@ -168,6 +168,11 @@ func DefaultImageCapabilityConfig(protocol string, modelName string) *ImageCapab
 		OutputFormat:          ParameterSupport{Supported: true},
 		MaxOutputs:            15,
 	}
+	// Replicate 是"一模型一 schema"的托管平台，能力合同必须逐模型对齐上游，不能套通用默认值。
+	if model.ChannelInterfaceType(protocol) == model.ChannelInterfaceReplicatePredictionImage {
+		applyReplicateImageCapability(image, modelName)
+		return image
+	}
 	switch model.ChannelInterfaceType(protocol) {
 	case model.ChannelInterfaceGrokImage:
 		image.References.MaxImages = 1
@@ -212,6 +217,105 @@ func DefaultImageCapabilityConfig(protocol string, modelName string) *ImageCapab
 		image.MaxOutputs = 1
 	}
 	return image
+}
+
+// replicateImageRatioTiers 是 Replicate 图片模型唯一可用的分辨率档位写法。
+//
+// 上游不接受像素尺寸，只接受档位字符串（imagen 的 1K/2K、seedream 的 1K/2K/4K）；
+// 没有分辨率参数的模型用单档 1k 表达"比例可配、分辨率由模型决定"，前端据此渲染
+// 比例网格与档位切换，不会再出现"除生成数量外没有可选项"的空面板。
+var replicateImageRatioTiers = []string{"1k"}
+
+// Replicate 图片模型的比例枚举直接取自上游 schema；每个模型的取值并不相同。
+var (
+	replicateFluxRatios      = []string{"1:1", "16:9", "9:16", "3:2", "2:3", "4:3", "3:4", "4:5", "5:4", "21:9"}
+	replicateKontextRatios   = []string{"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "21:9", "2:1", "1:2"}
+	replicateKleinRatios     = []string{"1:1", "16:9", "9:16", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5", "21:9"}
+	replicateNanoBananaRatio = []string{"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"}
+	replicateImagenRatios    = []string{"1:1", "9:16", "16:9", "3:4", "4:3"}
+	replicateSeedream4Ratio  = []string{"1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"}
+	replicateSeedream3Ratio  = []string{"1:1", "3:4", "4:3", "16:9", "9:16", "2:3", "3:2", "21:9"}
+	replicateMinimaxRatios   = []string{"1:1", "16:9", "4:3", "3:2", "2:3", "3:4", "9:16", "21:9"}
+	replicatePhotonRatios    = []string{"1:1", "3:4", "4:3", "9:16", "16:9", "21:9"}
+	replicateIdeogramRatios  = []string{"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "2:1", "1:2", "3:1", "1:3"}
+	replicateBriaRatios      = []string{"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9"}
+)
+
+// applyReplicateImageCapability 按上游真实输入 schema 推导图片能力合同。
+//
+// 每个模型的宽高比枚举、输出数量、参考图数量都不同，通用默认值会把不支持的参数
+// 下发给上游（flux 没有 size、imagen 没有 num_outputs），也会让前端渲染不出比例选项。
+// 输出数量与参考图数量必须与插件真实映射的字段一致：多报会让用户拿到比承诺更少的图，
+// 因此未登记的模型一律回落到"单张、无参考图"的保守形态。
+func applyReplicateImageCapability(image *ImageCapabilityConfig, modelName string) {
+	if image == nil {
+		return
+	}
+	owner, base := splitCatalogModelName(strings.ToLower(strings.TrimSpace(modelName)))
+
+	// Replicate 图片模型统一只接受比例字符串，且不支持透明底、b64 响应与质量枚举。
+	image.Size.Parameter = "aspect_ratio"
+	image.Size.AllowCustom = false
+	image.References.MaskSupported = false
+	image.TransparentBackground = VideoBooleanConfig{Supported: false, Default: false}
+	image.ResponseFormat = ParameterSupport{Supported: false}
+	image.OutputFormat = ParameterSupport{Supported: false}
+
+	apply := func(ratios []string, tiers []string, maxOutputs int, maxImages int, defaultTier string) {
+		image.Size.Values = append([]string(nil), ratios...)
+		image.Size.Default = ratios[0]
+		image.Quality = ImageQualityConfig{Supported: true, Values: append([]string(nil), tiers...), Default: defaultTier}
+		image.MaxOutputs = maxOutputs
+		image.References.MaxImages = maxImages
+	}
+
+	switch {
+	case strings.HasPrefix(base, "flux-2-"):
+		// flux-2 klein：参考图数组 + match_input_image，单张输出。
+		apply(replicateKleinRatios, replicateImageRatioTiers, 1, 4, "1k")
+	case strings.HasPrefix(base, "flux-kontext-"):
+		// kontext：单张源图编辑，支持 2:1/1:2 等极端画幅。
+		apply(replicateKontextRatios, replicateImageRatioTiers, 1, 1, "1k")
+	case base == "flux-schnell":
+		// flux-schnell：num_outputs 最多 4 张，纯文生图、不接受参考图。
+		apply(replicateFluxRatios, replicateImageRatioTiers, 4, 0, "1k")
+	case base == "flux-dev":
+		apply(replicateFluxRatios, replicateImageRatioTiers, 4, 1, "1k")
+	case base == "flux-1.1-pro":
+		apply([]string{"1:1", "16:9", "9:16", "3:2", "2:3", "4:3", "3:4", "4:5", "5:4"}, replicateImageRatioTiers, 1, 1, "1k")
+	case strings.HasPrefix(base, "flux-") || base == "flux-fast" || strings.HasPrefix(base, "hunyuan-image-"):
+		// 同 schema 的 flux 系变体（prunaai/flux-fast、腾讯混元图）：比例一致但没有输出数量参数。
+		apply(replicateFluxRatios, replicateImageRatioTiers, 1, 0, "1k")
+	case owner == "google" && strings.HasPrefix(base, "nano-banana"):
+		apply(replicateNanoBananaRatio, replicateImageRatioTiers, 1, 4, "1k")
+	case owner == "google" && (base == "imagen-4" || base == "imagen-4-ultra"):
+		apply(replicateImagenRatios, []string{"1k", "2k"}, 1, 0, "1k")
+	case owner == "google" && strings.HasPrefix(base, "imagen-"):
+		// imagen-4-fast / imagen-3 系列没有分辨率参数，只能选比例。
+		apply(replicateImagenRatios, replicateImageRatioTiers, 1, 0, "1k")
+	case base == "seedream-4":
+		apply(replicateSeedream4Ratio, []string{"1k", "2k", "4k"}, 10, 10, "2k")
+	case base == "seedream-3":
+		apply(replicateSeedream3Ratio, replicateImageRatioTiers, 1, 0, "1k")
+	case owner == "minimax" && strings.HasPrefix(base, "image-01"):
+		apply(replicateMinimaxRatios, replicateImageRatioTiers, 9, 1, "1k")
+	case owner == "luma" && strings.HasPrefix(base, "photon"):
+		apply(replicatePhotonRatios, replicateImageRatioTiers, 1, 1, "1k")
+	case owner == "ideogram-ai":
+		apply(replicateIdeogramRatios, replicateImageRatioTiers, 1, 1, "1k")
+	case owner == "bria":
+		apply(replicateBriaRatios, replicateImageRatioTiers, 1, 0, "1k")
+	default:
+		apply(replicateFluxRatios, replicateImageRatioTiers, 1, 0, "1k")
+	}
+}
+
+// splitCatalogModelName 把 owner/name 形式的模型标识拆成两段；没有斜杠时 owner 为空。
+func splitCatalogModelName(value string) (string, string) {
+	if index := strings.Index(value, "/"); index >= 0 {
+		return value[:index], value[index+1:]
+	}
+	return "", value
 }
 
 func defaultImageSizeValues() []string {

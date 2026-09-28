@@ -197,6 +197,62 @@ const defaultImageSizes = [
     "2160x3840",
 ];
 
+// replicateImageRatioTiers 是 Replicate 图片模型唯一可用的分辨率档位写法。
+//
+// 上游不接受像素尺寸，只接受档位字符串（imagen 的 1K/2K、seedream 的 1K/2K/4K）；
+// 没有分辨率参数的模型用单档 1k 表达"比例可配、分辨率由模型决定"。
+const replicateImageRatioTiers = ["1k"];
+
+// Replicate 图片模型的比例枚举直接取自上游 schema；每个模型的取值并不相同。
+const replicateFluxRatios = ["1:1", "16:9", "9:16", "3:2", "2:3", "4:3", "3:4", "4:5", "5:4", "21:9"];
+const replicateKontextRatios = ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "21:9", "2:1", "1:2"];
+const replicateKleinRatios = ["1:1", "16:9", "9:16", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5", "21:9"];
+const replicateNanoBananaRatios = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
+const replicateImagenRatios = ["1:1", "9:16", "16:9", "3:4", "4:3"];
+const replicateSeedream4Ratios = ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"];
+const replicateSeedream3Ratios = ["1:1", "3:4", "4:3", "16:9", "9:16", "2:3", "3:2", "21:9"];
+const replicateMinimaxRatios = ["1:1", "16:9", "4:3", "3:2", "2:3", "3:4", "9:16", "21:9"];
+const replicatePhotonRatios = ["1:1", "3:4", "4:3", "9:16", "16:9", "21:9"];
+const replicateIdeogramRatios = ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "2:1", "1:2", "3:1", "1:3"];
+const replicateBriaRatios = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9"];
+
+/**
+ * 按上游真实输入 schema 推导 Replicate 图片能力合同。
+ *
+ * 输出数量与参考图数量必须与插件真实映射的字段一致：多报会让用户拿到比承诺更少的图，
+ * 因此未登记的模型一律回落到"单张、无参考图"的保守形态。
+ */
+function applyReplicateImageCapability(image: ImageCapabilityConfig, model = "") {
+    const normalized = String(model || "").trim().toLowerCase();
+    const [owner, base] = normalized.includes("/") ? normalized.split("/", 2) : ["", normalized];
+    image.references.maskSupported = false;
+    image.transparentBackground = { supported: false, default: false };
+    image.responseFormat = { supported: false };
+    image.outputFormat = { supported: false };
+    const apply = (values: string[], tiers: string[], maxOutputs: number, maxImages: number, defaultTier: string) => {
+        image.size = { parameter: "aspect_ratio", values: [...values], default: values[0] || "1:1", allowCustom: false };
+        image.quality = { supported: true, values: [...tiers], default: defaultTier };
+        image.maxOutputs = maxOutputs;
+        image.references.maxImages = maxImages;
+    };
+    if (base.startsWith("flux-2-")) return apply(replicateKleinRatios, replicateImageRatioTiers, 1, 4, "1k");
+    if (base.startsWith("flux-kontext-")) return apply(replicateKontextRatios, replicateImageRatioTiers, 1, 1, "1k");
+    if (base === "flux-schnell") return apply(replicateFluxRatios, replicateImageRatioTiers, 4, 0, "1k");
+    if (base === "flux-dev") return apply(replicateFluxRatios, replicateImageRatioTiers, 4, 1, "1k");
+    if (base === "flux-1.1-pro") return apply(["1:1", "16:9", "9:16", "3:2", "2:3", "4:3", "3:4", "4:5", "5:4"], replicateImageRatioTiers, 1, 1, "1k");
+    if (base.startsWith("flux-") || base === "flux-fast" || base.startsWith("hunyuan-image-")) return apply(replicateFluxRatios, replicateImageRatioTiers, 1, 0, "1k");
+    if (owner === "google" && base.startsWith("nano-banana")) return apply(replicateNanoBananaRatios, replicateImageRatioTiers, 1, 4, "1k");
+    if (owner === "google" && (base === "imagen-4" || base === "imagen-4-ultra")) return apply(replicateImagenRatios, ["1k", "2k"], 1, 0, "1k");
+    if (owner === "google" && base.startsWith("imagen-")) return apply(replicateImagenRatios, replicateImageRatioTiers, 1, 0, "1k");
+    if (base === "seedream-4") return apply(replicateSeedream4Ratios, ["1k", "2k", "4k"], 10, 10, "2k");
+    if (base === "seedream-3") return apply(replicateSeedream3Ratios, replicateImageRatioTiers, 1, 0, "1k");
+    if (owner === "minimax" && base.startsWith("image-01")) return apply(replicateMinimaxRatios, replicateImageRatioTiers, 9, 1, "1k");
+    if (owner === "luma" && base.startsWith("photon")) return apply(replicatePhotonRatios, replicateImageRatioTiers, 1, 1, "1k");
+    if (owner === "ideogram-ai") return apply(replicateIdeogramRatios, replicateImageRatioTiers, 1, 1, "1k");
+    if (owner === "bria") return apply(replicateBriaRatios, replicateImageRatioTiers, 1, 0, "1k");
+    apply(replicateFluxRatios, replicateImageRatioTiers, 1, 0, "1k");
+}
+
 export function defaultImageCapabilityConfig(protocol?: ModelProtocol, model = ""): ImageCapabilityConfig {
     const image: ImageCapabilityConfig = {
         references: { promptMaxChars: 32000, maxImages: 16, maxImageBytes: 30 * 1024 * 1024, maskSupported: true },
@@ -207,6 +263,12 @@ export function defaultImageCapabilityConfig(protocol?: ModelProtocol, model = "
         outputFormat: { supported: true },
         maxOutputs: 15,
     };
+    // Replicate 是"一模型一 schema"的托管平台：能力合同必须逐模型对齐上游，
+    // 通用默认值会让前端渲染不出比例选项，还会把不支持的参数下发给上游。
+    if (protocol === "replicate-prediction-image") {
+        applyReplicateImageCapability(image, model);
+        return image;
+    }
     if (protocol === "grok-image") {
         image.references.maxImages = 1;
         image.references.maskSupported = false;
@@ -614,8 +676,8 @@ function workflowRatioPrefix(value: string) {
 }
 
 const workflowKnownOptions: Record<string, string[]> = {
-    aspectratio: ["1:1", "16:9", "9:16", "4:3", "3:4", "4:5", "5:4", "3:2", "2:3", "21:9", "9:21"],
-    ratio: ["1:1", "16:9", "9:16", "4:3", "3:4", "4:5", "5:4", "3:2", "2:3", "21:9", "9:21"],
+    aspectratio: ["1:1", "16:9", "9:16", "4:3", "3:4", "4:5", "5:4", "3:2", "2:3", "21:9"],
+    ratio: ["1:1", "16:9", "9:16", "4:3", "3:4", "4:5", "5:4", "3:2", "2:3", "21:9"],
     resolution: ["512", "768", "1024", "1280", "1536", "2048", "1k", "2k", "4k"],
     size: ["512", "768", "1024", "1280", "1536", "2048"],
     sampler: ["euler", "euler_ancestral", "heun", "dpm_2", "dpm_2_ancestral", "lms", "dpmpp_2m", "dpmpp_sde", "ddim", "uni_pc"],
