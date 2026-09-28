@@ -1,6 +1,6 @@
 import type { CreationMode } from "./creation-types";
 
-export type CreationInspiration = { title: string; description: string; image: string; mode: CreationMode; prompt: string; featured?: boolean; source?: string };
+export type CreationInspiration = { title: string; description: string; image: string; mode: CreationMode; prompt: string; featured?: boolean; source?: string; author?: string; likes?: number; sourceUrl?: string };
 
 export const creationFeaturedWorks: CreationInspiration[] = [
     {

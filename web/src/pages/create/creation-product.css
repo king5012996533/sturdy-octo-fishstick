@@ -75,6 +75,7 @@
 .creation-inspiration-footer summary { cursor: pointer; padding-block: 8px; }
 .creation-inspiration-footer p { line-height: 1.7; margin: 8px 0; }
 .creation-inspiration-footer a { color: var(--user-accent); }
+.creation-inspiration-footer .creation-inspiration-sources { display: flex; flex-wrap: wrap; gap: 4px 16px; }
 @media (max-width: 620px) {
     .creation-mode-button { padding-inline: 6px; font-size: 12px; gap: 6px; }
     .creation-agent-entry { grid-template-columns: 1fr; padding: 20px; gap: 12px; }

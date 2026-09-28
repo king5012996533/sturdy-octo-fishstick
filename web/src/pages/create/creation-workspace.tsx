@@ -46,7 +46,8 @@ import { creationAttachmentKind, creationMediaAspectRatio, removeCreationAttachm
 import { conversationTimestamp, isImageAttachment, isVideoAttachment } from "./creation-conversations";
 import { conversationTimeFormatter, countOptions, historyDayFormatter, messageTimeFormatter, modeLabels, qualityOptions, ratioOptions, resolutionOptions, shotScriptLabels, type CreationConversation, type CreationMessage, type CreationShotRailEntry, type CreationStatus } from "./creation-types";
 import "./creation-product.css";
-import { creationFeaturedWorks, inspirationSource } from "./creation-inspirations";
+import { creationFeaturedWorks, inspirationSource, type CreationInspiration } from "./creation-inspirations";
+import { creationLibtvInspirations, libtvSampleSource } from "./creation-inspirations-libtv";
 
 const CanvasPromptOptimizerDrawer = lazy(() => import("@/components/canvas/canvas-prompt-optimizer-drawer").then((module) => ({ default: module.CanvasPromptOptimizerDrawer })));
 
@@ -692,6 +693,11 @@ export function CreationModeTabs({ mode, onModeChange, agentActive = false, onAg
     </LayoutGroup>;
 }
 
+function inspirationCredit(item: CreationInspiration) {
+    if (item.sourceUrl) return item.author ? `示例素材 · ${item.author}` : "示例素材";
+    return item.source ? "开源改编 · CC0" : "原创提示词";
+}
+
 function ModePicker({ mode, onModeChange }: { mode: CreationMode; onModeChange: (mode: CreationMode) => void }) {
     return <CreationModeTabs mode={mode} onModeChange={onModeChange} />;
 }
@@ -839,7 +845,7 @@ export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode:
     const [skillSection, setSkillSection] = useState<"recommended" | "mine">("recommended");
     const [mySkills, setMySkills] = useState<Skill[]>([]);
     const [mySkillsLoaded, setMySkillsLoaded] = useState(false);
-    const filtered = creationFeaturedWorks.filter((item) => filter === "all" || item.mode === filter);
+    const filtered = creationInspirationPool.filter((item) => filter === "all" || item.mode === filter);
     const isSkill = collection === "skill";
     useEffect(() => {
         if (!isSkill || skillSection !== "mine" || mySkillsLoaded) return;
@@ -873,7 +879,7 @@ export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode:
             </div>
             {skillSection === "mine" ? <button type="button" className="creation-skill-create" onClick={() => navigate("/skills?create=1")}><Plus size={16} />创建 Skill</button> : null}
         </div> : <div className="creation-inspiration-filters" role="group" aria-label="灵感类型">
-            {(["all", "video", "image", "text"] as const).map((value) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => { setFilter(value); setLimit(12); }}>{value === "all" ? "全部灵感" : modeLabels[value]}<span>{creationFeaturedWorks.filter((item) => value === "all" || item.mode === value).length}</span></button>)}
+            {(["all", "video", "image", "text"] as const).map((value) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => { setFilter(value); setLimit(12); }}>{value === "all" ? "全部灵感" : modeLabels[value]}<span>{creationInspirationPool.filter((item) => value === "all" || item.mode === value).length}</span></button>)}
         </div>}
         <div className={`creation-featured-layout ${isSkill ? "creation-skill-grid" : ""}`}>
                 {isSkill ? visibleSkills.map((item) => <button key={item.title} type="button" className="product-collection-card creation-featured-card creation-skill-card" onClick={() => onStartPrompt("video", item.prompt)}>
@@ -881,14 +887,17 @@ export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode:
                     <span className="creation-featured-copy"><strong>{item.title}</strong><span>{item.description}</span><em><Sparkles />{item.author} · {item.uses}</em>
                     </span>
                 </button>) : filtered.slice(0, limit).map((item, index) => <button key={item.title} type="button" className={`product-collection-card creation-featured-card ${index === 0 ? "is-featured-hero" : ""}`} onClick={() => onStartPrompt(item.mode, item.prompt)}>
-                    <span className="creation-featured-media"><img src={item.image} alt="" loading="lazy" /><span className="creation-inspiration-overlay"><ArrowUp />使用这个创意</span></span>
-                    <span className="creation-featured-copy"><strong>{item.title}</strong><span>{item.description}</span><em><Sparkles />{item.source ? "开源改编 · CC0" : "原创提示词"} · {modeLabels[item.mode]}</em></span>
+                    <span className="creation-featured-media"><img src={item.image} alt="" loading="lazy" referrerPolicy={item.sourceUrl ? "no-referrer" : undefined} /><span className="creation-inspiration-overlay"><ArrowUp />使用这个创意</span></span>
+                    <span className="creation-featured-copy"><strong>{item.title}</strong><span>{item.description}</span><em><Sparkles />{inspirationCredit(item)} · {modeLabels[item.mode]}</em></span>
                 </button>)}
         </div>
         {isSkill && skillSection === "mine" && mySkillsLoaded && !visibleSkills.length ? <div className="creation-skill-empty"><Sparkles /><strong>还没有安装 Skill</strong><span>上传、安装或创建一个 Skill 后，它会显示在这里。</span></div> : null}
-        <footer className="creation-inspiration-footer">{isSkill ? <span>已展示 {visibleSkills.length} 个 Skill</span> : <>{limit < filtered.length ? <Button onClick={() => setLimit((count) => count + 12)}>展开更多灵感<ChevronDown /></Button> : <span>已展示全部 {filtered.length} 个创意</span>}<details><summary>模板与封面来源</summary><p>{inspirationSource.notice}</p><a href={inspirationSource.repository} target="_blank" rel="noreferrer">awesome-chatgpt-prompts · CC0</a></details></>}</footer>
+        <footer className="creation-inspiration-footer">{isSkill ? <span>已展示 {visibleSkills.length} 个 Skill</span> : <>{limit < filtered.length ? <Button onClick={() => setLimit((count) => count + 12)}>展开更多灵感<ChevronDown /></Button> : <span>已展示全部 {filtered.length} 个创意</span>}<details><summary>模板与封面来源</summary><p>{inspirationSource.notice}</p><p>{libtvSampleSource.notice}</p><div className="creation-inspiration-sources"><a href={inspirationSource.repository} target="_blank" rel="noreferrer">awesome-chatgpt-prompts · CC0</a><a href={libtvSampleSource.site} target="_blank" rel="noreferrer">LibTV 公开作品页 · 示例素材</a></div></details></>}</footer>
     </section>;
 }
+
+// 精选灵感 = LibTV 示例素材（占位）+ 我们自己的原创列表；示例素材单独成文件，删掉即可恢复纯原创。
+const creationInspirationPool = [...creationLibtvInspirations, ...creationFeaturedWorks];
 
 type CreationThinking = { title: string; hint: string; steps: string[]; activity: string };
 
