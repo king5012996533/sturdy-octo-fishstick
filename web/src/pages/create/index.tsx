@@ -97,6 +97,8 @@ export default function CreatePage() {
     const requestedMode = requestedCreationMode(searchParams.get("mode"));
     const demoConversation = searchParams.get("demo") === "conversation";
     const marketplaceSkill = (searchParams.get("skill") || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("skill") : ""))?.trim() || "";
+    // 首页灵感卡把提示词一起带进来：到了创作页应该已经写好一句话，只等用户按下发送。
+    const requestedPrompt = (searchParams.get("prompt") || "").trim();
     const [agentMode, setAgentMode] = useState(searchParams.get("mode") === "agent");
     const { message: toast, modal } = App.useApp();
     const navigate = useNavigate();
@@ -125,7 +127,7 @@ export default function CreatePage() {
     const activeIdRef = useRef("");
     const [hydrated, setHydrated] = useState(false);
     const [mode, setMode] = useState<CreationMode>(() => requestedMode || initialComposerPreferences.mode || defaultCreationMode);
-    const [prompt, setPrompt] = useState(() => (marketplaceSkill ? `@${marketplaceSkill} ` : ""));
+    const [prompt, setPrompt] = useState(() => (marketplaceSkill ? `@${marketplaceSkill} ` : requestedPrompt));
     const [attachments, setAttachments] = useState<CreationAttachment[]>([]);
     const promptRef = useRef(prompt);
     const attachmentsRef = useRef(attachments);

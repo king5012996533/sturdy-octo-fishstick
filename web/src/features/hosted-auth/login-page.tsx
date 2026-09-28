@@ -410,8 +410,8 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                 token: {
                     fontFamily: "var(--font-sans)",
                     fontSize: 13,
-                    borderRadius: 10,
-                    controlHeightLG: 44,
+                    borderRadius: 12,
+                    controlHeightLG: 46,
                     colorPrimary: "#ffffff",
                     colorPrimaryHover: "#e6e9ee",
                     colorPrimaryActive: "#d5d9e0",

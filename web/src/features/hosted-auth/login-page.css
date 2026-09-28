@@ -340,3 +340,89 @@
     font-size: 13px;
     color: var(--auth-muted);
 }
+
+/* ---------- 卡片材质：对齐创作工作台的玻璃面 ---------- */
+
+/* 卡片背后一层极淡的强调色光晕。表单要从纯黑里浮起来，靠提高边框对比度会立刻
+   退回「后台表单」的观感，靠光晕才像同一套产品里的面板。 */
+.auth-scene-form-pane::before {
+    content: "";
+    position: absolute;
+    width: min(470px, 78vw);
+    aspect-ratio: 1;
+    border-radius: 999px;
+    background: radial-gradient(circle, color-mix(in srgb, var(--auth-accent) 13%, transparent), transparent 68%);
+    filter: blur(16px);
+    pointer-events: none;
+}
+
+.auth-card {
+    max-width: 392px;
+    padding: 34px 32px 30px;
+    border-color: rgba(255, 255, 255, 0.1);
+    border-radius: 22px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.062), rgba(255, 255, 255, 0.018));
+    box-shadow:
+        0 40px 90px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.auth-title {
+    font-size: 28px;
+    letter-spacing: -0.03em;
+}
+
+.auth-scene .ant-form-item {
+    margin-bottom: 16px;
+}
+
+.auth-scene .ant-input,
+.auth-scene .ant-input-affix-wrapper {
+    border-color: rgba(255, 255, 255, 0.11);
+    border-radius: 12px;
+    background: var(--auth-field-bg);
+    transition: border-color 200ms cubic-bezier(.16, 1, .3, 1), background 200ms cubic-bezier(.16, 1, .3, 1), box-shadow 200ms cubic-bezier(.16, 1, .3, 1);
+}
+
+.auth-scene .ant-input-affix-wrapper:hover,
+.auth-scene .ant-input:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.055);
+}
+
+.auth-scene .ant-input-affix-wrapper-focused,
+.auth-scene .ant-input:focus {
+    border-color: color-mix(in srgb, var(--auth-accent) 62%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--auth-accent) 14%, transparent);
+}
+
+/* 主按钮沿用创作页的「白底 + 顶部高光」：整块界面只有一个高对比动作。 */
+.auth-scene .ant-btn-primary:not(.ant-btn-link) {
+    border: 0;
+    border-radius: 12px;
+    background: linear-gradient(180deg, #fff 25.3%, rgba(255, 255, 255, 0.87) 89.7%);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.42);
+    font-weight: 600;
+    transition: transform 200ms cubic-bezier(.16, 1, .3, 1), box-shadow 200ms cubic-bezier(.16, 1, .3, 1);
+}
+
+.auth-scene .ant-btn-primary:not(.ant-btn-link):hover:not(:disabled) {
+    background: linear-gradient(180deg, #fff 25.3%, rgba(255, 255, 255, 0.94) 89.7%);
+    box-shadow: 0 18px 38px rgba(0, 0, 0, 0.5);
+    transform: translateY(-1px);
+}
+
+.auth-scene .ant-btn-primary:not(.ant-btn-link):active:not(:disabled) {
+    transform: scale(0.99);
+}
+
+.auth-scene .ant-btn-default {
+    border-color: rgba(255, 255, 255, 0.14);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.auth-scene .ant-btn-default:hover:not(:disabled) {
+    border-color: rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.08);
+}

@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router";
 import type { CanvasLibrarySummary } from "@/services/api/workspace-data";
 import { ProjectPreview } from "@/components/canvas/canvas-project-card";
 import { beefTVCapabilityItems } from "./home-data";
+import { HomeInspirations } from "./home-inspirations";
 function formatDate(value: string) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "刚刚更新";
@@ -38,6 +39,8 @@ export function HomeDashboard({ projects, loading, error, onRetry }: { projects:
                     )
                 ))}
             </nav>
+
+            <HomeInspirations />
 
             <section className="beeftv-home-section beeftv-recents">
                 <header className="beeftv-section-heading"><h2>最近项目</h2><Link to="/project">查看全部 <ArrowRight /></Link></header>
