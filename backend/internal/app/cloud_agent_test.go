@@ -15,6 +15,32 @@ func agentTestRequest() CloudAgentRequest {
 	return CloudAgentRequest{CanvasID: "agent-canvas", Prompt: "分析剧情", Model: "text-test", ChannelID: "channel", ChannelModelKey: "text-test", PermissionMode: "read_only", ContextScope: []string{"canvas"}, IdempotencyKey: "agent-test-key"}
 }
 
+// 画布 Agent 面板默认不勾选上下文范围，也就是"无画布对话"：这条主路径曾经在
+// 创作锚点阶段直接解引用 nil canvas 崩成 500（浏览器只看到"服务端已返回错误"）。
+func TestCloudAgentChatOnlyTurnWithoutCanvasIsAllowed(t *testing.T) {
+	s, _, _, _ := creationTestService(t)
+	req := CloudAgentRequest{
+		Prompt: "你好", Model: "text-test", ChannelID: "channel", ChannelModelKey: "text-test",
+		PermissionMode: "read_only", ConversationID: "agent-chat-conversation", IdempotencyKey: "agent-chat-only-key",
+	}
+	run, err := s.CreateCloudAgentRun("user", req, "")
+	if err != nil {
+		t.Fatalf("无画布对话被拒绝: %v", err)
+	}
+	if run.ID == "" {
+		t.Fatal("无画布对话没有创建运行")
+	}
+
+	// 勾了画布上下文却拿不出画布时，必须给出可读的 4xx，而不是 500。
+	scoped := req
+	scoped.ConversationID = "agent-chat-conversation-scope"
+	scoped.ContextScope = []string{"canvas"}
+	scoped.IdempotencyKey = "agent-chat-only-canvas-scope-key"
+	if _, err := s.CreateCloudAgentRun("user", scoped, ""); err == nil || !strings.Contains(err.Error(), "开启画布上下文") {
+		t.Fatalf("无画布的画布上下文应当被拒绝: %v", err)
+	}
+}
+
 func TestCloudAgentRunSurvivesTaskInputCompaction(t *testing.T) {
 	s, db, _, _ := creationTestService(t)
 	if err := db.Create(&model.CanvasProject{ID: "agent-canvas", UserID: "user", PayloadJSON: `{"nodes":[]}`}).Error; err != nil {

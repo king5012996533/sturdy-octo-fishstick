@@ -348,6 +348,11 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 	if chatOnly {
 		canvas = nil
 	}
+	// 没有画布就没有画布上下文可读：与其让后续取用画布的地方空指针崩掉，
+	// 不如在准入阶段直接告诉调用方先保存画布。
+	if chatOnly && len(req.ContextScope) != 0 {
+		return nil, BadAuthRequest("开启画布上下文前请先保存画布")
+	}
 	// Resolve and freeze the effective preference document before idempotency
 	// lookup. A retry without an explicit revision must still refer to the same
 	// immutable input; a changed profile therefore cannot silently create a

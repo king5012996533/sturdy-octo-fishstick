@@ -100,6 +100,15 @@ export default function CreatePage() {
     // 首页灵感卡把提示词一起带进来：到了创作页应该已经写好一句话，只等用户按下发送。
     const requestedPrompt = (searchParams.get("prompt") || "").trim();
     const [agentMode, setAgentMode] = useState(searchParams.get("mode") === "agent");
+    // 左侧栏入口是同路由的查询参数跳转，组件不会重新挂载：初始 state 读不到新参数，
+    // 到了页面还停在默认模式，看起来就像入口没生效。这里按参数变化补一次。
+    const agentParamApplied = useRef(searchParams.get("mode") === "agent");
+    useEffect(() => {
+        const requested = searchParams.get("mode") === "agent";
+        if (requested === agentParamApplied.current) return;
+        agentParamApplied.current = requested;
+        if (requested) setAgentMode(true);
+    }, [searchParams]);
     const { message: toast, modal } = App.useApp();
     const navigate = useNavigate();
     const [openingCanvas, setOpeningCanvas] = useState(false);

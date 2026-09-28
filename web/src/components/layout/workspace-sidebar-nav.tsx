@@ -56,7 +56,9 @@ function buildNav(features: FeatureAvailability, brandName: string, adminConsole
         {
             items: [
                 { id: "new", title: "新建项目", icon: Plus, to: "/canvas?mode=new" },
-                { id: "create", title: `${brandName} Agent`, icon: Bot, to: "/create", disabled: true },
+                // 创作台已支持 ?mode=agent 直达 Agent 面板，入口不再挂"正在开发"占位：
+                // 一个禁用的入口等于没有入口，用户只能靠猜。
+                { id: "create", title: `${brandName} Agent`, icon: Bot, to: "/?mode=agent" },
             ],
         },
         {

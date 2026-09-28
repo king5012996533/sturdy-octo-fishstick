@@ -32,6 +32,12 @@ type cloudAgentReferenceAnchor struct {
 func cloudAgentCreativeAnchorForCanvas(repo *repository.Repository, userID string, canvas *model.CanvasProject, prompt string) (cloudAgentCreativeAnchor, error) {
 	anchor := cloudAgentCreativeAnchor{Version: 2, UserPrompt: prompt}
 
+	// 没有画布的对话（面板默认不勾选上下文范围）也要能跑：锚点只记录本轮提示词，
+	// 这里必须返回空锚点而不是继续解引用 canvas，否则整轮请求会退化成 500。
+	if canvas == nil {
+		return anchor, nil
+	}
+
 	doc, err := creationDocument(canvas.PayloadJSON)
 	if err != nil {
 		return cloudAgentCreativeAnchor{}, BadAuthRequest("服务端画布内容无法解析，请先重新同步")
