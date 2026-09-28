@@ -21,6 +21,14 @@ describe("Agent window layout", () => {
         expect(styleSource).toContain('canvas-topbar-import-button');
     });
 
+    it("exposes an Agent toggle in both top bar clusters", () => {
+        // 桌面端只渲染 local-cluster、移动端只渲染 tools-cluster，两处都要有入口，
+        // 否则会重演“画布里找不到 Agent 入口”。
+        expect(topBarSource).toContain('aria-label="创作 Agent"');
+        expect(topBarSource).toContain('const agentToggle = onOpenAgent ? (');
+        expect(topBarSource.split("{agentToggle}").length - 1).toBe(2);
+    });
+
     it("restores the saved size and position", () => {
         expect(restoreAgentPanelLayout(JSON.stringify(start), viewport)).toEqual(start);
     });

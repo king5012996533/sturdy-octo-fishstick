@@ -2995,6 +2995,7 @@ function InfiniteCanvasPage() {
                                 onMediaPerformanceModeChange={setMediaPerformanceMode}
                                 onOpenSearch={() => setNodeSearchOpen(true)}
                                 onOpenAgent={openAgent}
+                                onCloseAgent={closeAgent}
                                 agentOpen={assistantOpen}
                                 projectContext={
                                     shortDramaEnabled && currentProject?.projectId

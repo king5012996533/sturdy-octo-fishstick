@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router";
-import { Check, ChevronDown, ChevronUp, Clapperboard, CloudUpload, Columns2, CopyPlus, Focus, FolderKanban, Gauge, History, Home, LayoutGrid, MoreHorizontal, Pencil, Plus, Redo2, Save, Search, Trash2, Undo2, Upload, Workflow, X } from "lucide-react";
+import { Bot, Check, ChevronDown, ChevronUp, Clapperboard, CloudUpload, Columns2, CopyPlus, Focus, FolderKanban, Gauge, History, Home, LayoutGrid, MoreHorizontal, Pencil, Plus, Redo2, Save, Search, Trash2, Undo2, Upload, Workflow, X } from "lucide-react";
 import { Button, Dropdown, Tooltip } from "antd";
 
 import { BrandLogoFrame } from "@/components/brand/brand-logo";
@@ -48,6 +48,7 @@ type CanvasTopBarProps = {
     onMediaPerformanceModeChange: (mode: CanvasMediaPerformanceMode) => void;
     onOpenSearch: () => void;
     onOpenAgent?: () => void;
+    onCloseAgent?: () => void;
     agentOpen?: boolean;
     projectContext?: CanvasContextSummary & { projectId: string; projectName: string };
     onEnterFocusMode: () => void;
@@ -93,6 +94,7 @@ export function CanvasTopBar({
     onMediaPerformanceModeChange,
     onOpenSearch,
     onOpenAgent,
+    onCloseAgent,
     agentOpen = false,
     projectContext,
     onEnterFocusMode,
@@ -168,6 +170,26 @@ export function CanvasTopBar({
         document.addEventListener("pointerdown", close, true);
         return () => document.removeEventListener("pointerdown", close, true);
     }, [isTitleEditing, onFinishTitleEditing]);
+
+    // 桌面端只渲染 local-cluster，移动端只渲染 tools-cluster，两处都放同一个开关才能各端可见。
+    const agentToggle = onOpenAgent ? (
+        <CanvasTopBarTooltip label={agentOpen ? "收起创作 Agent" : "打开创作 Agent"}>
+            <Button
+                type="text"
+                className="canvas-topbar-action !h-10 !rounded-xl !px-2.5 !font-medium"
+                style={{ color: theme.node.text, background: agentOpen ? theme.toolbar.activeBg : undefined }}
+                icon={<Bot className="size-4" />}
+                aria-label="创作 Agent"
+                aria-pressed={agentOpen}
+                onClick={() => {
+                    if (agentOpen) onCloseAgent?.();
+                    else onOpenAgent();
+                }}
+            >
+                <span className="sr-only">Agent</span>
+            </Button>
+        </CanvasTopBarTooltip>
+    ) : null;
 
     return (
         <>
@@ -348,6 +370,7 @@ export function CanvasTopBar({
                 ) : null}
 
                 <div className="canvas-topbar-cluster canvas-topbar-local-cluster pointer-events-auto hidden items-center gap-1 lg:flex" style={dockStyle}>
+                    {agentToggle}
                     {!libtvChrome ? <CanvasTopBarTooltip label="版本记录与本地历史"><Button type="text" className="canvas-topbar-action !h-9 !w-9 !min-w-9 !rounded-xl !p-0" style={{ color: theme.node.text, background: versionsOpen ? theme.toolbar.activeBg : undefined }} icon={<History className="size-4" />} onClick={onToggleVersions} aria-label="版本记录" aria-pressed={versionsOpen} /></CanvasTopBarTooltip> : null}
                 </div>
 
@@ -397,6 +420,7 @@ export function CanvasTopBar({
                             </Button>
                         </CanvasTopBarTooltip>
                     ) : null}
+                    {agentToggle}
                     <CanvasTopBarTooltip label="版本记录与本地草稿">
                         <Button
                             type="text"
