@@ -531,9 +531,11 @@
     .app-user-workspace .product-collection-card:hover { transform: none; }
 }
 
-/* BeefTV workspace shell — desktop geometry follows the LibTV home reference. */
+/* BeefTV workspace shell — desktop geometry follows the LibTV home reference.
+   侧栏宽度在参考稿的 334px 基础上收窄到 300px：导航行内容实测只需 212px，
+   原来的留白让首页左侧显得空且宽。 */
 .app-user-workspace.app-product-workspace {
-    --workspace-reference-sidebar: 334px;
+    --workspace-reference-sidebar: 300px;
     --workspace-reference-collapsed: 74px;
     --workspace-reference-topbar: 89px;
     --workspace-reference-page-bg: var(--user-page-bg);
@@ -612,7 +614,8 @@
     left: 12px;
 }
 @media (max-width: 1500px) {
-    .app-user-workspace.app-product-workspace { --workspace-reference-sidebar: 240px; --workspace-reference-topbar: 78px; }
+    /* 窄屏收到设计基准 216px：导航行内容最宽 212px，再宽只是空白。 */
+    .app-user-workspace.app-product-workspace { --workspace-reference-sidebar: 216px; --workspace-reference-topbar: 78px; }
     .app-user-workspace.app-product-workspace .app-workspace-sidebar-brand-row { min-height:78px; }
     .app-user-workspace.app-product-workspace .app-workspace-topbar { height:78px;min-height:78px; }
 }

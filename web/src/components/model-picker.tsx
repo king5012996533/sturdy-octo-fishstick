@@ -5,9 +5,10 @@ import { Popover } from "antd";
 import { canvasThemes, type CanvasTheme } from "@/lib/canvas-theme";
 import { compatibleModelInGroup, configuredModelDisplayName, groupModelsByDisplayName, modelCompatibilityError, resolveCompatibleModel, type ModelRequirements } from "@/lib/model-selection";
 import { cn } from "@/lib/utils";
-import { modelDisplayName, modelIcon, PUBLIC_MODEL_CATALOG_ID, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { modelDisplayName, modelIcon, modelOptionName, PUBLIC_MODEL_CATALOG_ID, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import { ModelLogo } from "@/components/model-logo";
+import { modelBrandIconId } from "@/lib/model-brand-icon";
 
 type ModelPickerProps = {
     config: AiConfig;
@@ -79,6 +80,8 @@ export function ModelPicker({
         : options.length
           ? placeholder
           : emptyModelLabel(config, capability);
+    // 触发器与选项行都显示真实品牌图标：后台配置的 icon 优先，没配就按厂商兜底。
+    const triggerLogo = pickerLogoIcon(config, current);
 
     useLayoutEffect(() => {
         const trigger = triggerRef.current;
@@ -175,7 +178,10 @@ export function ModelPicker({
                         {optionGroups.map((group) => {
                             const groupCurrent = group.models.find((item) => item.models.includes(current));
                             const firstModel = groupCurrent?.models[0] || group.models[0]?.models[0] || "";
+                            // 渠道名里带厂商时给出行标，认不出来的渠道保持纯文字行。
+                            const brandLogo = modelBrandIconId(group.label);
                             return <button key={group.key} type="button" className="canvas-model-picker-brand" onClick={() => { setActiveGroupKey(group.key); setPreviewedModel(firstModel); }}>
+                                {brandLogo ? <span className="canvas-model-picker-brand-icon"><ModelLogo icon={brandLogo} size={18} /></span> : null}
                                 <span className="canvas-model-picker-brand-copy"><strong>{group.label}</strong><small>{group.models.length} 个模型{group.scope ? ` · ${group.scope}` : ""}</small></span>
                                 <ChevronDown className="canvas-model-picker-brand-arrow" aria-hidden="true" />
                             </button>;
@@ -186,7 +192,10 @@ export function ModelPicker({
                         {optionGroups.map((group) => {
                             const groupCurrent = group.models.find((item) => item.models.includes(current));
                             const firstModel = groupCurrent?.models[0] || group.models[0]?.models[0] || "";
+                            // 渠道名里带厂商时给出行标，认不出来的渠道保持纯文字行。
+                            const brandLogo = modelBrandIconId(group.label);
                             return <button key={group.key} type="button" className={cn("canvas-model-picker-brand", activeGroupKey === group.key && "is-active")} aria-pressed={activeGroupKey === group.key} onClick={() => { setActiveGroupKey(group.key); setPreviewedModel(firstModel); }}>
+                                {brandLogo ? <span className="canvas-model-picker-brand-icon"><ModelLogo icon={brandLogo} size={18} /></span> : null}
                                 <span className="canvas-model-picker-brand-copy"><strong>{group.label}</strong><small>{group.models.length} 个模型{group.scope ? ` · ${group.scope}` : ""}</small></span>
                                 <ChevronDown className="canvas-model-picker-brand-arrow" aria-hidden="true" />
                             </button>;
@@ -227,6 +236,7 @@ export function ModelPicker({
                                             config={config}
                                             model={displayModel}
                                             showConfiguredModelName={showConfiguredModelName}
+                                            showIcon={creationVariant}
                                         />
                                         {selected ? <Check className="canvas-model-picker-option-check ml-1 shrink-0" style={{ color: theme.node.activeStroke }} /> : null}
                                     </button>
@@ -270,6 +280,11 @@ export function ModelPicker({
                     onKeyDown={handleTriggerKeyDown}
                 >
                     <span className="canvas-model-picker-label flex min-w-0 items-center gap-1.5">
+                        {triggerLogo ? (
+                            <span className="canvas-model-picker-trigger-icon">
+                                <ModelLogo icon={triggerLogo} size={16} />
+                            </span>
+                        ) : null}
                         <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
                     </span>
                     <ChevronDown className={cn("canvas-model-picker-chevron", open && "is-open")} aria-hidden="true" />
@@ -289,18 +304,30 @@ function ModelLabel({
     config,
     model,
     showConfiguredModelName,
+    showIcon = false,
 }: {
     config: AiConfig;
     model: string;
     showConfiguredModelName: boolean;
+    showIcon?: boolean;
 }) {
+    const logoIcon = showIcon ? pickerLogoIcon(config, model) : "";
     return (
         <span className="canvas-model-picker-option-content flex w-full min-w-0 items-center overflow-hidden">
-            <span className="canvas-model-picker-option-name block min-w-0 flex-1 truncate text-[var(--fs-label)] font-medium leading-none">
-                {pickerModelDisplayName(config, model, showConfiguredModelName)}
+            {logoIcon ? <ModelLogo icon={logoIcon} size={20} className="canvas-model-picker-option-logo" /> : null}
+            <span className="canvas-model-picker-option-copy flex min-w-0 flex-1 flex-col">
+                <span className="canvas-model-picker-option-name block min-w-0 truncate text-[var(--fs-label)] font-medium leading-none">
+                    {pickerModelDisplayName(config, model, showConfiguredModelName)}
+                </span>
             </span>
         </span>
     );
+}
+
+/** 模型 logo：后台配置优先，没配则按厂商标识兜底，保证选择器不出现空白图标位。 */
+function pickerLogoIcon(config: AiConfig, value?: string) {
+    if (!value) return "";
+    return modelIcon(config, value) || modelBrandIconId(modelOptionName(value));
 }
 
 function pickerModelDisplayName(config: AiConfig, model: string, showConfiguredModelName: boolean) {
@@ -315,5 +342,5 @@ function pickerModelOptionLabel(config: AiConfig, model: string, showConfiguredM
 
 
 export function ModelIcon({ config, model, icon }: { config?: AiConfig; model?: string; icon?: string }) {
-    return <ModelLogo icon={icon || (config && model ? modelIcon(config, model) : "")} size={14} className="opacity-80" />;
+    return <ModelLogo icon={icon || (config && model ? pickerLogoIcon(config, model) : "")} size={14} className="opacity-80" />;
 }

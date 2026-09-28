@@ -687,7 +687,7 @@ export function CreationModeTabs({ mode, onModeChange, agentActive = false, onAg
                 <span>{item.label}</span>
             </button>
         ))}
-        {onAgentSelect ? <button type="button" className="creation-mode-button" data-mode="agent" aria-pressed={agentActive} onClick={onAgentSelect}>{indicator(agentActive)}<Brain /><span>Agent</span><i className="creation-mode-spark" aria-hidden /></button> : null}
+        {onAgentSelect ? <button type="button" className="creation-mode-button" data-mode="agent" aria-pressed={agentActive} onClick={onAgentSelect}>{indicator(agentActive)}<Brain /><span>Agent</span><Sparkles className="creation-mode-agent-star" aria-hidden /></button> : null}
         </div>
     </LayoutGroup>;
 }

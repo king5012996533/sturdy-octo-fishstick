@@ -21041,3 +21041,32 @@ main[data-libtv-readonly-dense="true"] .canvas-floating-dock {
 .app-user-workspace .creation-featured-heading { margin-bottom: 20px !important; }
 
 .app-user-workspace .creation-top-actions { right: 36px; }
+
+/* 6) 模型选择器补齐真实品牌图标：渠道没配 logo 时按厂商标识兜底（见 lib/model-brand-icon）。
+      触发器 16px 方框，选项行 20px 方框，图标与文字同一基线。
+      下拉菜单由 antd Portal 挂到 body，作用域只能用弹出层自己的类名，不能用 .app-user-workspace。 */
+.app-user-workspace .creation-chat-composer .creation-model-picker .canvas-model-picker-trigger-icon {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+}
+
+.creation-model-picker-surface .creation-model-picker-menu .canvas-model-picker-option-logo {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    /* 选项容器被上游强制 gap: 0，图标与名称的间距只能写在图标身上。 */
+    margin-right: 10px;
+    color: color-mix(in srgb, var(--foreground) 78%, transparent);
+}
+
+/* 名称列要能收缩截断：上游按旧结构写的 max-content 规则会在这套结构上重新命中。 */
+.creation-model-picker-surface .creation-model-picker-menu .canvas-model-picker-option .canvas-model-picker-option-copy {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* 同理，上游那条 11px 的名称字号规则会重新命中；48px 行高配 13px 才不显得空。 */
+.creation-model-picker-surface .creation-model-picker-menu .canvas-model-picker-option .canvas-model-picker-option-name {
+    font-size: 13px !important;
+}
