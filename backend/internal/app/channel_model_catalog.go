@@ -21,15 +21,20 @@ type ChannelModelsRequest struct {
 }
 
 type channelModelsPayload struct {
-	Data   []channelModelItem `json:"data"`
-	Models []channelModelItem `json:"models"`
-	Error  *providerError     `json:"error"`
-	Code   *int               `json:"code"`
-	Msg    string             `json:"msg"`
+	Data []channelModelItem `json:"data"`
+	// Results 是 Replicate 的列表形态：GET /v1/models 回 {"results": [...]}，且每条
+	// 只有 owner 与 name，没有 id。只有 data 为空时才回退到它，避免上游同时给出
+	// 两种结构时把同一批模型读两遍。
+	Results []channelModelItem `json:"results"`
+	Models  []channelModelItem `json:"models"`
+	Error   *providerError     `json:"error"`
+	Code    *int               `json:"code"`
+	Msg     string             `json:"msg"`
 }
 
 type channelModelItem struct {
 	ID                     string                        `json:"id"`
+	Owner                  string                        `json:"owner"`
 	Name                   string                        `json:"name"`
 	DisplayName            string                        `json:"display_name"`
 	ModelType              string                        `json:"model_type"`
@@ -168,13 +173,23 @@ func (s *Service) FetchChannelModelCatalog(ctx context.Context, actor *model.Use
 	}
 
 	items := payload.Data
-	if apiFormat == "gemini" {
+	switch {
+	case apiFormat == "gemini":
 		items = payload.Models
+	case len(items) == 0:
+		items = payload.Results
 	}
 	seen := make(map[string]bool, len(items))
 	catalog := make([]ChannelModelCatalogItem, 0, len(items))
 	for _, item := range items {
 		name := strings.TrimPrefix(strings.TrimSpace(firstNonEmpty(item.ID, item.Name)), "models/")
+		// Replicate 的模型全名是 owner/name；只认 name 会得到一堆重名（各家都有
+		// "flux-schnell"），所以没有 id 时用 owner 拼回完整标识。
+		if strings.TrimSpace(item.ID) == "" {
+			if owner, plain := strings.TrimSpace(item.Owner), strings.TrimSpace(item.Name); owner != "" && plain != "" {
+				name = owner + "/" + plain
+			}
+		}
 		if name == "" || seen[name] {
 			continue
 		}

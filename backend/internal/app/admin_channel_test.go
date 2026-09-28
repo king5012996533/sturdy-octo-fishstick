@@ -526,6 +526,58 @@ func TestValidateTaskCapabilityFixesSingleResolutionSKU(t *testing.T) {
 	}
 }
 
+// Replicate 的 GET /v1/models 走 {"results":[...]} 形态，且每条只有 owner 与 name。
+// 上游不给 id 时必须用 owner/name 拼出唯一标识，否则不同厂商的同名模型（各家都有
+// flux-schnell 之类）会在目录里互相覆盖。
+func TestFetchChannelModelCatalogReadsReplicateResultsShape(t *testing.T) {
+	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[{"owner":"black-forest-labs","name":"flux-schnell"},{"owner":"stability-ai","name":"sdxl"}]}`))
+	}))
+	defer upstream.Close()
+
+	svc, _ := newChannelModelTestService(t)
+	admin := &model.User{ID: "admin", Role: model.UserRoleAdmin}
+	catalog, err := svc.FetchChannelModelCatalog(context.Background(), admin, ChannelModelsRequest{
+		BaseURL: upstream.URL + "/v1", APIKey: "key", APIFormat: "openai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"black-forest-labs/flux-schnell", "stability-ai/sdxl"}
+	if len(catalog) != len(want) {
+		t.Fatalf("catalog = %#v, want %v", catalog, want)
+	}
+	for index, id := range want {
+		if catalog[index].ID != id {
+			t.Fatalf("catalog[%d].ID = %q, want %q (owner must qualify the model name)", index, catalog[index].ID, id)
+		}
+	}
+}
+
+// 上游同时给出 data 与 results 时只能读 data，否则同一批模型会进目录两次。
+func TestFetchChannelModelCatalogPrefersDataOverResults(t *testing.T) {
+	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4o-mini"}],"results":[{"owner":"black-forest-labs","name":"flux-schnell"}]}`))
+	}))
+	defer upstream.Close()
+
+	svc, _ := newChannelModelTestService(t)
+	admin := &model.User{ID: "admin", Role: model.UserRoleAdmin}
+	catalog, err := svc.FetchChannelModelCatalog(context.Background(), admin, ChannelModelsRequest{
+		BaseURL: upstream.URL + "/v1", APIKey: "key", APIFormat: "openai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog) != 1 || catalog[0].ID != "gpt-4o-mini" {
+		t.Fatalf("catalog = %#v, want only the data entries", catalog)
+	}
+}
+
 func newChannelModelTestService(t *testing.T) (*Service, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared"), &gorm.Config{})
