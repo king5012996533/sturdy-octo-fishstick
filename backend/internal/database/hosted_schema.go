@@ -22,14 +22,19 @@ func MigrateHostedSharedSchema(db *gorm.DB) error {
 		return fmt.Errorf("托管共享结构迁移：数据库连接为空")
 	}
 	// 渠道/模型目录本身在 LocalModels 里（桌面端也自建渠道），因此这里只补平台
-	// 专属的表：审计流水、画布审核状态、素材处置状态与运营维护的画布模板。新增表时
-	// 同样要问一次：桌面端是否可能产生这些行——这四张表都只有管理后台能写，
-	// 桌面端拿不到管理员身份。
+	// 专属的表：审计流水、画布审核状态、素材处置状态、运营维护的画布模板，以及平台
+	// 视角的厂商与厂商凭据。新增表时同样要问一次：桌面端是否可能产生这些行——这六张
+	// 表都只有管理后台能写，桌面端拿不到管理员身份。
+	//
+	// 厂商凭据刻意只存"指向某条 system channel"的指针与展示用尾号，密钥本体仍留在
+	// model_channels（那里已经有一套加密与脱敏），避免同一条密钥两处各存一份。
 	if err := db.AutoMigrate(
 		&model.AdminAuditEvent{},
 		&model.CanvasModeration{},
 		&model.AssetModeration{},
 		&model.CanvasTemplate{},
+		&model.ModelVendor{},
+		&model.VendorCredential{},
 	); err != nil {
 		return fmt.Errorf("迁移托管共享结构: %w", err)
 	}
@@ -50,6 +55,8 @@ func RequireHostedSharedSchema(db *gorm.DB) error {
 		{&model.CanvasModeration{}, "canvas_moderation"},
 		{&model.AssetModeration{}, "asset_moderation"},
 		{&model.CanvasTemplate{}, "canvas_templates"},
+		{&model.ModelVendor{}, "model_vendors"},
+		{&model.VendorCredential{}, "vendor_credentials"},
 	} {
 		if !db.Migrator().HasTable(entry.table) {
 			return fmt.Errorf("托管共享结构缺失 %s，请启用自动迁移或先建表", entry.name)

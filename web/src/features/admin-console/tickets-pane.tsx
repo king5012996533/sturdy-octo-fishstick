@@ -344,7 +344,7 @@ export function TicketsPane() {
 
             <Drawer
                 open={detail !== null}
-                width={720}
+                size={720}
                 title={detail ? `工单 ${detail.ticketNo}` : "工单详情"}
                 onClose={closeDetail}
             >

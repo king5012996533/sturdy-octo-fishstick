@@ -39,17 +39,24 @@ func EnsureDevSchema(db *gorm.DB) error {
 	// 拿不到管理员身份，也没有客服台），生产结构同样归 CanvasMind 的 Prisma 迁移。
 	models = append(models, RbacModels()...)
 	models = append(models, SupportModels()...)
+	// 模型定价与倍率是商业化域的数据：单价占位、倍率规则都归运营配置，生产结构同归
+	// CanvasMind 的 Prisma 迁移。
+	models = append(models, PricingModels()...)
 	if err := db.AutoMigrate(models...); err != nil {
 		return err
 	}
 
-	// 两个域各自还要建唯一索引（角色 code、账号-角色、工单号）：AutoMigrate 只按结构体标签
-	// 建索引，而它们的模型刻意不挂标签（这些表归 Prisma 迁移所有），索引由 Ensure<域>Schema
-	// 用幂等 SQL 声明。少调这一步，读取时的 ON CONFLICT 会直接报"不匹配任何唯一约束"。
+	// 三个域各自还要建唯一索引（角色 code、账号-角色、工单号、模型-能力、规则作用域-目标）：
+	// AutoMigrate 只按结构体标签建索引，而它们的模型刻意不挂标签（这些表归 Prisma 迁移所有），
+	// 索引由 Ensure<域>Schema 用幂等 SQL 声明。少调这一步，读取时的 ON CONFLICT 会直接报
+	// "不匹配任何唯一约束"。
 	if err := EnsureRbacSchema(db); err != nil {
 		return err
 	}
 	if err := EnsureSupportSchema(db); err != nil {
+		return err
+	}
+	if err := EnsurePricingSchema(db); err != nil {
 		return err
 	}
 

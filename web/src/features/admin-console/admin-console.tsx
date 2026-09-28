@@ -1,5 +1,5 @@
 import { App, ConfigProvider, theme as antdTheme } from "antd";
-import { ArrowLeft, FileSignature, Gauge, Images, KeyRound, LayoutDashboard, LayoutTemplate, LifeBuoy, Package, RadioTower, Receipt, ScrollText, Send, Settings, ShieldAlert, ShieldCheck, SlidersHorizontal, TicketPercent, Users, type LucideIcon } from "lucide-react";
+import { ArrowLeft, BadgePercent, Boxes, FileSignature, Gauge, Images, KeyRound, LayoutDashboard, LayoutTemplate, LifeBuoy, Package, RadioTower, Receipt, ScrollText, Send, Settings, ShieldAlert, ShieldCheck, SlidersHorizontal, TicketPercent, Users, type LucideIcon } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -20,13 +20,15 @@ import { LoginMethodsPane } from "./login-methods-pane";
 import { OrdersPane } from "./orders-pane";
 import { PolicyPane } from "./policy-pane";
 import { PlansPane } from "./plans-pane";
+import { PricingPane } from "./pricing-pane";
 import { RolesPane } from "./roles-pane";
 import { SettingsPane } from "./settings-pane";
 import { TemplatesPane } from "./templates-pane";
 import { TicketsPane } from "./tickets-pane";
 import { UsersPane } from "./users-pane";
+import { VendorsPane } from "./vendors-pane";
 
-type ConsoleSectionKey = "dashboard" | "users" | "roles" | "canvases" | "assets" | "templates" | "login-methods" | "agreements" | "gateways" | "plans" | "orders" | "coupons" | "tickets" | "settings" | "channels" | "features" | "policy" | "audit";
+type ConsoleSectionKey = "dashboard" | "users" | "roles" | "canvases" | "assets" | "templates" | "login-methods" | "agreements" | "gateways" | "plans" | "orders" | "coupons" | "tickets" | "settings" | "vendors" | "channels" | "pricing" | "features" | "policy" | "audit";
 
 const consoleSections: Array<{ key: ConsoleSectionKey; label: string; description: string; icon: LucideIcon; pane: () => React.JSX.Element }> = [
     { key: "dashboard", label: "仪表盘", description: "用户、调用量与存储读数", icon: LayoutDashboard, pane: () => <DashboardPane /> },
@@ -43,7 +45,11 @@ const consoleSections: Array<{ key: ConsoleSectionKey; label: string; descriptio
     { key: "coupons", label: "优惠券", description: "折扣券与核销记录", icon: TicketPercent, pane: () => <CouponsPane /> },
     { key: "tickets", label: "工单与反馈", description: "用户反馈与处理流转", icon: LifeBuoy, pane: () => <TicketsPane /> },
     { key: "settings", label: "站点设置", description: "品牌、Logo 与备案信息", icon: Settings, pane: () => <SettingsPane /> },
+    // 厂商是配置入口，渠道是它的执行层：先用「模型厂商」把上游与密钥挂进来，再看
+    // 「渠道与模型」里落成的 system channel，顺序反过来会让人以为要手填裸地址。
+    { key: "vendors", label: "模型厂商", description: "上游厂商、凭据与模型目录", icon: Boxes, pane: () => <VendorsPane /> },
     { key: "channels", label: "渠道与模型", description: "上游地址、密钥与可售模型", icon: RadioTower, pane: () => <ChannelsPane /> },
+    { key: "pricing", label: "模型定价", description: "计费倍率与模型单价", icon: BadgePercent, pane: () => <PricingPane /> },
     { key: "features", label: "功能开放", description: "决定前台形态的开关", icon: SlidersHorizontal, pane: () => <FeaturesPane /> },
     { key: "policy", label: "运行时策略", description: "配额、超时与频控", icon: Gauge, pane: () => <PolicyPane /> },
     { key: "audit", label: "审计日志", description: "管理员写操作留痕", icon: ScrollText, pane: () => <AuditPane /> },

@@ -323,7 +323,7 @@ export function AssetsPane() {
 
             <Drawer
                 open={detail !== null}
-                width={720}
+                size={720}
                 title={detail ? `素材详情 · ${detail.title || detail.id}` : "素材详情"}
                 onClose={closeDetail}
             >

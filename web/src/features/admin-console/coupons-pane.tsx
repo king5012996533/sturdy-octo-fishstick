@@ -446,7 +446,7 @@ export function CouponsPane() {
 
             <Drawer
                 open={redemptionTarget !== null}
-                width={720}
+                size={720}
                 title={redemptionTarget ? `核销记录 · ${redemptionTarget.name}（${redemptionTarget.code}）` : "核销记录"}
                 onClose={() => setRedemptionTarget(null)}
             >

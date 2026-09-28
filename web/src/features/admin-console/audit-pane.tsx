@@ -39,6 +39,11 @@ const actionGroups: Array<{ prefix: string; label: string; color: string }> = [
     { prefix: "subscription.", label: "订阅", color: "purple" },
     { prefix: "payment-channel.", label: "支付渠道", color: "cyan" },
     { prefix: "gateway.", label: "聚合网关", color: "volcano" },
+    // 模型供给
+    { prefix: "vendor.", label: "模型厂商", color: "purple" },
+    { prefix: "credential.", label: "厂商凭据", color: "geekblue" },
+    { prefix: "model-price.", label: "模型定价", color: "gold" },
+    { prefix: "markup.", label: "计费倍率", color: "lime" },
     // 支撑与运维
     { prefix: "ticket.", label: "工单", color: "cyan" },
     { prefix: "plugin", label: "插件", color: "magenta" },

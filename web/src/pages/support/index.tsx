@@ -272,7 +272,7 @@ export function SupportPage() {
 
             <Drawer
                 open={detail !== null}
-                width={640}
+                size={640}
                 title={detail ? `工单 ${detail.ticketNo}` : "工单详情"}
                 onClose={() => {
                     setDetail(null);

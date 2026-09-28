@@ -78,6 +78,10 @@ func (e *Extension) registerAdminRoutes(api *gin.RouterGroup) {
 	e.registerAdminTemplateRoutes(group)
 	// 工单与反馈：用户工单列表、回复与状态流转。
 	e.registerAdminTicketRoutes(group)
+	// 模型定价：计费倍率规则与模型单价（单价可留空占位，售价由倍率算出）。
+	e.registerAdminPricingRoutes(group)
+	// 模型厂商：厂商、厂商下的凭据与模型目录（凭据落成 system channel，前台不持密钥）。
+	e.registerAdminVendorRoutes(group)
 }
 
 // requireAdmin 解析会话并收敛管理员判定：未登录 401，非管理员 403。
