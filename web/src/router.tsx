@@ -2,14 +2,13 @@ import { lazy, Suspense, type ReactNode } from "react";
 import { createBrowserRouter, Navigate, Outlet, useLocation, useParams } from "react-router";
 
 import { FullScreenLoader, WorkspaceRouteLoader } from "@/components/ui/aceternity/full-screen-loader";
-import { loadAssetsPage, loadCanvasPage, loadCanvasProjectPage, loadCreatePage, loadHomePage, loadProjectDetailPage } from "@/lib/workspace-route-modules";
+import { loadAssetsPage, loadCanvasPage, loadCanvasProjectPage, loadCreatePage, loadProjectDetailPage } from "@/lib/workspace-route-modules";
 import { CanvasRefreshShell } from "@/pages/canvas/canvas-refresh-shell";
 import RouteErrorPage from "@/pages/route-error";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 
 const AssetsPage = lazy(loadAssetsPage);
 const BillingPage = lazy(() => import("@/pages/billing").then((module) => ({ default: module.BillingPage })));
-const HomePage = lazy(loadHomePage);
 const CanvasPage = lazy(loadCanvasPage);
 const CanvasProjectPage = lazy(loadCanvasProjectPage);
 const CreatePage = lazy(loadCreatePage);
@@ -98,7 +97,9 @@ export const router = createBrowserRouter([
         element: <WorkspaceLayout />,
         errorElement: <RouteErrorPage />,
         children: [
-            { path: "/", element: deferred(<HomePage />) },
+            // 根路径就是创作台：首页仪表盘与创作台是同一件事的两个入口，只保留后者，
+            // 用户点「首页」落地即可直接开始创作，不必先经过一层中转。
+            { path: "/", element: deferred(<CreatePage />) },
             { path: "/create", element: deferred(<CreatePage />) },
             {
                 path: "/tasks",

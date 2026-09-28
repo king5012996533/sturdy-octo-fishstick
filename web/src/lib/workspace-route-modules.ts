@@ -1,5 +1,6 @@
 const workspaceRouteLoaders = {
-    home: () => import("@/pages/home"),
+    // 根路径与 /create 共用创作台：预加载「home」也要落到同一个 chunk。
+    home: () => import("@/pages/create"),
     assets: () => import("@/pages/assets"),
     canvas: () => import("@/pages/canvas"),
     create: () => import("@/pages/create"),
@@ -8,7 +9,6 @@ const workspaceRouteLoaders = {
 };
 
 export const loadAssetsPage = workspaceRouteLoaders.assets;
-export const loadHomePage = workspaceRouteLoaders.home;
 export const loadCanvasPage = workspaceRouteLoaders.canvas;
 export const loadCanvasProjectPage = () => import("@/pages/canvas/project");
 export const loadCreatePage = workspaceRouteLoaders.create;

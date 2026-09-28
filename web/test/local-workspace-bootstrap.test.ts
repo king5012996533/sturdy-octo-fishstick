@@ -10,7 +10,6 @@ const creationAgent = readFileSync(new URL("../src/pages/create/creation-agent-e
 const sidebarNav = readFileSync(new URL("../src/components/layout/workspace-sidebar-nav.tsx", import.meta.url), "utf8");
 const imageStorage = readFileSync(new URL("../src/services/image-storage.ts", import.meta.url), "utf8");
 const fileStorage = readFileSync(new URL("../src/services/file-storage.ts", import.meta.url), "utf8");
-const homeDashboard = readFileSync(new URL("../src/pages/home/home-dashboard.tsx", import.meta.url), "utf8");
 const appTopNav = readFileSync(new URL("../src/components/layout/app-top-nav.tsx", import.meta.url), "utf8");
 const workspaceProductCss = readFileSync(new URL("../src/styles/workspace-product.css", import.meta.url), "utf8");
 
@@ -31,7 +30,9 @@ test("local workspace bootstrap is the product startup contract", () => {
     expect(router).toContain('path: "/project"');
     expect(router).toContain('path: "/project/:projectId"');
     expect(router).toContain('path: "/project/:projectId/*"');
-    expect(homeDashboard).toContain('to="/project"');
+    // 根路径就是创作台；项目库入口由侧边栏的「项目」承担。
+    expect(router).toContain('{ path: "/", element: deferred(<CreatePage />) }');
+    expect(sidebarNav).toContain('"/project"');
     expect(appTopNav).not.toContain("app-workspace-local-announcement");
     expect(appTopNav).not.toContain("BannerAnnouncementsSlider");
     expect(workspaceProductCss).not.toContain("app-workspace-local-announcement");

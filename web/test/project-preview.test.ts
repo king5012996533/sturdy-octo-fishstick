@@ -44,10 +44,10 @@ describe("project library covers", () => {
         expect(css).not.toContain(".canvas-project-empty-image { width: 64px; height: 48px;");
     });
 
-    test("home recents use the same complete project preview as the library", () => {
-        const home = readFileSync(new URL("../src/pages/home/index.tsx", import.meta.url), "utf8");
-        const dashboard = readFileSync(new URL("../src/pages/home/home-dashboard.tsx", import.meta.url), "utf8");
-        expect(home).toContain("previewNodesForWorkspaceProject(localProjects, project.id)");
-        expect(dashboard).toContain("<ProjectPreview project={{ id: project.id, nodes: project.previewNodes }}");
+    test("项目库封面走同一套完整项目预览", () => {
+        const library = readFileSync(new URL("../src/pages/canvas/index.tsx", import.meta.url), "utf8");
+        const card = readFileSync(new URL("../src/components/canvas/canvas-project-card.tsx", import.meta.url), "utf8");
+        expect(library).toContain("previewNodesForWorkspaceProject(localProjects, canvasWorkspaceProjectId(project))");
+        expect(card).toContain("<ProjectPreview project={project}");
     });
 });
