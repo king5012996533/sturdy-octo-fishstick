@@ -63,6 +63,7 @@ const (
 	ChannelInterfaceVolcengineJiMengImage       ChannelInterfaceType = "volcengine-jimeng-image"
 	ChannelInterfaceGeminiImage                 ChannelInterfaceType = "gemini-image"
 	ChannelInterfaceReplicatePredictionImage    ChannelInterfaceType = "replicate-prediction-image"
+	ChannelInterfaceReplicatePredictionVideo    ChannelInterfaceType = "replicate-prediction-video"
 	ChannelInterfaceOpenAIAudio                 ChannelInterfaceType = "openai-audio"
 	ChannelInterfaceAsyncAudio                  ChannelInterfaceType = "async-audio"
 	ChannelInterfaceNewAPIVideo                 ChannelInterfaceType = "newapi"

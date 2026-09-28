@@ -511,3 +511,86 @@ func TestDefaultImageCapabilityConfigForReplicateFamilies(t *testing.T) {
 		t.Fatalf("unknown replicate model = %#v / %d / %d", unknown.Size, unknown.MaxOutputs, unknown.References.MaxImages)
 	}
 }
+
+// Replicate 视频模型的能力合同同样逐模型对齐上游：时长档位、分辨率枚举、首尾帧字段
+// 都取自各自 schema。合同写宽了，用户会在提交时才被上游拒绝（veo 只有 4/6/8 秒）。
+func TestDefaultVideoCapabilityConfigForReplicateFamilies(t *testing.T) {
+	veo := DefaultVideoCapabilityConfigForTest("google/veo-3")
+	if veo.Duration.Selection != "enum" || len(veo.Duration.Values) != 3 || veo.Duration.Default != 8 {
+		t.Fatalf("veo duration = %#v", veo.Duration)
+	}
+	if !veo.GenerateAudio.Supported || !veo.GenerateAudio.Default {
+		t.Fatalf("veo audio = %#v", veo.GenerateAudio)
+	}
+	if len(veo.Resolutions) != 2 || veo.DefaultResolution != "1080p" {
+		t.Fatalf("veo resolutions = %#v", veo.Resolutions)
+	}
+	if err := validateVideoCapabilityConfig(veo); err != nil {
+		t.Fatalf("veo capability rejected: %v", err)
+	}
+
+	// kling v2.1 的首帧图是必填输入：面板必须要求选图，而不是允许纯文生视频。
+	kling := DefaultVideoCapabilityConfigForTest("kwaivgi/kling-v2.1")
+	if kling.References.MinImages != 1 || kling.References.MaxImages != 1 || len(kling.Operations) != 1 || kling.DefaultOperation != "image_to_video" {
+		t.Fatalf("kling refs/ops = %#v %#v", kling.References, kling.Operations)
+	}
+	// kling-v2.1 停用后换上的在售型号：turbo pro 首尾帧都开放，2.6 只有首帧字段。
+	klingPro := DefaultVideoCapabilityConfigForTest("kwaivgi/kling-v2.5-turbo-pro")
+	if klingPro.References.MaxImages != 2 || klingPro.References.MinImages != 0 || len(klingPro.Operations) != 2 {
+		t.Fatalf("kling 2.5 turbo pro refs/ops = %#v %#v", klingPro.References, klingPro.Operations)
+	}
+	kling26 := DefaultVideoCapabilityConfigForTest("kwaivgi/kling-v2.6")
+	if kling26.References.MaxImages != 1 || kling26.References.MinImages != 0 {
+		t.Fatalf("kling 2.6 refs = %#v", kling26.References)
+	}
+
+	// 固定档位的默认值必须等于上游 schema 的 default（最便宜的一档），不是枚举末位。
+	for name, profile := range map[string]*VideoCapabilityConfig{
+		"kling":    kling,
+		"klingPro": klingPro,
+		"kling26":  kling26,
+		"veo2":     DefaultVideoCapabilityConfigForTest("google/veo-2"),
+		"hailuo":   DefaultVideoCapabilityConfigForTest("minimax/hailuo-02"),
+		"wan":      DefaultVideoCapabilityConfigForTest("wan-video/wan-2.5-t2v"),
+		"pixverse": DefaultVideoCapabilityConfigForTest("pixverse/pixverse-v4.5"),
+	} {
+		if profile.Duration.Default != profile.Duration.Values[0] {
+			t.Fatalf("%s default duration = %d, want %d", name, profile.Duration.Default, profile.Duration.Values[0])
+		}
+	}
+	if err := validateVideoCapabilityConfig(kling); err != nil {
+		t.Fatalf("kling capability rejected: %v", err)
+	}
+
+	seedance := DefaultVideoCapabilityConfigForTest("bytedance/seedance-1-pro")
+	if seedance.Duration.Selection != "range" || seedance.Duration.Min != 2 || seedance.Duration.Default != 5 {
+		t.Fatalf("seedance duration = %#v", seedance.Duration)
+	}
+	if seedance.References.MaxImages != 2 || !containsCapabilityString(seedance.Ratios, "21:9") {
+		t.Fatalf("seedance refs/ratios = %d %#v", seedance.References.MaxImages, seedance.Ratios)
+	}
+
+	// hailuo 没有比例参数：宁可少给一个选项，也不下发上游不认识的比例。
+	hailuo := DefaultVideoCapabilityConfigForTest("minimax/hailuo-02")
+	if len(hailuo.Ratios) != 0 || hailuo.DefaultRatio != "" || len(hailuo.Resolutions) != 3 {
+		t.Fatalf("hailuo ratios/resolutions = %#v %#v", hailuo.Ratios, hailuo.Resolutions)
+	}
+	if err := validateVideoCapabilityConfig(hailuo); err != nil {
+		t.Fatalf("hailuo capability rejected: %v", err)
+	}
+
+	// 未登记族回落成最小可用形态：纯文生视频、单档 5 秒、不开放比例与分辨率。
+	unknown := DefaultVideoCapabilityConfigForTest("someone/unknown-video-model")
+	if unknown.References.MaxImages != 0 || len(unknown.Operations) != 1 || len(unknown.Ratios) != 0 || len(unknown.Resolutions) != 0 {
+		t.Fatalf("unknown replicate video model = %#v", unknown)
+	}
+	if err := validateVideoCapabilityConfig(unknown); err != nil {
+		t.Fatalf("unknown capability rejected: %v", err)
+	}
+}
+
+// DefaultVideoCapabilityConfigForTest 只给测试用：视频能力合同没有独立入口，
+// 平时由 DefaultModelCapabilityConfigForModel 按协议分派。
+func DefaultVideoCapabilityConfigForTest(modelName string) *VideoCapabilityConfig {
+	return DefaultModelCapabilityConfigForModel("replicate-prediction-video", modelName).Video
+}

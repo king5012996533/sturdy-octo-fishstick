@@ -116,7 +116,9 @@ export function normalizeCapabilityString(value: unknown) {
     return normalized.startsWith("string:") ? normalized.slice("string:".length) : normalized;
 }
 
-function normalizeCapabilityStrings(values: unknown[]) {
+function normalizeCapabilityStrings(values: unknown[] | null | undefined) {
+    // 后端的历史配置可能把空数组存成 null，这里统一收敛成数组，避免调用方逐个判空。
+    if (!Array.isArray(values)) return [];
     return Array.from(new Set(values.map(normalizeCapabilityString)));
 }
 
@@ -222,6 +224,138 @@ const replicateBriaRatios = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9
  * 输出数量与参考图数量必须与插件真实映射的字段一致：多报会让用户拿到比承诺更少的图，
  * 因此未登记的模型一律回落到"单张、无参考图"的保守形态。
  */
+// Replicate 视频模型的比例枚举同样取自上游 schema。
+const replicateVeoRatios = ["16:9", "9:16"];
+const replicateKlingRatios = ["16:9", "9:16", "1:1"];
+const replicateSeedanceRatios = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"];
+const replicateWanRatios = ["16:9", "9:16"];
+
+/**
+ * Replicate 视频模型的能力合同必须逐模型对齐上游 schema。
+ *
+ * 时长档位、分辨率枚举、首尾帧字段三者都因模型而异：veo 只有 4/6/8 秒，kling v2.1
+ * 必须给首帧图，hailuo 根本没有比例参数。合同放宽会让前端渲染出上游不认的选项，
+ * 用户点下去才在提交时报错，因此这里只开放插件真实映射过的字段。
+ */
+function applyReplicateVideoCapability(video: VideoCapabilityConfig, model = "") {
+    const normalized = String(model || "").trim().toLowerCase();
+    const [owner, base] = normalized.includes("/") ? normalized.split("/", 2) : ["", normalized];
+    // Replicate 视频模型没有音频/水印开关，也不吃参考视频与参考音频。
+    video.generateAudio = { supported: false, default: false };
+    video.watermark = { supported: false, default: false };
+    video.references.maxVideos = 0;
+    video.references.maxVideoBytes = 0;
+    video.references.maxVideoDurationSeconds = 0;
+    video.references.maxAudios = 0;
+    video.references.maxAudioBytes = 0;
+    video.references.maxAudioDurationSeconds = 0;
+    video.references.maxImageBytes = 30 * 1024 * 1024;
+    video.references.maxImages = 1;
+    video.operations = ["text_to_video", "image_to_video"];
+    video.defaultOperation = "text_to_video";
+    video.duration = { selection: "enum", values: [5], default: 5 };
+    video.ratios = [];
+    video.defaultRatio = "";
+    video.resolutions = [];
+    video.defaultResolution = "";
+
+    const setDuration = (values: number[], fallback = values[values.length - 1]) => {
+        video.duration = { selection: "enum", values: [...values], default: fallback };
+    };
+    const setDurationRange = (min: number, max: number, step: number, fallback: number) => {
+        video.duration = { selection: "range", min, max, step, default: fallback };
+    };
+    const setRatios = (values: string[], fallback: string) => {
+        video.ratios = [...values];
+        video.defaultRatio = fallback;
+    };
+    const setResolutions = (values: string[], fallback: string) => {
+        video.resolutions = [...values];
+        video.defaultResolution = fallback;
+    };
+
+    if (owner === "google" && base.startsWith("veo-3")) {
+        setDuration([4, 6, 8], 8);
+        setRatios(replicateVeoRatios, "16:9");
+        setResolutions(["720p", "1080p"], "1080p");
+        video.generateAudio = { supported: true, default: true };
+        return;
+    }
+    if (owner === "google" && base.startsWith("veo-2")) {
+        setDuration([5, 6, 7, 8], 5);
+        setRatios(replicateVeoRatios, "16:9");
+        return;
+    }
+    if (owner === "kwaivgi" && base.startsWith("kling-v2.5-turbo-pro")) {
+        // kling-v2.1 已被上游停用，2.5 turbo pro 是在售替代：文生与图生都支持，首尾帧字段齐全。
+        setDuration([5, 10], 5);
+        setRatios(replicateKlingRatios, "16:9");
+        video.references.maxImages = 2;
+        return;
+    }
+    if (owner === "kwaivgi" && base.startsWith("kling-v2.6")) {
+        setDuration([5, 10], 5);
+        setRatios(replicateKlingRatios, "16:9");
+        // 2.6 只有 start_image，没有 end_image：多给一张尾帧会被上游直接拒绝。
+        video.references.maxImages = 1;
+        return;
+    }
+    if (owner === "kwaivgi" && base.startsWith("kling-v2.1-master")) {
+        setDuration([5, 10], 5);
+        setRatios(replicateKlingRatios, "16:9");
+        return;
+    }
+    if (owner === "kwaivgi" && base.startsWith("kling")) {
+        // kling v2.1 / v1.6：start_image 必填，只能图生视频；尾帧只在 pro 档可用，因此只收一张首帧。
+        setDuration([5, 10], 5);
+        video.operations = ["image_to_video"];
+        video.defaultOperation = "image_to_video";
+        video.references.minImages = 1;
+        video.references.maxImages = 1;
+        return;
+    }
+    if (owner === "bytedance" && base.includes("seedance")) {
+        setRatios(replicateSeedanceRatios, "16:9");
+        video.references.maxImages = 2;
+        if (base.includes("lite")) {
+            setDurationRange(4, 12, 1, 5);
+            setResolutions(["480p", "720p", "1080p"], "720p");
+            video.operations = ["text_to_video", "image_to_video", "reference_to_video"];
+            video.references.maxImages = 4;
+        } else {
+            setDurationRange(2, 12, 1, 5);
+            setResolutions(["480p", "720p", "1080p"], "1080p");
+        }
+        return;
+    }
+    if (owner === "minimax" && base.startsWith("hailuo")) {
+        // hailuo 没有比例参数：画幅由首帧图决定，纯文本生成走模型默认。
+        setDuration([6, 10], 6);
+        setResolutions(["512p", "768p", "1080p"], "1080p");
+        video.references.maxImages = 2;
+        return;
+    }
+    if (owner === "wan-video" && base.includes("wan")) {
+        setDuration([5, 10], 5);
+        setRatios(replicateWanRatios, "16:9");
+        setResolutions(["480p", "720p", "1080p"], "720p");
+        // wan-2.5-t2v 是纯文生视频，插件不会把参考图下发到上游。
+        video.references.maxImages = 0;
+        return;
+    }
+    if (owner === "pixverse") {
+        setDuration([5, 8], 5);
+        setRatios(replicateKlingRatios, "16:9");
+        setResolutions(["360p", "540p", "720p", "1080p"], "540p");
+        video.references.maxImages = 2;
+        return;
+    }
+    // 未登记族：不开放比例、分辨率与参考图，避免把上游不认的参数写进请求。
+    video.references.maxImages = 0;
+    video.operations = ["text_to_video"];
+    video.defaultOperation = "text_to_video";
+}
+
 function applyReplicateImageCapability(image: ImageCapabilityConfig, model = "") {
     const normalized = String(model || "").trim().toLowerCase();
     const [owner, base] = normalized.includes("/") ? normalized.split("/", 2) : ["", normalized];
@@ -380,6 +514,11 @@ export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = "
         operations: ["text_to_video", "image_to_video"],
         defaultOperation: "text_to_video",
     };
+    // Replicate 是"一模型一 schema"的平台，视频能力合同同样逐模型对齐上游。
+    if (protocol === "replicate-prediction-video") {
+        applyReplicateVideoCapability(video, model);
+        return { version: 1, text, image: defaultImageCapabilityConfig(protocol, model), video };
+    }
     if (protocol === "volcengine-jimeng-video") {
         video.duration = { selection: "enum", values: [5, 10], default: 5 };
         video.resolutions = ["720p"];

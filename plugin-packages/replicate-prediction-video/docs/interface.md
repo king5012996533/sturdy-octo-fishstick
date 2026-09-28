@@ -23,13 +23,13 @@
 | --- | --- | --- | --- | --- |
 | `model` | string | 是 | `path /v1/models/{model}/predictions` | 上游模型标识，owner/name 形式，进请求路径。 |
 | `prompt` | string | 是 | `prompt/content/input` | 视频提示词。 |
-| `images` | media[] | 否 | `first/last/reference image` | 显式 role 图片输入。 |
+| `images` | media[] | 否 | `image`（bytedance/google）/ `start_image`（kwaivgi）/ `first_frame_image`（minimax）/ `end_image`（kwaivgi）/ `last_frame`（google）/ `last_frame_image`（minimax）/ `reference_images`（bytedance/google） | 按 role 分发；字段名按厂商收窄，上游对多余字段是硬校验，多发一个别名就会被 422 拒绝。 |
 | `videos` | media[] | 否 | `reference video` | 参考视频。 |
 | `audios` | media[] | 否 | `reference audio/voice` | 参考音频或音色。 |
-| `duration` | integer | 否 | `duration/seconds` | 时长秒数。 |
-| `aspectRatio` | string | 否 | `ratio/aspect_ratio/size` | 画幅比例或尺寸。 |
-| `resolution` | string | 否 | `resolution` | 分辨率档位。 |
-| `generateAudio` | boolean | 否 | `generate_audio` | 是否生成音频。 |
+| `duration` | integer | 否 | `duration` | 时长秒数；上游没有 `seconds` 字段，多发别名会被严格校验的模型拒绝。 |
+| `aspectRatio` | string | 否 | `aspect_ratio` / `size` | 比例字符串；wan 族按比例 + 分辨率换算成像素尺寸。 |
+| `resolution` | string | 否 | `resolution` / `quality` | 分辨率档位；pixverse 的档位字段名是 `quality`，不下发 `resolution`。 |
+| `generateAudio` | boolean | 否 | `generate_audio` | 是否生成音频；目前只有 veo-3 一族接受。 |
 | `watermark` | boolean | 否 | `watermark` | 水印开关。 |
 | `providerOptions` | object | 否 | `provider-specific fields` | 插件命名空间内的厂商扩展字段。 |
 
@@ -42,7 +42,7 @@
 | `create.method` | `"POST"` |
 | `create.pathTemplate` | `{"$concat":["/v1/models/",{"$ref":"request.model"},"/predictions"]}` |
 | `create.contentType` | `"application/json"` |
-| `create.body.input` | `{"$omitEmpty":{"$coalesce":[{"$ref":"request.providerOptions.replicate-prediction-video.input"},{"prompt":{"$ref":"request.prompt"},"images":{"$omitEmpty":{"$map":{"from":{"$ref":"request.images"},"as":"media","in":{"$ref":"media.value"}}}},"videos":{"$omitEmpty":{"$map":{"from":{"$ref":"request.videos"},"as":"media","in":{"$ref":"media.value"}}}},"audios":{"$omitEmpty":{"$map":{"from":{"$ref":"request.audios"},"as":"media","in":{"$ref":"media.value"}}}}}]}}` |
+| `create.body.input` | `{"$omitEmpty":{"$coalesce":[{"$ref":"request.providerOptions.replicate-prediction-video.input"},{"prompt":{"$ref":"request.prompt"},"duration":{"$if":{"condition":{"$gt":[{"$ref":"request.duration"},0]},"then":{"$ref":"request.duration"}}},"seconds":{"$if":{"condition":{"$gt":[{"$ref":"request.duration"},0]},"then":{"$ref":"request.duration"}}},"aspect_ratio":{"$omitEmpty":{"$ref":"request.aspectRatio"}},"ratio":{"$omitEmpty":{"$ref":"request.aspectRatio"}},"resolution":{"$omitEmpty":{"$ref":"request.resolution"}},"size":{"$switch":{"cases":[{"when":{"$and":[{"$eq":[{"$ref":"request.aspectRatio"},"16:9"]},{"$eq":[{"$ref":"request.resolution"},"480p"]}]},"then":"832*480"},{"when":{"$and":[{"$eq":[{"$ref":"request.aspectRatio"},"16:9"]},{"$eq":[{"$ref":"request.resolution"},"720p"]}]},"then":"1280*720"},{"when":{"$and":[{"$eq":[{"$ref":"request.aspectRatio"},"16:9"]},{"$eq":[{"$ref":"request.resolution"},"1080p"]}]},"then":"1920*1080"},{"when":{"$and":[{"$eq":[{"$ref":"request.aspectRatio"},"9:16"]},{"$eq":[{"$ref":"request.resolution"},"480p"]}]},"then":"480*832"},{"when":{"$and":[{"$eq":[{"$ref":"request.aspectRatio"},"9:16"]},{"$eq":[{"$ref":"request.resolution"},"720p"]}]},"then":"720*1280"},{"when":{"$and":[{"$eq":[{"$ref":"request.aspectRatio"},"9:16"]},{"$eq":[{"$ref":"request.resolution"},"1080p"]}]},"then":"1080*1920"}]}},"quality":{"$switch":{"cases":[{"when":{"$eq":[{"$at":[{"$split":[{"$ref":"request.model"},"/"]},0]},"pixverse"]},"then":{"$ref":"request.resolution"}}]}},"generate_audio":{"$switch":{"cases":[{"when":{"$eq":[{"$at":[{"$split":[{"$ref":"request.model"},"/"]},0]},"google"]},"then":{"$ref":"request.generateAudio"}}]}},"images":{"$omitEmpty":{"$map":{"from":{"$ref":"request.images"},"as":"media","in":{"$ref":"media.value"}}}},"videos":{"$omitEmpty":{"$map":{"from":{"$ref":"request.videos"},"as":"media","in":{"$ref":"media.value"}}}},"audios":{"$omitEmpty":{"$map":{"from":{"$ref":"request.audios"},"as":"media","in":{"$ref":"media.value"}}}},"image":{"$omitEmpty":{"$if":{"condition":{"$ne":[{"$ref":"request.operation"},"reference_to_video"]},"then":{"$coalesce":[{"$first":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$eq":[{"$ref":"media.role"},"first_frame"]}}},"as":"media","in":{"$ref":"media.value"}}}},{"$first":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$eq":[{"$ref":"media.role"},""]}}},"as":"media","in":{"$ref":"media.value"}}}},{"$first":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$eq":[{"$ref":"media.role"},"reference_image"]}}},"as":"media","in":{"$ref":"media.value"}}}}]}}}},"start_image":{"$omitEmpty":{"$if":{"condition":{"$ne":[{"$ref":"request.operation"},"reference_to_video"]},"then":{"$coalesce":[{"$first":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$eq":[{"$ref":"media.role"},"first_frame"]}}},"as":"media","in":{"$ref":"media.value"}}}},{"$first":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$eq":[{"$ref":"media.role"},""]}}},"as":"media","in":{"$ref":"media.value"}}}},{"$first":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$eq":[{"$ref":"media.role"},"reference_image"]}}},"as":"media","in":{"$ref":"media.value"}}}}]}}}},"first_frame_image":{"$omitEmpty":{"$if":{"condition":{"$ne":[{"$ref":"request.operation"},"reference_to_video"]},"then":{"$coalesce":[{"$first":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$eq":[{"$ref":"media.role"},"first_frame"]}}},"as":"media","in":{"$ref":"media.value"}}}},{"$first":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$eq":[{"$ref":"media.role"},""]}}},"as":"media","in":{"$ref":"media.value"}}}},{"$first":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$eq":[{"$ref":"media.role"},"reference_image"]}}},"as":"media","in":{"$ref":"media.value"}}}}]}}}},"end_image":{"$omitEmpty":{"$if":{"condition":{"$ne":[{"$ref":"request.operation"},"reference_to_video"]},"then":{"$first":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$eq":[{"$ref":"media.role"},"last_frame"]}}},"as":"media","in":{"$ref":"media.value"}}}}}}},"last_frame_image":{"$omitEmpty":{"$if":{"condition":{"$ne":[{"$ref":"request.operation"},"reference_to_video"]},"then":{"$first":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$eq":[{"$ref":"media.role"},"last_frame"]}}},"as":"media","in":{"$ref":"media.value"}}}}}}},"reference_images":{"$omitEmpty":{"$map":{"from":{"$filter":{"from":{"$sortByOrder":{"$ref":"request.images"}},"as":"media","where":{"$eq":[{"$ref":"media.role"},"reference_image"]}}},"as":"media","in":{"$ref":"media.value"}}}}}]}}` |
 | `create.body.webhook` | `{"$omitEmpty":{"$ref":"request.providerOptions.replicate-prediction-video.webhook"}}` |
 | `create.body.webhook_events_filter` | `{"$omitEmpty":{"$ref":"request.providerOptions.replicate-prediction-video.webhook_events_filter"}}` |
 | `poll.method` | `"GET"` |
@@ -89,7 +89,7 @@
   "apiVersion": "beeftv.plugin/v2",
   "id": "replicate-prediction-video",
   "name": "Replicate Predictions Video",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "BeefTV Contributors",
   "description": "Replicate Predictions Video 独立请求协议插件。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
@@ -147,7 +147,7 @@
             "name": "images",
             "type": "media[]",
             "required": false,
-            "mapping": "first/last/reference image",
+            "mapping": "first_frame / last_frame / reference_image",
             "description": "显式 role 图片输入。"
           },
           {
@@ -168,21 +168,21 @@
             "name": "duration",
             "type": "integer",
             "required": false,
-            "mapping": "duration/seconds",
-            "description": "时长秒数。"
+            "mapping": "duration",
+            "description": "时长秒数。上游没有 seconds 字段，别名会被严格校验的模型拒绝。"
           },
           {
             "name": "aspectRatio",
             "type": "string",
             "required": false,
-            "mapping": "ratio/aspect_ratio/size",
+            "mapping": "aspect_ratio（wan 族换算成 size 像素尺寸）",
             "description": "画幅比例或尺寸。"
           },
           {
             "name": "resolution",
             "type": "string",
             "required": false,
-            "mapping": "resolution",
+            "mapping": "resolution / quality",
             "description": "分辨率档位。"
           },
           {
@@ -230,42 +230,969 @@
                     "prompt": {
                       "$ref": "request.prompt"
                     },
-                    "images": {
-                      "$omitEmpty": {
-                        "$map": {
-                          "from": {
-                            "$ref": "request.images"
-                          },
-                          "as": "media",
-                          "in": {
-                            "$ref": "media.value"
-                          }
+                    "duration": {
+                      "$if": {
+                        "condition": {
+                          "$gt": [
+                            {
+                              "$ref": "request.duration"
+                            },
+                            0
+                          ]
+                        },
+                        "then": {
+                          "$ref": "request.duration"
                         }
                       }
                     },
-                    "videos": {
+                    "aspect_ratio": {
                       "$omitEmpty": {
-                        "$map": {
-                          "from": {
-                            "$ref": "request.videos"
-                          },
-                          "as": "media",
-                          "in": {
-                            "$ref": "media.value"
-                          }
+                        "$switch": {
+                          "cases": [
+                            {
+                              "when": {
+                                "$ne": [
+                                  {
+                                    "$at": [
+                                      {
+                                        "$split": [
+                                          {
+                                            "$ref": "request.model"
+                                          },
+                                          "/"
+                                        ]
+                                      },
+                                      0
+                                    ]
+                                  },
+                                  "wan-video"
+                                ]
+                              },
+                              "then": {
+                                "$ref": "request.aspectRatio"
+                              }
+                            }
+                          ]
                         }
                       }
                     },
-                    "audios": {
+                    "resolution": {
                       "$omitEmpty": {
-                        "$map": {
-                          "from": {
-                            "$ref": "request.audios"
-                          },
-                          "as": "media",
-                          "in": {
-                            "$ref": "media.value"
+                        "$switch": {
+                          "cases": [
+                            {
+                              "when": {
+                                "$ne": [
+                                  {
+                                    "$at": [
+                                      {
+                                        "$split": [
+                                          {
+                                            "$ref": "request.model"
+                                          },
+                                          "/"
+                                        ]
+                                      },
+                                      0
+                                    ]
+                                  },
+                                  "pixverse"
+                                ]
+                              },
+                              "then": {
+                                "$ref": "request.resolution"
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "size": {
+                      "$switch": {
+                        "cases": [
+                          {
+                            "when": {
+                              "$in": [
+                                {
+                                  "$at": [
+                                    {
+                                      "$split": [
+                                        {
+                                          "$ref": "request.model"
+                                        },
+                                        "/"
+                                      ]
+                                    },
+                                    1
+                                  ]
+                                },
+                                [
+                                  "wan-2.5-t2v",
+                                  "wan-2.5-i2v"
+                                ]
+                              ]
+                            },
+                            "then": {
+                              "$switch": {
+                                "cases": [
+                                  {
+                                    "when": {
+                                      "$and": [
+                                        {
+                                          "$eq": [
+                                            {
+                                              "$ref": "request.aspectRatio"
+                                            },
+                                            "16:9"
+                                          ]
+                                        },
+                                        {
+                                          "$eq": [
+                                            {
+                                              "$ref": "request.resolution"
+                                            },
+                                            "480p"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "then": "832*480"
+                                  },
+                                  {
+                                    "when": {
+                                      "$and": [
+                                        {
+                                          "$eq": [
+                                            {
+                                              "$ref": "request.aspectRatio"
+                                            },
+                                            "16:9"
+                                          ]
+                                        },
+                                        {
+                                          "$eq": [
+                                            {
+                                              "$ref": "request.resolution"
+                                            },
+                                            "720p"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "then": "1280*720"
+                                  },
+                                  {
+                                    "when": {
+                                      "$and": [
+                                        {
+                                          "$eq": [
+                                            {
+                                              "$ref": "request.aspectRatio"
+                                            },
+                                            "16:9"
+                                          ]
+                                        },
+                                        {
+                                          "$eq": [
+                                            {
+                                              "$ref": "request.resolution"
+                                            },
+                                            "1080p"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "then": "1920*1080"
+                                  },
+                                  {
+                                    "when": {
+                                      "$and": [
+                                        {
+                                          "$eq": [
+                                            {
+                                              "$ref": "request.aspectRatio"
+                                            },
+                                            "9:16"
+                                          ]
+                                        },
+                                        {
+                                          "$eq": [
+                                            {
+                                              "$ref": "request.resolution"
+                                            },
+                                            "480p"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "then": "480*832"
+                                  },
+                                  {
+                                    "when": {
+                                      "$and": [
+                                        {
+                                          "$eq": [
+                                            {
+                                              "$ref": "request.aspectRatio"
+                                            },
+                                            "9:16"
+                                          ]
+                                        },
+                                        {
+                                          "$eq": [
+                                            {
+                                              "$ref": "request.resolution"
+                                            },
+                                            "720p"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "then": "720*1280"
+                                  },
+                                  {
+                                    "when": {
+                                      "$and": [
+                                        {
+                                          "$eq": [
+                                            {
+                                              "$ref": "request.aspectRatio"
+                                            },
+                                            "9:16"
+                                          ]
+                                        },
+                                        {
+                                          "$eq": [
+                                            {
+                                              "$ref": "request.resolution"
+                                            },
+                                            "1080p"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "then": "1080*1920"
+                                  }
+                                ]
+                              }
+                            }
                           }
+                        ]
+                      }
+                    },
+                    "quality": {
+                      "$switch": {
+                        "cases": [
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$at": [
+                                    {
+                                      "$split": [
+                                        {
+                                          "$ref": "request.model"
+                                        },
+                                        "/"
+                                      ]
+                                    },
+                                    0
+                                  ]
+                                },
+                                "pixverse"
+                              ]
+                            },
+                            "then": {
+                              "$ref": "request.resolution"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "generate_audio": {
+                      "$switch": {
+                        "cases": [
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$at": [
+                                    {
+                                      "$split": [
+                                        {
+                                          "$ref": "request.model"
+                                        },
+                                        "/"
+                                      ]
+                                    },
+                                    0
+                                  ]
+                                },
+                                "google"
+                              ]
+                            },
+                            "then": {
+                              "$ref": "request.generateAudio"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "image": {
+                      "$omitEmpty": {
+                        "$switch": {
+                          "cases": [
+                            {
+                              "when": {
+                                "$and": [
+                                  {
+                                    "$in": [
+                                      {
+                                        "$at": [
+                                          {
+                                            "$split": [
+                                              {
+                                                "$ref": "request.model"
+                                              },
+                                              "/"
+                                            ]
+                                          },
+                                          0
+                                        ]
+                                      },
+                                      [
+                                        "bytedance",
+                                        "google"
+                                      ]
+                                    ]
+                                  },
+                                  {
+                                    "$ne": [
+                                      {
+                                        "$ref": "request.operation"
+                                      },
+                                      "reference_to_video"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "then": {
+                                "$coalesce": [
+                                  {
+                                    "$first": {
+                                      "$map": {
+                                        "from": {
+                                          "$filter": {
+                                            "from": {
+                                              "$sortByOrder": {
+                                                "$ref": "request.images"
+                                              }
+                                            },
+                                            "as": "media",
+                                            "where": {
+                                              "$eq": [
+                                                {
+                                                  "$ref": "media.role"
+                                                },
+                                                "first_frame"
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "as": "media",
+                                        "in": {
+                                          "$ref": "media.value"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "$first": {
+                                      "$map": {
+                                        "from": {
+                                          "$filter": {
+                                            "from": {
+                                              "$sortByOrder": {
+                                                "$ref": "request.images"
+                                              }
+                                            },
+                                            "as": "media",
+                                            "where": {
+                                              "$eq": [
+                                                {
+                                                  "$ref": "media.role"
+                                                },
+                                                ""
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "as": "media",
+                                        "in": {
+                                          "$ref": "media.value"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "$first": {
+                                      "$map": {
+                                        "from": {
+                                          "$filter": {
+                                            "from": {
+                                              "$sortByOrder": {
+                                                "$ref": "request.images"
+                                              }
+                                            },
+                                            "as": "media",
+                                            "where": {
+                                              "$eq": [
+                                                {
+                                                  "$ref": "media.role"
+                                                },
+                                                "reference_image"
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "as": "media",
+                                        "in": {
+                                          "$ref": "media.value"
+                                        }
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "start_image": {
+                      "$omitEmpty": {
+                        "$switch": {
+                          "cases": [
+                            {
+                              "when": {
+                                "$and": [
+                                  {
+                                    "$in": [
+                                      {
+                                        "$at": [
+                                          {
+                                            "$split": [
+                                              {
+                                                "$ref": "request.model"
+                                              },
+                                              "/"
+                                            ]
+                                          },
+                                          0
+                                        ]
+                                      },
+                                      [
+                                        "kwaivgi"
+                                      ]
+                                    ]
+                                  },
+                                  {
+                                    "$ne": [
+                                      {
+                                        "$ref": "request.operation"
+                                      },
+                                      "reference_to_video"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "then": {
+                                "$coalesce": [
+                                  {
+                                    "$first": {
+                                      "$map": {
+                                        "from": {
+                                          "$filter": {
+                                            "from": {
+                                              "$sortByOrder": {
+                                                "$ref": "request.images"
+                                              }
+                                            },
+                                            "as": "media",
+                                            "where": {
+                                              "$eq": [
+                                                {
+                                                  "$ref": "media.role"
+                                                },
+                                                "first_frame"
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "as": "media",
+                                        "in": {
+                                          "$ref": "media.value"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "$first": {
+                                      "$map": {
+                                        "from": {
+                                          "$filter": {
+                                            "from": {
+                                              "$sortByOrder": {
+                                                "$ref": "request.images"
+                                              }
+                                            },
+                                            "as": "media",
+                                            "where": {
+                                              "$eq": [
+                                                {
+                                                  "$ref": "media.role"
+                                                },
+                                                ""
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "as": "media",
+                                        "in": {
+                                          "$ref": "media.value"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "$first": {
+                                      "$map": {
+                                        "from": {
+                                          "$filter": {
+                                            "from": {
+                                              "$sortByOrder": {
+                                                "$ref": "request.images"
+                                              }
+                                            },
+                                            "as": "media",
+                                            "where": {
+                                              "$eq": [
+                                                {
+                                                  "$ref": "media.role"
+                                                },
+                                                "reference_image"
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "as": "media",
+                                        "in": {
+                                          "$ref": "media.value"
+                                        }
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "first_frame_image": {
+                      "$omitEmpty": {
+                        "$switch": {
+                          "cases": [
+                            {
+                              "when": {
+                                "$and": [
+                                  {
+                                    "$in": [
+                                      {
+                                        "$at": [
+                                          {
+                                            "$split": [
+                                              {
+                                                "$ref": "request.model"
+                                              },
+                                              "/"
+                                            ]
+                                          },
+                                          0
+                                        ]
+                                      },
+                                      [
+                                        "minimax"
+                                      ]
+                                    ]
+                                  },
+                                  {
+                                    "$ne": [
+                                      {
+                                        "$ref": "request.operation"
+                                      },
+                                      "reference_to_video"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "then": {
+                                "$coalesce": [
+                                  {
+                                    "$first": {
+                                      "$map": {
+                                        "from": {
+                                          "$filter": {
+                                            "from": {
+                                              "$sortByOrder": {
+                                                "$ref": "request.images"
+                                              }
+                                            },
+                                            "as": "media",
+                                            "where": {
+                                              "$eq": [
+                                                {
+                                                  "$ref": "media.role"
+                                                },
+                                                "first_frame"
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "as": "media",
+                                        "in": {
+                                          "$ref": "media.value"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "$first": {
+                                      "$map": {
+                                        "from": {
+                                          "$filter": {
+                                            "from": {
+                                              "$sortByOrder": {
+                                                "$ref": "request.images"
+                                              }
+                                            },
+                                            "as": "media",
+                                            "where": {
+                                              "$eq": [
+                                                {
+                                                  "$ref": "media.role"
+                                                },
+                                                ""
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "as": "media",
+                                        "in": {
+                                          "$ref": "media.value"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "$first": {
+                                      "$map": {
+                                        "from": {
+                                          "$filter": {
+                                            "from": {
+                                              "$sortByOrder": {
+                                                "$ref": "request.images"
+                                              }
+                                            },
+                                            "as": "media",
+                                            "where": {
+                                              "$eq": [
+                                                {
+                                                  "$ref": "media.role"
+                                                },
+                                                "reference_image"
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "as": "media",
+                                        "in": {
+                                          "$ref": "media.value"
+                                        }
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "end_image": {
+                      "$omitEmpty": {
+                        "$switch": {
+                          "cases": [
+                            {
+                              "when": {
+                                "$and": [
+                                  {
+                                    "$in": [
+                                      {
+                                        "$at": [
+                                          {
+                                            "$split": [
+                                              {
+                                                "$ref": "request.model"
+                                              },
+                                              "/"
+                                            ]
+                                          },
+                                          0
+                                        ]
+                                      },
+                                      [
+                                        "kwaivgi"
+                                      ]
+                                    ]
+                                  },
+                                  {
+                                    "$ne": [
+                                      {
+                                        "$ref": "request.operation"
+                                      },
+                                      "reference_to_video"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "then": {
+                                "$first": {
+                                  "$map": {
+                                    "from": {
+                                      "$filter": {
+                                        "from": {
+                                          "$sortByOrder": {
+                                            "$ref": "request.images"
+                                          }
+                                        },
+                                        "as": "media",
+                                        "where": {
+                                          "$eq": [
+                                            {
+                                              "$ref": "media.role"
+                                            },
+                                            "last_frame"
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "as": "media",
+                                    "in": {
+                                      "$ref": "media.value"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "last_frame": {
+                      "$omitEmpty": {
+                        "$switch": {
+                          "cases": [
+                            {
+                              "when": {
+                                "$and": [
+                                  {
+                                    "$in": [
+                                      {
+                                        "$at": [
+                                          {
+                                            "$split": [
+                                              {
+                                                "$ref": "request.model"
+                                              },
+                                              "/"
+                                            ]
+                                          },
+                                          0
+                                        ]
+                                      },
+                                      [
+                                        "google"
+                                      ]
+                                    ]
+                                  },
+                                  {
+                                    "$ne": [
+                                      {
+                                        "$ref": "request.operation"
+                                      },
+                                      "reference_to_video"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "then": {
+                                "$first": {
+                                  "$map": {
+                                    "from": {
+                                      "$filter": {
+                                        "from": {
+                                          "$sortByOrder": {
+                                            "$ref": "request.images"
+                                          }
+                                        },
+                                        "as": "media",
+                                        "where": {
+                                          "$eq": [
+                                            {
+                                              "$ref": "media.role"
+                                            },
+                                            "last_frame"
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "as": "media",
+                                    "in": {
+                                      "$ref": "media.value"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "last_frame_image": {
+                      "$omitEmpty": {
+                        "$switch": {
+                          "cases": [
+                            {
+                              "when": {
+                                "$and": [
+                                  {
+                                    "$in": [
+                                      {
+                                        "$at": [
+                                          {
+                                            "$split": [
+                                              {
+                                                "$ref": "request.model"
+                                              },
+                                              "/"
+                                            ]
+                                          },
+                                          0
+                                        ]
+                                      },
+                                      [
+                                        "minimax"
+                                      ]
+                                    ]
+                                  },
+                                  {
+                                    "$ne": [
+                                      {
+                                        "$ref": "request.operation"
+                                      },
+                                      "reference_to_video"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "then": {
+                                "$first": {
+                                  "$map": {
+                                    "from": {
+                                      "$filter": {
+                                        "from": {
+                                          "$sortByOrder": {
+                                            "$ref": "request.images"
+                                          }
+                                        },
+                                        "as": "media",
+                                        "where": {
+                                          "$eq": [
+                                            {
+                                              "$ref": "media.role"
+                                            },
+                                            "last_frame"
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "as": "media",
+                                    "in": {
+                                      "$ref": "media.value"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "reference_images": {
+                      "$omitEmpty": {
+                        "$switch": {
+                          "cases": [
+                            {
+                              "when": {
+                                "$in": [
+                                  {
+                                    "$at": [
+                                      {
+                                        "$split": [
+                                          {
+                                            "$ref": "request.model"
+                                          },
+                                          "/"
+                                        ]
+                                      },
+                                      0
+                                    ]
+                                  },
+                                  [
+                                    "bytedance",
+                                    "google"
+                                  ]
+                                ]
+                              },
+                              "then": {
+                                "$map": {
+                                  "from": {
+                                    "$filter": {
+                                      "from": {
+                                        "$sortByOrder": {
+                                          "$ref": "request.images"
+                                        }
+                                      },
+                                      "as": "media",
+                                      "where": {
+                                        "$eq": [
+                                          {
+                                            "$ref": "media.role"
+                                          },
+                                          "reference_image"
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "as": "media",
+                                  "in": {
+                                    "$ref": "media.value"
+                                  }
+                                }
+                              }
+                            }
+                          ]
                         }
                       }
                     }

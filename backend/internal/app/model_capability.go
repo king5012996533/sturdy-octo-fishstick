@@ -310,6 +310,125 @@ func applyReplicateImageCapability(image *ImageCapabilityConfig, modelName strin
 	}
 }
 
+// Replicate 视频模型的比例枚举同样直接取自上游 schema。
+var (
+	replicateVeoRatios      = []string{"16:9", "9:16"}
+	replicateKlingRatios    = []string{"16:9", "9:16", "1:1"}
+	replicateSeedanceRatios = []string{"16:9", "9:16", "1:1", "4:3", "3:4", "21:9"}
+	replicateWanRatios      = []string{"16:9", "9:16"}
+	replicateWanTiers       = []string{"480p", "720p", "1080p"}
+)
+
+// applyReplicateVideoCapability 按上游真实输入 schema 推导视频能力合同。
+//
+// 每个模型的时长档位、分辨率枚举与首尾帧字段都不同：kling v2.1 只有图生视频（首帧必填）、
+// veo 只有 4/6/8 秒、hailuo 没有比例参数、wan 用像素尺寸而不是比例。通用默认值
+// （1-15 秒、480p-2160p、9 张参考图）会让前端渲染出上游不认的选项，用户点下去才报错；
+// 因此这里只开放插件真实映射过的字段，未登记的模型回落到最小可用形态。
+func applyReplicateVideoCapability(video *VideoCapabilityConfig, modelName string) {
+	if video == nil {
+		return
+	}
+	owner, base := splitCatalogModelName(strings.ToLower(strings.TrimSpace(modelName)))
+
+	// Replicate 视频模型没有音频/水印开关，也不吃参考视频与参考音频。
+	video.GenerateAudio = VideoBooleanConfig{Supported: false, Default: false}
+	video.Watermark = VideoBooleanConfig{Supported: false, Default: false}
+	video.References.MaxVideos, video.References.MaxVideoBytes, video.References.MaxVideoDuration = 0, 0, 0
+	video.References.MaxAudios, video.References.MaxAudioBytes, video.References.MaxAudioDuration = 0, 0, 0
+	video.References.MaxImageBytes = 30 * 1024 * 1024
+	video.References.MaxImages = 1
+	video.Operations = []string{"text_to_video", "image_to_video"}
+	video.DefaultOperation = "text_to_video"
+	video.Duration = VideoDurationConfig{Selection: "enum", Values: []int{5}, Default: 5}
+	// 用空切片而不是 nil：nil 序列化成 null，前端按数组消费会直接抛错。
+	video.Ratios, video.DefaultRatio = []string{}, ""
+	video.Resolutions, video.DefaultResolution = []string{}, ""
+
+	// 默认时长取上游 schema 的 default，不取枚举末位：末位通常是最贵、最慢的一档。
+	setDuration := func(fallback int, values ...int) {
+		video.Duration = VideoDurationConfig{Selection: "enum", Values: values, Default: fallback}
+	}
+	setDurationRange := func(minimum, maximum, step, fallback int) {
+		video.Duration = VideoDurationConfig{Selection: "range", Min: minimum, Max: maximum, Step: step, Default: fallback}
+	}
+	setRatios := func(values []string, fallback string) {
+		video.Ratios, video.DefaultRatio = values, fallback
+	}
+	setResolutions := func(values []string, fallback string) {
+		video.Resolutions, video.DefaultResolution = values, fallback
+	}
+
+	switch {
+	case owner == "google" && strings.HasPrefix(base, "veo-3"):
+		// veo-3 / veo-3-fast：唯一支持生成音频的一族。
+		setDuration(8, 4, 6, 8)
+		setRatios(replicateVeoRatios, "16:9")
+		setResolutions([]string{"720p", "1080p"}, "1080p")
+		video.GenerateAudio = VideoBooleanConfig{Supported: true, Default: true}
+	case owner == "google" && strings.HasPrefix(base, "veo-2"):
+		setDuration(5, 5, 6, 7, 8)
+		setRatios(replicateVeoRatios, "16:9")
+	case owner == "kwaivgi" && strings.HasPrefix(base, "kling-v2.5-turbo-pro"):
+		// kling-v2.1 已被上游停用，2.5 turbo pro 是在售替代：文生与图生都支持，首尾帧字段齐全。
+		setDuration(5, 5, 10)
+		setRatios(replicateKlingRatios, "16:9")
+		video.References.MaxImages = 2
+	case owner == "kwaivgi" && strings.HasPrefix(base, "kling-v2.6"):
+		setDuration(5, 5, 10)
+		setRatios(replicateKlingRatios, "16:9")
+		// 2.6 只有 start_image，没有 end_image：多给一张尾帧会被上游直接拒绝。
+		video.References.MaxImages = 1
+	case owner == "kwaivgi" && strings.HasPrefix(base, "kling-v2.1-master"):
+		setDuration(5, 5, 10)
+		setRatios(replicateKlingRatios, "16:9")
+	case owner == "kwaivgi" && strings.HasPrefix(base, "kling"):
+		// kling v2.1 / v1.6：start_image 是必填输入，只能图生视频。
+		// 尾帧（end_image）只在该模型的 pro 档开放，而档位不由平台控制，因此这里只收一张首帧：
+		// 多收一张尾帧会让上游直接以 "end_image requires mode 'pro'" 失败。
+		setDuration(5, 5, 10)
+		video.Operations = []string{"image_to_video"}
+		video.DefaultOperation = "image_to_video"
+		video.References.MinImages = 1
+		video.References.MaxImages = 1
+	case owner == "bytedance" && strings.Contains(base, "seedance"):
+		// seedance 用比例 + 分辨率两个参数，且首尾帧都走独立字段。
+		setRatios(replicateSeedanceRatios, "16:9")
+		video.References.MaxImages = 2
+		if strings.Contains(base, "lite") {
+			// lite 还接受一组风格参考图，最多 4 张。
+			setDurationRange(4, 12, 1, 5)
+			setResolutions([]string{"480p", "720p", "1080p"}, "720p")
+			video.Operations = []string{"text_to_video", "image_to_video", "reference_to_video"}
+			video.References.MaxImages = 4
+		} else {
+			setDurationRange(2, 12, 1, 5)
+			setResolutions([]string{"480p", "720p", "1080p"}, "1080p")
+		}
+	case owner == "minimax" && strings.HasPrefix(base, "hailuo"):
+		// hailuo 没有比例参数：画幅由首帧图决定，纯文本生成走模型默认。
+		setDuration(6, 6, 10)
+		setResolutions([]string{"512p", "768p", "1080p"}, "1080p")
+		video.References.MaxImages = 2
+	case owner == "wan-video" && strings.Contains(base, "wan"):
+		setDuration(5, 5, 10)
+		setRatios(replicateWanRatios, "16:9")
+		setResolutions(replicateWanTiers, "720p")
+		// wan-2.5-t2v 是纯文生视频，插件不会把参考图下发到上游。
+		video.References.MaxImages = 0
+	case owner == "pixverse":
+		setDuration(5, 5, 8)
+		setRatios(replicateKlingRatios, "16:9")
+		setResolutions([]string{"360p", "540p", "720p", "1080p"}, "540p")
+		video.References.MaxImages = 2
+	default:
+		// 未登记族：不开放比例、分辨率与参考图，避免把上游不认的参数写进请求。
+		video.References.MaxImages = 0
+		video.Operations = []string{"text_to_video"}
+		video.DefaultOperation = "text_to_video"
+	}
+}
+
 // splitCatalogModelName 把 owner/name 形式的模型标识拆成两段；没有斜杠时 owner 为空。
 func splitCatalogModelName(value string) (string, string) {
 	if index := strings.Index(value, "/"); index >= 0 {
@@ -340,6 +459,8 @@ func DefaultModelCapabilityConfigForModel(protocol string, modelName string) *Mo
 	// 文本模型是否支持视觉输入不能从协议或模型名可靠推断，默认关闭，由管理员按真实上游能力开启。
 	streaming := true
 	text := &TextCapabilityConfig{Streaming: &streaming, References: TextReferenceConfig{PromptMaxChars: 32000}}
+	// Replicate 是一模型一 schema 的平台，视频能力合同同样必须逐模型对齐上游。
+	replicateVideo := model.ChannelInterfaceType(protocol) == model.ChannelInterfaceReplicatePredictionVideo
 	video := &VideoCapabilityConfig{
 		References:        VideoReferenceConfig{PromptMaxChars: DefaultVideoPromptMaxChars, MinImages: 0, MaxImages: 9, MaxImageBytes: 30 * 1024 * 1024, MaxVideos: 0, MaxVideoBytes: 0, MaxVideoDuration: 0, MaxAudios: 0, MaxAudioBytes: 0, MaxAudioDuration: 0},
 		Duration:          VideoDurationConfig{Selection: "range", Min: 1, Max: 15, Step: 1, Default: 6},
@@ -351,6 +472,10 @@ func DefaultModelCapabilityConfigForModel(protocol string, modelName string) *Mo
 		Watermark:         VideoBooleanConfig{Supported: false, Default: false},
 		Operations:        []string{"text_to_video", "image_to_video"},
 		DefaultOperation:  "text_to_video",
+	}
+	if replicateVideo {
+		applyReplicateVideoCapability(video, modelName)
+		return &ModelCapabilityConfig{Version: 1, Text: text, Image: DefaultImageCapabilityConfig(protocol, modelName), Video: video}
 	}
 	switch model.ChannelInterfaceType(protocol) {
 	case model.ChannelInterfaceVolcengineJiMengVideo:
