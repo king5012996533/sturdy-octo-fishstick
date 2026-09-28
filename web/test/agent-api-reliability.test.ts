@@ -23,7 +23,7 @@ const api: typeof import("../src/services/api/agent") = await import(join(dir, "
 const transport = await import(requestPath);
 const timers = await import(timerPath);
 const storagePath = join(dir, "storage.ts");
-writeFileSync(storagePath, 'export const data = new Map(); export const localForageStorageForScope = () => ({ getItem: async (k) => data.get(k) ?? null, setItem: async (k,v) => {data.set(k,v);}, removeItem: async (k) => {data.delete(k);} });');
+writeFileSync(storagePath, 'export const data = new Map(); export const localForageStorageForScope = () => ({ getItem: async (k) => data.get(k) ?? null, setItem: async (k,v) => {data.set(k,v);}, removeItem: async (k) => {data.delete(k);} }); export const listScopedStorageNames = async (prefix) => Array.from(data.keys()).filter((name) => name.startsWith(prefix));');
 writeFileSync(join(dir, "scope.ts"), 'export const getActiveUserScope = () => "test-user";');
 writeFileSync(join(dir, "conversations.ts"), readFileSync(new URL("services/cloud-agent-conversations.ts", root), "utf8")
     .replace('"@/lib/localforage-storage"', JSON.stringify(pathToFileURL(storagePath).href))

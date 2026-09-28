@@ -18,7 +18,7 @@ import { agentApprovalMatchesSettings, agentImageApproval } from "@/lib/canvas/a
 import type { AgentMediaSettings } from "@/services/api/agent";
 import { CanvasAgentImageApprovalSettings } from "./canvas-agent-image-approval-settings";
 import { addSkill, listAddedSkills, listSkills, type Skill, type SkillCategory } from "@/services/api/skills";
-import { clearCloudAgentPendingSubmission, cloudAgentConversationTitle, loadCloudAgentConversations, loadCloudAgentPendingSubmission, saveCloudAgentConversations, saveCloudAgentPendingSubmission, type CloudAgentConversation, type CloudAgentPendingSubmission } from "@/services/cloud-agent-conversations";
+import { clearCloudAgentPendingSubmission, cloudAgentConversationTitle, loadCloudAgentConversations, loadCloudAgentPendingSubmission, salvageCloudAgentConversations, saveCloudAgentConversations, saveCloudAgentPendingSubmission, type CloudAgentConversation, type CloudAgentPendingSubmission } from "@/services/cloud-agent-conversations";
 import { logicalModelIDForConfig, modelOptionName, resolveModelRequestConfig, selectableModelsByCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -368,9 +368,37 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, re
                 }
                 setPendingHydrated(true);
             })
-            .catch((cause) => {
+            .catch(async (cause) => {
                 if (!active) return;
-                setMessages((current) => appendAgentError(current, "history-error", cause, "对话恢复失败，已暂停发送；请重新打开对话核对"));
+                // 本地快照读不出来时不能把输入框永久锁死：隔离原值（留备份），再按
+                // 幂等提交记录重建对话，让上一轮结果待确认的消息仍然按原 key 重试。
+                const salvaged = await salvageCloudAgentConversations(canvasId).catch(() => null);
+                if (!active) return;
+                if (!salvaged) {
+                    setMessages((current) => appendAgentError(current, "history-error", cause, "对话恢复失败，已暂停发送；请重新打开对话核对"));
+                    return;
+                }
+                setConversations(salvaged.recovered);
+                setMessages((current) => appendAgentError(current, "history-error", cause, "本地对话历史已损坏，已隔离备份并重建；上一轮未确认的提交请原样重试，不会重复计费"));
+                if (!salvaged.activeId) {
+                    setActiveConversationId(nanoid());
+                    pendingSubmission.current = null;
+                    setPendingHydrated(true);
+                    return;
+                }
+                setActiveConversationId(salvaged.activeId);
+                try {
+                    const pending = await loadCloudAgentPendingSubmission(canvasId, salvaged.activeId);
+                    if (!active) return;
+                    pendingSubmission.current = pending;
+                    setPendingHydrated(true);
+                    if (pending?.request) setPrompt(pending.request.prompt);
+                } catch (pendingCause) {
+                    if (!active) return;
+                    // 幂等记录本身坏了，就无法确认上一轮是否已经计费：保持停发，
+                    // 只留“新对话”这一条明确出口，避免悄悄重复扣费。
+                    setMessages((current) => appendAgentError(current, `pending-${salvaged.activeId}`, pendingCause, "待确认请求读取失败"));
+                }
             })
             .finally(() => {
                 if (active) setHistoryHydrated(true);

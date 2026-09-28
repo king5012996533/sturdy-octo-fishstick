@@ -1,4 +1,4 @@
-import { localForageStorageForScope } from "@/lib/localforage-storage";
+import { listScopedStorageNames, localForageStorageForScope } from "@/lib/localforage-storage";
 import { markdownPlainText } from "@/lib/markdown-plain-text";
 import { getActiveUserScope } from "@/lib/user-scope";
 import type { AgentPermissionMode, AgentRun } from "@/services/api/agent";
@@ -52,8 +52,43 @@ export async function loadCloudAgentConversations(canvasId: string): Promise<Clo
     } catch {
         throw new Error("Agent 对话历史已损坏");
     }
-    if (!isConversationDocument(parsed)) throw new Error("Agent 对话历史格式无效");
-    return parsed;
+    if (!parsed || typeof parsed !== "object") throw new Error("Agent 对话历史已损坏");
+    const document = parsed as Partial<CloudAgentConversationDocument>;
+    if (document.version !== 1 || !Array.isArray(document.conversations)) throw new Error("Agent 对话历史格式无效");
+    // 单条对话不合法（典型是旧版本写入的 permissionMode）不能拖垮整份历史：
+    // 整份拒收会让输入框永久停在“已暂停发送”，而修一下就能继续用。
+    const conversations = document.conversations.map(repairConversation).filter((conversation): conversation is CloudAgentConversation => conversation !== null);
+    const activeId = typeof document.activeId === "string" && conversations.some((conversation) => conversation.id === document.activeId) ? document.activeId : (conversations[0]?.id ?? null);
+    return { version: 1, activeId, conversations };
+}
+
+/** 读不出本地对话快照时，隔离原值并按幂等提交记录重建，避免输入框被永久锁死。 */
+export async function salvageCloudAgentConversations(canvasId: string): Promise<{ backupKey: string | null; recovered: CloudAgentConversation[]; activeId: string | null }> {
+    const storage = localForageStorageForScope(getActiveUserScope());
+    const raw = await storage.getItem(storageKey(canvasId));
+    let backupKey: string | null = null;
+    if (raw) {
+        backupKey = `${storageKey(canvasId)}:corrupt:${Date.now()}`;
+        await storage.setItem(backupKey, raw);
+        await storage.removeItem(storageKey(canvasId));
+    }
+    const prefix = pendingStorageKey(canvasId, "");
+    const pendingNames = await listScopedStorageNames(prefix);
+    const now = new Date().toISOString();
+    const recovered = pendingNames
+        .map((name) => decodeURIComponent(name.slice(prefix.length)))
+        .filter((conversationId) => conversationId.length > 0)
+        .map((conversationId): CloudAgentConversation => ({
+            id: conversationId,
+            title: "新对话",
+            messages: [],
+            run: null,
+            permissionMode: "request_approval",
+            createdAt: now,
+            updatedAt: now,
+        }));
+    if (recovered.length) await saveCloudAgentConversations(canvasId, recovered[0].id, recovered);
+    return { backupKey, recovered, activeId: recovered[0]?.id ?? null };
 }
 
 export async function saveCloudAgentConversations(canvasId: string, activeId: string | null, conversations: CloudAgentConversation[]) {
@@ -114,18 +149,25 @@ function emptyDocument(): CloudAgentConversationDocument {
     return { version: 1, activeId: null, conversations: [] };
 }
 
-function isConversationDocument(value: unknown): value is CloudAgentConversationDocument {
-    if (!value || typeof value !== "object") return false;
-    const document = value as Partial<CloudAgentConversationDocument>;
-    if (document.version !== 1 || !Array.isArray(document.conversations)) return false;
-    return document.conversations.every((conversation) => {
-        if (!conversation || typeof conversation !== "object") return false;
-        const candidate = conversation as Partial<CloudAgentConversation>;
-        return typeof candidate.id === "string"
-            && typeof candidate.title === "string"
-            && Array.isArray(candidate.messages)
-            && typeof candidate.createdAt === "string"
-            && typeof candidate.updatedAt === "string"
-            && ["read_only", "auto", "request_approval"].includes(candidate.permissionMode || "");
-    });
+const PERMISSION_MODES: AgentPermissionMode[] = ["read_only", "auto", "request_approval"];
+
+// 只修不丢：缺字段就补默认值，权限档位不认识就退回「请求审批」，
+// 只有当一条记录连 id 都没有、无法与幂等提交记录对应时才丢弃。
+function repairConversation(value: unknown): CloudAgentConversation | null {
+    if (!value || typeof value !== "object") return null;
+    const candidate = value as Partial<CloudAgentConversation>;
+    if (typeof candidate.id !== "string" || !candidate.id) return null;
+    const messages = Array.isArray(candidate.messages) ? (candidate.messages as CloudAgentConversationMessage[]) : [];
+    const now = new Date().toISOString();
+    return {
+        id: candidate.id,
+        title: typeof candidate.title === "string" && candidate.title ? candidate.title : cloudAgentConversationTitle(messages),
+        messages,
+        run: candidate.run ?? null,
+        model: typeof candidate.model === "string" && candidate.model ? candidate.model : undefined,
+        permissionMode: PERMISSION_MODES.includes(candidate.permissionMode as AgentPermissionMode) ? (candidate.permissionMode as AgentPermissionMode) : "request_approval",
+        skillIds: Array.isArray(candidate.skillIds) ? candidate.skillIds.filter((id): id is string => typeof id === "string") : undefined,
+        createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : now,
+        updatedAt: typeof candidate.updatedAt === "string" ? candidate.updatedAt : now,
+    };
 }
