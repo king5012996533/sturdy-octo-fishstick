@@ -427,3 +427,96 @@ func vendorContainsString(values []string, target string) bool {
 	}
 	return false
 }
+
+// TestVendorCatalogIncludesPluginProviders 覆盖"插件厂商要进目录"。
+//
+// 官方厂商里有八十多家是声明式插件包，目录只读 protocol.Builtins() 时它们整批
+// 消失——后台挑不到 Replicate，代码里其实早就写着它的请求协议。插件包又不带厂商
+// 归属（author 全是同一个），所以这里同时钉住按 provider ID 首段归组、以及
+// 短标识折进内置长标识这两条规则。
+func TestVendorCatalogIncludesPluginProviders(t *testing.T) {
+	svc, _ := newVendorTestService(t)
+	manifest := []byte(`{
+		"apiVersion": "beeftv.plugin/v2",
+		"id": "replicate-prediction",
+		"name": "Replicate Predictions",
+		"version": "1.0.0",
+		"author": "BeefTV Contributors",
+		"runtime": {"backend": ""},
+		"contributes": {"providers": [
+			{"id": "replicate-prediction-image", "label": "Replicate Predictions Image", "capabilities": ["image"], "scopes": ["admin.system-channel"], "baseUrl": "https://api.replicate.com", "auth": {"type": "bearer", "field": "apiKey"}, "create": {"method": "POST", "path": "/v1/predictions", "contentType": "application/json"}, "poll": {"method": "GET", "path": "/v1/predictions/{{taskId}}"}},
+			{"id": "replicate-prediction-video", "label": "Replicate Predictions Video", "capabilities": ["video"], "scopes": ["admin.system-channel"], "baseUrl": "https://api.replicate.com", "auth": {"type": "bearer", "field": "apiKey"}, "create": {"method": "POST", "path": "/v1/predictions", "contentType": "application/json"}, "poll": {"method": "GET", "path": "/v1/predictions/{{taskId}}"}},
+			{"id": "volcengine-jimeng-video", "label": "即梦视频", "capabilities": ["video"], "scopes": ["admin.system-channel"], "baseUrl": "https://visual.volcengineapi.com", "auth": {"type": "bearer", "field": "apiKey"}, "create": {"method": "POST", "path": "/", "contentType": "application/json"}},
+			{"id": "claude-api", "label": "Anthropic Messages", "capabilities": ["text"], "scopes": ["admin.system-channel"], "baseUrl": "https://api.anthropic.com", "auth": {"type": "bearer", "field": "apiKey"}, "create": {"method": "POST", "path": "/v1/messages", "contentType": "application/json"}},
+			{"id": "gemini-image", "label": "Gemini Image", "capabilities": ["image"], "scopes": ["admin.system-channel"], "baseUrl": "https://generativelanguage.googleapis.com", "auth": {"type": "bearer", "field": "apiKey"}, "create": {"method": "POST", "path": "/v1beta/models/{{model}}:generateContent", "contentType": "application/json"}}
+		]}
+	}`)
+	if _, err := svc.pluginRuntime.install(testPluginPackage(t, manifest), "replicate-prediction.beeftv-plugin"); err != nil {
+		t.Fatalf("安装测试插件失败：%v", err)
+	}
+	if err := svc.pluginRuntime.reload(); err != nil {
+		t.Fatalf("重载插件注册表失败：%v", err)
+	}
+
+	items, err := svc.VendorCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byCode := make(map[string]VendorCatalogItem, len(items))
+	for _, item := range items {
+		byCode[item.Code] = item
+	}
+
+	replicate, ok := byCode["replicate"]
+	if !ok {
+		t.Fatalf("插件厂商未进目录：%v", vendorCodes(items))
+	}
+	if replicate.Name != "Replicate" {
+		t.Fatalf("厂商展示名应取 label 首段：%q", replicate.Name)
+	}
+	if !vendorContainsString(replicate.Capabilities, "IMAGE") || !vendorContainsString(replicate.Capabilities, "VIDEO") {
+		t.Fatalf("同一厂商下的能力应合并：%#v", replicate.Capabilities)
+	}
+	if !vendorContainsString(replicate.Protocols, "replicate-prediction-image") || !vendorContainsString(replicate.Protocols, "replicate-prediction-video") {
+		t.Fatalf("同一厂商下的协议应合并：%#v", replicate.Protocols)
+	}
+
+	// 声明式插件重新实现内置协议时，厂商要跟内置走：claude-api 属于 Anthropic，
+	// 按 ID 首段猜会凭空多出一个 claude 假厂商。
+	if !vendorContainsString(byCode["anthropic"].Protocols, "claude-api") {
+		t.Fatalf("重新声明内置协议的插件应并进内置厂商：%#v", byCode["anthropic"])
+	}
+	if _, exists := byCode["claude"]; exists {
+		t.Fatalf("不应出现按 ID 首段猜出来的假厂商 claude")
+	}
+
+	// 模型家族名要归到厂商：gemini-* 属于 Google，否则后台会同时出现 google 与 gemini。
+	if !vendorContainsString(byCode["google"].Protocols, "gemini-image") {
+		t.Fatalf("gemini 系列应并进 google：%#v", byCode["google"])
+	}
+	if _, exists := byCode["gemini"]; exists {
+		t.Fatalf("不应出现按模型家族名猜出来的厂商 gemini")
+	}
+
+	// 插件的 volcengine-jimeng-video 要并进内置的 volcengine-jimeng，而不是新起一行。
+	if !vendorContainsString(byCode["volcengine-jimeng"].Protocols, "volcengine-jimeng-video") {
+		t.Fatalf("短标识未折进内置厂商：%#v", byCode["volcengine-jimeng"])
+	}
+	for code := range byCode {
+		if code == "volcengine" {
+			t.Fatalf("volcengine 应折进 volcengine-ark/jimeng，不应单独成行")
+		}
+	}
+
+	// 插件厂商按内置处理：运营在后台看到它属于"平台预置"。
+	view, err := svc.SaveModelVendor(VendorInput{Code: "replicate", Name: "Replicate"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Kind != "BUILTIN" {
+		t.Fatalf("插件来源的厂商应判定为 BUILTIN：%q", view.Kind)
+	}
+	if !vendorContainsString(view.Capabilities, "IMAGE") {
+		t.Fatalf("厂商应带出目录里的能力清单：%#v", view.Capabilities)
+	}
+}

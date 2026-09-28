@@ -122,11 +122,211 @@ type CredentialInput struct {
 //
 // 目录完全来自协议注册表，不在这里维护第二份清单：厂商能不能接，取决于二进制里
 // 有没有对应协议适配器，手写的清单迟早会和协议注册表脱节。
+// VendorCatalog 返回"运营可以接哪些上游"。
+//
+// 数据源是运行时注册表（插件包 + 内置适配器的合并结果），不是 protocol.Builtins()：
+// 官方厂商里有八十多家是声明式插件包（Replicate / fal.ai / SiliconFlow / Kling /
+// Runway …），它们只有装进实例之后才存在。只读 Builtins 会让这整批厂商从目录里
+// 消失——运营在后台挑不到 Replicate，代码里其实早就写着它的请求协议。
 func (s *Service) VendorCatalog() ([]VendorCatalogItem, error) {
-	return vendorCatalogItems(protocol.Builtins()), nil
+	builtin := vendorCatalogItems(protocol.Builtins())
+	return mergeVendorCatalog(builtin, s.pluginVendorCatalog(builtin)), nil
 }
 
-// AdminModelVendors 返回后台厂商列表（含凭据数与模型数）。
+// pluginVendorCodeAliases 收掉"模型家族名被当成厂商"的少数几个。
+//
+// gemini-image / grok-image 这类 provider ID 的首段是模型家族而不是厂商，按首段推导
+// 会让同一个上游在后台裂成两行（Google 与 Gemini、xAI 与 Grok），运营往两边各配一条
+// 凭据后账就对不上了。表刻意保持极小：只有当首段确实指向某个已有厂商的同一条上游时
+// 才补一行，不要用它来给厂商改名。
+var pluginVendorCodeAliases = map[string]string{
+	"gemini": "google",
+	"grok":   "xai",
+}
+
+// pluginVendorCatalog 把插件贡献的 provider 归到厂商名下。
+//
+// 插件包不提供厂商归属：全部 84 个包的 author 都是 "BeefTV Contributors"，直接拿
+// manifest 作者当厂商会让所有上游塌成一行。归组规则有两条：
+//
+//  1. provider ID 命中内置协议（claude-api、gemini-image、grok-image、chat-completion
+//     这些在内置协议表里已有）时，跟内置协议的厂商走——插件只是把同一个协议换成了
+//     声明式实现，厂商仍是 Anthropic / Google / xAI，按 ID 首段猜会凭空多出
+//     claude、gemini、grok、chat 四个假厂商。
+//  2. 其余按 provider ID 首段推导（replicate-prediction-image → replicate、
+//     fal-queue-video → fal），展示名取 label 首段品牌词。
+func (s *Service) pluginVendorCatalog(builtin []VendorCatalogItem) []VendorCatalogItem {
+	vendorByProtocol := make(map[string]string)
+	for _, item := range builtin {
+		for _, protocolID := range item.Protocols {
+			if _, exists := vendorByProtocol[protocolID]; !exists {
+				vendorByProtocol[protocolID] = item.Code
+			}
+		}
+	}
+	plugins := s.Plugins()
+	entries := make(map[string]*VendorCatalogItem)
+	capabilitySets := make(map[string]map[string]struct{})
+	for _, plugin := range plugins {
+		for _, provider := range plugin.Manifest.Contributes.Providers {
+			providerID := strings.TrimSpace(provider.ID)
+			code := vendorByProtocol[providerID]
+			if code == "" {
+				code = vendorCodeFromProviderID(providerID)
+				if alias, aliased := pluginVendorCodeAliases[code]; aliased {
+					code = alias
+				}
+			}
+			if code == "" {
+				continue
+			}
+			item, exists := entries[code]
+			if !exists {
+				item = &VendorCatalogItem{Code: code, Name: vendorNameFromProviderLabel(provider.Label, code), Capabilities: []string{}, Protocols: []string{}}
+				entries[code] = item
+				capabilitySets[code] = make(map[string]struct{})
+			}
+			for _, capability := range provider.Capabilities {
+				key := strings.ToUpper(strings.TrimSpace(string(capability)))
+				if key == "" {
+					continue
+				}
+				if _, duplicate := capabilitySets[code][key]; duplicate {
+					continue
+				}
+				capabilitySets[code][key] = struct{}{}
+				item.Capabilities = append(item.Capabilities, key)
+			}
+			if providerID != "" {
+				item.Protocols = append(item.Protocols, providerID)
+			}
+		}
+	}
+	items := make([]VendorCatalogItem, 0, len(entries))
+	for _, item := range entries {
+		sort.Strings(item.Capabilities)
+		sort.Strings(item.Protocols)
+		items = append(items, *item)
+	}
+	sort.Slice(items, func(left int, right int) bool { return items[left].Code < items[right].Code })
+	return items
+}
+
+// mergeVendorCatalog 合并内置厂商与插件厂商，并把短标识折进长标识。
+//
+// volcengine（插件）与 volcengine-ark（内置）说的是同一个上游，agnes 与 agnes-ai
+// 同理：不折叠的话后台会出现两行同一个厂商，运营会往两边各配一条凭据、再各自定价，
+// 最后对不出账。折叠方向固定为"并进更长的那个"，因为更长的那个来自内置目录，
+// 厂商名是权威的。
+func mergeVendorCatalog(primary []VendorCatalogItem, extra []VendorCatalogItem) []VendorCatalogItem {
+	merged := make([]VendorCatalogItem, 0, len(primary)+len(extra))
+	index := make(map[string]int, len(primary)+len(extra))
+	capabilitySets := make(map[string]map[string]struct{})
+	appendItem := func(item VendorCatalogItem) {
+		if position, exists := index[item.Code]; exists {
+			target := &merged[position]
+			set := capabilitySets[item.Code]
+			for _, capability := range item.Capabilities {
+				if _, duplicate := set[capability]; duplicate {
+					continue
+				}
+				set[capability] = struct{}{}
+				target.Capabilities = append(target.Capabilities, capability)
+			}
+			for _, protocolID := range item.Protocols {
+				if !containsString(target.Protocols, protocolID) {
+					target.Protocols = append(target.Protocols, protocolID)
+				}
+			}
+			if target.DocsURL == "" {
+				target.DocsURL = item.DocsURL
+			}
+			return
+		}
+		index[item.Code] = len(merged)
+		capabilitySets[item.Code] = make(map[string]struct{}, len(item.Capabilities))
+		for _, capability := range item.Capabilities {
+			capabilitySets[item.Code][capability] = struct{}{}
+		}
+		merged = append(merged, item)
+	}
+	for _, item := range primary {
+		appendItem(item)
+	}
+	for _, item := range extra {
+		if target, folded := foldVendorCode(index, item.Code); folded {
+			item.Code = target
+		}
+		appendItem(item)
+	}
+	for position := range merged {
+		sort.Strings(merged[position].Capabilities)
+		sort.Strings(merged[position].Protocols)
+	}
+	sort.Slice(merged, func(left int, right int) bool { return merged[left].Code < merged[right].Code })
+	return merged
+}
+
+// foldVendorCode 找出 code 应该并进哪个已有厂商：只认"前缀 + 连字符"这一种关系，
+// 避免把 openai 和 openrouter 这类只共享字符串前缀的两家误并。
+func foldVendorCode(index map[string]int, code string) (string, bool) {
+	for existing := range index {
+		if strings.HasPrefix(existing, code+"-") || strings.HasPrefix(code, existing+"-") {
+			target := code
+			if len(existing) > len(code) {
+				target = existing
+			}
+			if target != code {
+				return target, true
+			}
+		}
+	}
+	return code, false
+}
+
+// vendorCodeFromProviderID 取 provider ID 的首段作为厂商标识。
+func vendorCodeFromProviderID(id string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(id))
+	if trimmed == "" {
+		return ""
+	}
+	if index := strings.Index(trimmed, "-"); index > 0 {
+		trimmed = trimmed[:index]
+	}
+	return vendorCodeFromName(trimmed)
+}
+
+// providerLabelShapeWords 是 label 里描述"接口形态"的词：厂商名到它们为止。
+//
+// 直接取首词会把 "Black Forest Labs FLUX" 压成 "Black"、"SiliconFlow Chat" 的
+// "SiliconFlow" 倒是正好——用词表截断比按词数截断更稳，中文 label 没有空格时也
+// 会原样保留。
+var providerLabelShapeWords = map[string]struct{}{
+	"queue": {}, "predictions": {}, "prediction": {}, "chat": {}, "completions": {},
+	"completion": {}, "video": {}, "videos": {}, "image": {}, "images": {},
+	"audio": {}, "audios": {}, "messages": {}, "workflow": {}, "generate": {},
+	"generation": {}, "text": {}, "native": {}, "task": {}, "tasks": {},
+	"compatible": {}, "api": {}, "model": {}, "models": {},
+}
+
+// vendorNameFromProviderLabel 取 label 里"厂商名"这一段作为展示名；拿不到就用标识兜底。
+func vendorNameFromProviderLabel(label string, fallback string) string {
+	fields := strings.Fields(strings.TrimSpace(label))
+	kept := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if _, isShape := providerLabelShapeWords[strings.ToLower(field)]; isShape {
+			break
+		}
+		kept = append(kept, field)
+	}
+	if len(kept) == 0 {
+		if len(fields) > 0 {
+			return fields[0]
+		}
+		return fallback
+	}
+	return strings.Join(kept, " ")
+}
 func (s *Service) AdminModelVendors() ([]VendorView, error) {
 	records, err := s.repo.ModelVendors()
 	if err != nil {
@@ -181,7 +381,7 @@ func (s *Service) SaveModelVendor(input VendorInput, id string) (*VendorView, er
 		return nil, NewAppError(http.StatusConflict, "厂商标识已存在")
 	}
 
-	catalogItem, hasCatalogItem := vendorCatalogIndex()[code]
+	catalogItem, hasCatalogItem := s.vendorCatalogIndex()[code]
 	now := time.Now()
 	if record == nil {
 		record = &model.ModelVendor{ID: targetID, CreatedAt: now}
@@ -607,9 +807,13 @@ func vendorCatalogItems(registry *protocol.Registry) []VendorCatalogItem {
 	return items
 }
 
-func vendorCatalogIndex() map[string]VendorCatalogItem {
+func (s *Service) vendorCatalogIndex() map[string]VendorCatalogItem {
 	index := make(map[string]VendorCatalogItem)
-	for _, item := range vendorCatalogItems(protocol.Builtins()) {
+	catalog, err := s.VendorCatalog()
+	if err != nil {
+		return index
+	}
+	for _, item := range catalog {
 		index[item.Code] = item
 	}
 	return index
