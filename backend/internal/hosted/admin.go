@@ -416,9 +416,10 @@ func (e *Extension) handleAccountOverview(c *gin.Context) {
 		response.Usage = usage
 	}
 
-	// 计费模式如实回报：当前平台统一承担模型成本，充值/套餐尚未接入，因此余额是
-	// null 而不是 0——0 会被读成"用户真的一分钱没有"。
+	// 计费模式如实回报：模型与上游成本仍由平台统一承担（用户不持密钥），余额因此是
+	// null 而不是 0——0 会被读成"用户真的一分钱没有"。套餐与充值已经接入，文案要把
+	// 用户指向计费页，不能停在"尚未开放"。
 	response.Billing.Mode = "platform"
-	response.Billing.Note = "模型与上游成本由平台统一承担，充值、套餐与订单功能尚未接入。"
+	response.Billing.Note = "模型与上游成本由平台统一承担，无需自备密钥；套餐与额度可在计费页查看与购买。"
 	respondOK(c, response)
 }
