@@ -1,6 +1,6 @@
 module infinite-canvas/backend
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/gin-gonic/gin v1.12.0
@@ -10,7 +10,7 @@ require (
 	github.com/wailsapp/wails/v2 v2.16.0
 	golang.org/x/crypto v0.54.0
 	golang.org/x/net v0.57.0
-	golang.org/x/sync v0.22.0
+	golang.org/x/sync v0.23.0
 	golang.org/x/sys v0.47.0
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/sqlite v1.6.0
