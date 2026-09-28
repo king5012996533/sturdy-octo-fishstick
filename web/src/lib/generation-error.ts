@@ -99,6 +99,7 @@ const CATEGORY_COPY: Record<GenerationErrorCategory, CategoryCopy> = {
 const PROVIDER_CODE_CATEGORIES: Record<string, GenerationErrorCategory> = {
     invalid_reference_audio: "invalid_params",
     insufficient_user_quota: "quota_user",
+    model_temporarily_unavailable: "provider_unavailable",
     no_available_channel: "provider_unavailable",
     "channel:invalid_key": "provider_unavailable",
     "channel:no_available_key": "provider_unavailable",
