@@ -640,3 +640,211 @@
     white-space: pre-wrap;
     word-break: break-word;
 }
+
+/* 协议管理：正文按原样换行展示，编辑区按标签纵向排列。 */
+.admin-agreement-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.admin-agreement-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: var(--fs-caption);
+    color: var(--admin-ink-dim);
+}
+
+.admin-agreement-body {
+    max-height: 52vh;
+    margin: 0;
+    overflow-y: auto;
+    padding-right: 6px;
+    font-family: inherit;
+    font-size: var(--fs-caption);
+    line-height: 1.8;
+    color: var(--admin-ink-dim);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* ---------- 站点设置 ---------- */
+
+/* 四块设置各自独立成卡：品牌、资源、SEO、版本信息的修改节奏不同，
+   挤在一张长表单里容易误改到相邻字段。 */
+.admin-settings-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    align-items: start;
+}
+
+@media (max-width: 1100px) {
+    .admin-settings-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.admin-settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.admin-settings-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0;
+    font-size: var(--fs-caption);
+    font-weight: 500;
+    color: var(--admin-ink);
+}
+
+.admin-settings-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.admin-settings-field-label {
+    font-size: var(--fs-label);
+    color: var(--admin-ink-dim);
+}
+
+.admin-settings-field-hint {
+    font-size: var(--fs-tiny);
+    line-height: 1.6;
+    color: var(--admin-ink-faint);
+}
+
+.admin-settings-inline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+    font-size: var(--fs-label);
+    color: var(--admin-ink-dim);
+}
+
+.admin-settings-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.admin-settings-facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    font-size: var(--fs-label);
+    color: var(--admin-ink-faint);
+}
+
+.admin-settings-facts b {
+    display: block;
+    margin-top: 2px;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    color: var(--admin-ink);
+}
+
+/* 资源槽位：缩略图固定尺寸，避免 4 个槽位因图片宽高比不同而参差。 */
+.admin-asset-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.admin-asset-thumb {
+    display: flex;
+    width: 64px;
+    height: 48px;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 1px solid var(--admin-hairline-soft);
+    border-radius: var(--r-md);
+    background: var(--admin-field);
+}
+
+.admin-asset-preview {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.admin-asset-placeholder {
+    font-size: var(--fs-tiny);
+    color: var(--admin-ink-faint);
+}
+
+.admin-asset-meta {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.admin-asset-state {
+    font-size: var(--fs-tiny);
+    color: var(--admin-ink-faint);
+}
+
+.admin-asset-actions {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 4px;
+}
+
+/* ---------- 验证码网关 ---------- */
+
+.admin-gateway-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.admin-gateway-detail {
+    font-size: var(--fs-label);
+    color: var(--admin-ink-faint);
+}
+
+.admin-gateway-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+}
+
+@media (max-width: 860px) {
+    .admin-gateway-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.admin-gateway-test {
+    display: flex;
+    flex: 1;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    min-width: 260px;
+}
+
+.admin-gateway-test-result {
+    font-size: var(--fs-label);
+    color: var(--admin-ink-dim);
+}
+
+.admin-gateway-test-result.is-ok {
+    color: #9ceac4;
+}
+
+.admin-gateway-test-result.is-error {
+    color: #ffb4b4;
+}

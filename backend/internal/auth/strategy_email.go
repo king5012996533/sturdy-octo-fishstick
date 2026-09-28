@@ -30,6 +30,7 @@ func (s *Service) emailCodeStrategy() *Strategy {
 			if !validEmail(email) {
 				return nil, invalidArgument("请输入正确的邮箱地址")
 			}
+			sender := s.resolveEmailSender()
 			if s.emailSender == nil {
 				return nil, internalFailure(nil)
 			}
@@ -63,7 +64,7 @@ func (s *Service) emailCodeStrategy() *Strategy {
 				Target:    email,
 				Channel:   string(ChannelEmail),
 				ExpiresAt: expiresAt,
-				DevCode:   s.devEcho(code, s.emailSender),
+				DevCode:   s.devEcho(code, sender),
 			}, nil
 		},
 		Login: func(ctx context.Context, in LoginInput) (*LoginOutput, error) {

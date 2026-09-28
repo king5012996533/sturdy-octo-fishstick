@@ -74,6 +74,22 @@ describe("hosted auth gate phases", () => {
         expect(resolveHostedAuthGatePhase({ methods: [emailMethod], session: user })).toEqual({ phase: "authenticated", user });
     });
 
+    test("签署的是旧版本时先要求重新同意，不能直接放行", () => {
+        const user = { id: "u1", name: "用户", email: "u@example.com", avatarUrl: "", role: "USER", status: "ACTIVE" };
+        // 发布新版本后，所有账号的已签版本都会落后于当前版本；默认放行等于把留痕写成假的。
+        expect(resolveHostedAuthGatePhase({
+            methods: [emailMethod],
+            session: user,
+            agreements: { currentVersion: "2026-10-01", acceptedVersion: "2026-09-28", accepted: false },
+        })).toEqual({ phase: "reconsent", user, currentVersion: "2026-10-01" });
+        // 已签当前版本照常放行。
+        expect(resolveHostedAuthGatePhase({
+            methods: [emailMethod],
+            session: user,
+            agreements: { currentVersion: "2026-10-01", acceptedVersion: "2026-10-01", accepted: true },
+        })).toEqual({ phase: "authenticated", user });
+    });
+
     test("探测失败时保持加载态，绝不放行", () => {
         expect(resolveHostedAuthGatePhase(null)).toBeNull();
     });

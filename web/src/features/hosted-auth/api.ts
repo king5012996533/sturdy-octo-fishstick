@@ -38,7 +38,22 @@ export type HostedAuthCodeChallenge = {
     devCode?: string;
 };
 
-export type HostedAuthSessionPayload = { user: HostedAuthUser | null };
+/**
+ * 会话里的协议状态。
+ *
+ * accepted=false 表示当前账号签署的是旧版本，需要在进入工作台前重新同意一次：
+ * 强制重签必须由服务端判定，前端自己比版本号迟早会漂移。
+ */
+export type HostedAuthAgreementState = {
+    currentVersion: string;
+    acceptedVersion: string;
+    accepted: boolean;
+};
+
+export type HostedAuthSessionPayload = {
+    user: HostedAuthUser | null;
+    agreements?: HostedAuthAgreementState | null;
+};
 
 export type HostedAuthAgreementDocument = {
     type: string;
@@ -98,6 +113,16 @@ export function fetchHostedAuthAgreements() {
 
 export function registerHostedAuth(input: { methodType: HostedAuthMethodType; target: string; code?: string; password?: string; agreementVersion: string }) {
     return http.post<{ user: HostedAuthUser; expiresAt: string }>("/auth/register", input);
+}
+
+/**
+ * 重新同意当前版本协议。
+ *
+ * 版本号由服务端下发，回传的是服务端认为的当前版本；服务端会再比对一次，避免
+ * 停留在旧页面的用户把过期版本写进留痕。
+ */
+export function acceptHostedAuthAgreements(version: string) {
+    return http.post<{ accepted: boolean }>("/auth/agreements/accept", { version });
 }
 
 export function logoutHostedAuth() {

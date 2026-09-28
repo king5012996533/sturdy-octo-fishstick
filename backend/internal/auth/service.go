@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -66,6 +67,31 @@ func internalFailure(cause error) *Error {
 	return &Error{Status: http.StatusInternalServerError, Code: kernel.CodeInternal, Reason: kernel.ReasonInternal, Message: "系统处理失败，请稍后重试", Cause: cause}
 }
 
+// resolveEmailSender 取当前生效的邮件发送器。
+//
+// 策略层始终走这里而不是直接读字段：后台可能刚把通道换成真实 SMTP，而 devEcho
+// 也必须看到"解析之后"的实现，否则会出现配了 SMTP 仍然把验证码回显给前端。
+func (s *Service) resolveEmailSender() EmailSender {
+	if s == nil {
+		return nil
+	}
+	if s.gateways != nil {
+		return s.gateways.ResolveEmail()
+	}
+	return s.emailSender
+}
+
+// resolveSMSSender 取当前生效的短信发送器，语义与 resolveEmailSender 一致。
+func (s *Service) resolveSMSSender() SMSSender {
+	if s == nil {
+		return nil
+	}
+	if s.gateways != nil {
+		return s.gateways.ResolveSMS()
+	}
+	return s.smsSender
+}
+
 // ErrNotAuthenticated 表示请求没有有效会话。
 var ErrNotAuthenticated = unauthorized("当前未登录或登录已失效")
 
@@ -100,7 +126,10 @@ type Service struct {
 	store       *Store
 	emailSender EmailSender
 	smsSender   SMSSender
-	strategies  map[MethodType]*Strategy
+	// gateways 把"验证码从哪儿发出去"变成可运行期修改的配置；为 nil 时直接用
+	// 装配时的发送器（本地/桌面形态没有账号库，也就没有这张配置表）。
+	gateways   *gatewayResolver
+	strategies map[MethodType]*Strategy
 
 	sessionDays         int
 	absoluteSessionDays int
@@ -138,6 +167,19 @@ func NewService(options Options) (*Service, error) {
 		if raw := strings.TrimSpace(os.Getenv("BEEFTV_AUTH_STATE_SECRET")); raw != "" {
 			service.stateSecret = []byte(raw)
 		}
+	}
+
+	// 投递通道交给解析器：后台改了网关配置不需要重启服务。
+	cipher, cipherErr := newGatewayCipher(service.stateSecret)
+	if cipherErr != nil {
+		log.Printf("auth: %v；后台将无法保存验证码网关密钥", cipherErr)
+	}
+	service.gateways = &gatewayResolver{
+		store:  options.Store,
+		cipher: cipher,
+		email:  options.EmailSender,
+		sms:    options.SMSSender,
+		client: options.HTTPClient,
 	}
 	if service.sessionDays <= 0 {
 		service.sessionDays = DefaultSessionDays
@@ -257,7 +299,11 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (*LoginOutp
 	if !config.AllowSignUp {
 		return nil, forbidden("当前未开放注册")
 	}
-	if strings.TrimSpace(input.AgreementVersion) != agreementVersion {
+	currentAgreement, err := s.CurrentAgreementVersionString()
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(input.AgreementVersion) != currentAgreement {
 		return nil, invalidArgument("用户协议已更新，请刷新页面后重试")
 	}
 	input.Config = *config
@@ -528,7 +574,11 @@ func (s *Service) createUserWithIdentityCredential(ctx context.Context, in newUs
 // 正文来自服务端当前版本；调用方负责在此之前确认入参的版本号与当前版本一致，
 // 避免出现「同意的是旧条款、落库的是新版本」。
 func (s *Service) recordAgreements(userID string, version string, ip string, userAgent string) error {
-	documents := Agreements().Documents
+	payload, err := s.AgreementsPayload()
+	if err != nil {
+		return err
+	}
+	documents := payload.Documents
 	recordedAt := s.now()
 	records := make([]UserAgreement, 0, len(documents))
 	for _, document := range documents {

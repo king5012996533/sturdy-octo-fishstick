@@ -1,5 +1,6 @@
 import type { ModelCapabilityConfig } from "@/lib/model-capabilities";
 import type { ModelProtocolDefinition } from "@/lib/model-protocols";
+import type { PublicAppearance } from "@/services/api/appearance";
 import { http } from "@/services/api/request";
 
 /**
@@ -460,4 +461,406 @@ export function getAdminCanvas(id: string) {
 /** 下架与移除必须带理由：没有理由的处置既无法向用户解释，也无法复盘。 */
 export function updateAdminCanvasModeration(id: string, status: AdminCanvasModerationStatus, reason: string) {
     return http.patch<AdminCanvas>(`/admin/canvases/${encodeURIComponent(id)}/moderation`, { status, reason });
+}
+
+export type AdminAgreementDocument = {
+    type: string;
+    title: string;
+    body: string;
+};
+
+export type AdminAgreementVersion = {
+    version: string;
+    documents: AdminAgreementDocument[];
+    publishedAt: string;
+    publishedBy?: string;
+    current: boolean;
+};
+
+export type AdminAgreements = {
+    version: string;
+    documents: AdminAgreementDocument[];
+    /** false 表示还在用内置骨架正文，上线前必须替换。 */
+    configured: boolean;
+    publishedAt?: string;
+    publishedBy?: string;
+    /** 尚未同意当前版本的账号数：发布会把这些账号全部变成"需要重新同意"。 */
+    pendingUsers: number;
+    history: AdminAgreementVersion[];
+};
+
+export type AdminAgreementSignature = {
+    id: string;
+    userId: string;
+    email: string;
+    phone: string;
+    name: string;
+    agreementType: string;
+    version: string;
+    acceptedAt: string;
+    ipAddress: string;
+    userAgent: string;
+};
+
+export type AdminAgreementSignaturePage = {
+    signatures: AdminAgreementSignature[];
+    total: number;
+    page: number;
+    pageSize: number;
+};
+
+export function getAdminAgreements() {
+    return http.get<AdminAgreements>("/admin/agreements");
+}
+
+/** 发布即强制重签：所有账号都需要在新版本上重新同意一次。 */
+export function publishAdminAgreements(input: { termsTitle: string; termsBody: string; privacyTitle: string; privacyBody: string }) {
+    return http.put<AdminAgreements>("/admin/agreements", input);
+}
+
+export function listAdminAgreementSignatures(options: { version?: string; type?: string; keyword?: string; page?: number; pageSize?: number } = {}) {
+    return http.get<AdminAgreementSignaturePage>("/admin/agreements/signatures", {
+        params: {
+            version: options.version || undefined,
+            type: options.type || undefined,
+            keyword: options.keyword?.trim() || undefined,
+            page: options.page,
+            pageSize: options.pageSize,
+        },
+    });
+}
+
+export type AdminAppearanceSkinTheme = {
+    id: string;
+    name: string;
+    description: string;
+    /** 系统内置主题（经典黑白）不可修改，也不可删除。 */
+    locked: boolean;
+    tokens: Record<string, unknown>;
+};
+
+export type AdminAppearanceSetting = {
+    schemaVersion: number;
+    brandName: string;
+    brandSlug: string;
+    authHeroTitle: string;
+    authHeroDescription: string;
+    logoResourceId: string;
+    darkLogoResourceId: string;
+    logoFrameEnabled: boolean;
+    authVideoResourceId: string;
+    authVideoPosterResourceId: string;
+    authVideoAutoplay: boolean;
+    skinId: string;
+    skinThemes: AdminAppearanceSkinTheme[];
+    seoTitle: string;
+    seoDescription: string;
+    seoKeywords: string;
+    footerCopyright: string;
+    icpFilingEnabled: boolean;
+    icpFilingNumber: string;
+    /** 前台实际拿到的投影，用来做保存后的实时预览。 */
+    public: AdminAppearancePublic;
+    configured: boolean;
+    updatedBy?: string;
+    createdAt?: string;
+    updatedAt?: string;
+};
+
+/** 管理端读到的前台投影：结构与公开外观接口完全一致，可直接用于预览。 */
+export type AdminAppearancePublic = PublicAppearance;
+
+/** 保存请求只接受资源 ID，不接受裸 URL：站外地址不进首屏。 */
+export type AdminAppearanceInput = Omit<AdminAppearanceSetting, "schemaVersion" | "public" | "configured" | "updatedBy" | "createdAt" | "updatedAt">;
+
+export type AdminAppearanceAssetSlot = "logo" | "logo-dark" | "video" | "poster";
+
+export function getAdminAppearance() {
+    return http.get<AdminAppearanceSetting>("/admin/settings/appearance");
+}
+
+export function updateAdminAppearance(input: AdminAppearanceInput) {
+    return http.patch<AdminAppearanceSetting>("/admin/settings/appearance", input);
+}
+
+export function resetAdminAppearance() {
+    return http.delete<AdminAppearanceSetting>("/admin/settings/appearance");
+}
+
+/** 上传后返回资源 ID，保存外观时把这些 ID 回填进对应字段。 */
+export async function uploadAdminAppearanceAsset(slot: AdminAppearanceAssetSlot, file: File) {
+    const data = new FormData();
+    data.append("file", file);
+    // 不能手写 multipart Content-Type：boundary 由运行时生成，写死会让后端解析失败。
+    const payload = await http.post<{ resource: { id: string } }>(`/admin/settings/appearance/assets/${slot}`, data);
+    return payload.resource;
+}
+
+/** database = 后台配置；environment = 环境变量；console = 没有真实通道，验证码只写日志。 */
+export type AdminGatewaySource = "database" | "environment" | "console";
+
+export type AdminSMTPGateway = {
+    host: string;
+    port: number;
+    username: string;
+    /** 只写不读：读接口不回传密钥，留空保存表示保持原值。 */
+    password?: string;
+    hasPassword?: boolean;
+    from: string;
+    fromName: string;
+};
+
+export type AdminSMSGateway = {
+    accessKeyId: string;
+    accessKeySecret?: string;
+    hasAccessKeySecret?: boolean;
+    signName: string;
+    templateCode: string;
+    templateParamKey: string;
+    regionId: string;
+    endpoint: string;
+};
+
+export type AdminGatewayChannel = {
+    channel: string;
+    enabled: boolean;
+    source: AdminGatewaySource;
+    ready: boolean;
+    detail: string;
+    updatedAt?: string;
+    updatedBy?: string;
+    smtp?: AdminSMTPGateway;
+    sms?: AdminSMSGateway;
+};
+
+export type AdminGateways = {
+    smtp: AdminGatewayChannel;
+    sms: AdminGatewayChannel;
+};
+
+export type AdminGatewayChannelKey = "SMTP" | "SMS";
+
+export type AdminGatewayUpdateInput = {
+    enabled: boolean;
+    smtp?: AdminSMTPGateway;
+    sms?: AdminSMSGateway;
+};
+
+export function getAdminGateways() {
+    return http.get<AdminGateways>("/admin/gateways");
+}
+
+export function updateAdminGateway(channel: AdminGatewayChannelKey, input: AdminGatewayUpdateInput) {
+    return http.put<AdminGateways>(`/admin/gateways/${channel}`, input);
+}
+
+/** 真发一条验证码，超时由服务端控制；返回值是要展示给运营的真实结果。 */
+export function testAdminGateway(channel: AdminGatewayChannelKey, target: string) {
+    return http.post<{ message: string }>(`/admin/gateways/${channel}/test`, { target });
+}
+
+// ---------- 计费：套餐 / 订单 / 优惠券 ----------
+//
+// 金额一律用"分"，格式化只在展示层做。这些接口与用户端 billing.ts 共用同一套后端
+// 视图，字段名保持一致，避免两边各自解释一次金额与状态。
+
+export type AdminBillingPlan = {
+    id: string;
+    code: string;
+    name: string;
+    description: string;
+    sortOrder: number;
+    enabled: boolean;
+    priceFen: number;
+    periodDays: number;
+    quotaCalls: number;
+    quotaStorageMb: number;
+    quotaMembers: number;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export type AdminBillingPlanInput = {
+    code: string;
+    name: string;
+    description: string;
+    sortOrder: number;
+    enabled: boolean;
+    priceFen: number;
+    periodDays: number;
+    quotaCalls: number;
+    quotaStorageMb: number;
+    quotaMembers: number;
+};
+
+export type AdminBillingOrder = {
+    id: string;
+    orderNo: string;
+    userId: string;
+    userName: string;
+    userEmail: string;
+    userPhone: string;
+    planId: string;
+    planCode: string;
+    planName: string;
+    amountFen: number;
+    discountFen: number;
+    payableFen: number;
+    couponCode: string;
+    status: "PENDING" | "PAID" | "CANCELED" | "REFUNDED" | "FAILED";
+    provider: string;
+    providerOrderNo: string;
+    paidAt?: string;
+    expiresAt: string;
+    remark: string;
+    createdAt: string;
+};
+
+export type AdminBillingRevenue = {
+    paidOrders: number;
+    paidAmountFen: number;
+    pendingOrders: number;
+    refundedFen: number;
+};
+
+export type AdminBillingOrderPage = {
+    orders: AdminBillingOrder[];
+    total: number;
+    page: number;
+    pageSize: number;
+    /** 全量经营读数（不受当前筛选影响），后台顶部指标卡直接用这一份。 */
+    revenue: AdminBillingRevenue;
+};
+
+export type AdminBillingCoupon = {
+    id: string;
+    code: string;
+    name: string;
+    kind: "AMOUNT" | "PERCENT";
+    value: number;
+    minAmountFen: number;
+    totalQuota: number;
+    usedCount: number;
+    perUserLimit: number;
+    startsAt: string;
+    expiresAt: string;
+    enabled: boolean;
+    createdAt: string;
+    updatedAt: string;
+    remainingQuota?: number;
+};
+
+export type AdminBillingCouponInput = {
+    code: string;
+    name: string;
+    kind: "AMOUNT" | "PERCENT";
+    value: number;
+    minAmountFen: number;
+    totalQuota: number;
+    perUserLimit: number;
+    startsAt: string;
+    expiresAt: string;
+    enabled: boolean;
+};
+
+export type AdminCouponRedemption = {
+    id: string;
+    couponId: string;
+    couponCode: string;
+    userId: string;
+    orderId: string;
+    discountFen: number;
+    redeemedAt: string;
+};
+
+export type AdminCouponRedemptionPage = {
+    redemptions: AdminCouponRedemption[];
+    total: number;
+    page: number;
+    pageSize: number;
+};
+
+export type AdminPaymentChannel = {
+    channel: string;
+    enabled: boolean;
+    /** database = 后台配置；environment = 环境变量；console = 未配置（下单会失败）。 */
+    source: string;
+    ready: boolean;
+    detail: string;
+    updatedAt?: string;
+    updatedBy?: string;
+    /** 只写不读：配置里凡是密钥字段都不会回传，只给 hasSecret 标记。 */
+    config: Record<string, string>;
+    hasSecret: boolean;
+};
+
+export type AdminPaymentChannels = {
+    channels: AdminPaymentChannel[];
+};
+
+export function listAdminBillingPlans() {
+    return http.get<{ plans: AdminBillingPlan[] }>("/admin/plans");
+}
+
+export function createAdminBillingPlan(input: AdminBillingPlanInput) {
+    return http.post<{ plan: AdminBillingPlan }>("/admin/plans", input);
+}
+
+export function updateAdminBillingPlan(id: string, input: AdminBillingPlanInput) {
+    return http.put<{ plan: AdminBillingPlan }>(`/admin/plans/${encodeURIComponent(id)}`, input);
+}
+
+export function deleteAdminBillingPlan(id: string) {
+    return http.delete<{ plans: AdminBillingPlan[] }>(`/admin/plans/${encodeURIComponent(id)}`);
+}
+
+export function listAdminBillingOrders(options: { status?: string; keyword?: string; planCode?: string; page?: number; pageSize?: number } = {}) {
+    return http.get<AdminBillingOrderPage>("/admin/orders", {
+        params: {
+            status: options.status || undefined,
+            keyword: options.keyword?.trim() || undefined,
+            planCode: options.planCode || undefined,
+            page: options.page,
+            pageSize: options.pageSize,
+        },
+    });
+}
+
+/** 手工补单：渠道掉单时按真实到账记录补，不能靠改库。 */
+export function markAdminBillingOrderPaid(id: string, remark: string) {
+    return http.post<{ order: AdminBillingOrder }>(`/admin/orders/${encodeURIComponent(id)}/mark-paid`, { remark });
+}
+
+export function refundAdminBillingOrder(id: string, reason: string) {
+    return http.post<{ order: AdminBillingOrder }>(`/admin/orders/${encodeURIComponent(id)}/refund`, { reason });
+}
+
+export function listAdminBillingCoupons() {
+    return http.get<{ coupons: AdminBillingCoupon[] }>("/admin/coupons");
+}
+
+export function createAdminBillingCoupon(input: AdminBillingCouponInput) {
+    return http.post<{ coupon: AdminBillingCoupon }>("/admin/coupons", input);
+}
+
+export function updateAdminBillingCoupon(id: string, input: AdminBillingCouponInput) {
+    return http.put<{ coupon: AdminBillingCoupon }>(`/admin/coupons/${encodeURIComponent(id)}`, input);
+}
+
+export function deleteAdminBillingCoupon(id: string) {
+    return http.delete<{ coupons: AdminBillingCoupon[] }>(`/admin/coupons/${encodeURIComponent(id)}`);
+}
+
+export function listAdminCouponRedemptions(couponId: string, options: { page?: number; pageSize?: number } = {}) {
+    return http.get<AdminCouponRedemptionPage>(`/admin/coupons/${encodeURIComponent(couponId)}/redemptions`, {
+        params: { page: options.page, pageSize: options.pageSize },
+    });
+}
+
+export function listAdminPaymentChannels() {
+    return http.get<AdminPaymentChannels>("/admin/billing/payment-channels");
+}
+
+export function updateAdminPaymentChannel(channel: string, input: { enabled: boolean; config: Record<string, string> }) {
+    return http.put<AdminPaymentChannels>(`/admin/billing/payment-channels/${encodeURIComponent(channel)}`, input);
 }

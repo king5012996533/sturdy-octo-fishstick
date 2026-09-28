@@ -210,3 +210,37 @@ type UserAgreement struct {
 }
 
 func (UserAgreement) TableName() string { return "app_user_agreements" }
+
+// AgreementVersion 映射 auth_agreement_versions。
+//
+// 协议正文由运营后台维护，不编译进二进制：条款更新必须能独立于前端发布，否则停留在
+// 旧客户端的用户会一直看到旧条款。版本串是留痕的一部分（用户接受的就是它），因此
+// 发布后的行不可修改，只能再发一版。
+type AgreementVersion struct {
+	Version      string    `gorm:"column:version;primaryKey;size:32"`
+	TermsTitle   string    `gorm:"column:terms_title;size:64"`
+	TermsBody    string    `gorm:"column:terms_body"`
+	PrivacyTitle string    `gorm:"column:privacy_title;size:64"`
+	PrivacyBody  string    `gorm:"column:privacy_body"`
+	PublishedAt  time.Time `gorm:"column:published_at"`
+	PublishedBy  string    `gorm:"column:published_by;size:36"`
+}
+
+func (AgreementVersion) TableName() string { return "auth_agreement_versions" }
+
+// AgreementSignatureRow 是签署记录的一行：协议 + 账号标识。
+//
+// 账号字段来自 app_users，只在托管层合并：审核争议时要能直接说出「谁在什么时候同意了
+// 哪一版」，只有一个 user_id 等于还要再查一次。
+type AgreementSignatureRow struct {
+	ID            string    `gorm:"column:id"`
+	UserID        string    `gorm:"column:user_id"`
+	Email         string    `gorm:"column:email"`
+	Phone         string    `gorm:"column:phone"`
+	Name          string    `gorm:"column:name"`
+	AgreementType string    `gorm:"column:agreement_type"`
+	Version       string    `gorm:"column:version"`
+	AcceptedAt    time.Time `gorm:"column:accepted_at"`
+	IPAddress     string    `gorm:"column:ip_address"`
+	UserAgent     string    `gorm:"column:user_agent"`
+}

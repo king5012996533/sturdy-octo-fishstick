@@ -16,6 +16,7 @@ func TestDesktopSchemaExcludesHostedTables(t *testing.T) {
 		"credit_accounts", "credit_ledger_entries", "billing_orders", "payment_orders",
 		"payment_provider_configs", "redeem_codes", "user_oss_settings", "storage_locations",
 		"announcements", "canvas_shares", "admin_audit_events", "canvas_moderation",
+		"asset_moderation", "canvas_templates",
 	} {
 		if runtime.db.Migrator().HasTable(table) {
 			t.Fatalf("desktop schema contains hosted table %s", table)

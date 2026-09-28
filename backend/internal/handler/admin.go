@@ -245,6 +245,9 @@ func RegisterAdminRoutes(r *gin.RouterGroup, svc *app.Service) {
 		ok(c, gin.H{"saved": true})
 	})
 
+	// 站点品牌、Logo、主题与备案信息。
+	registerAdminSettingsRoutes(admin, svc)
+
 	admin.GET("/features", func(c *gin.Context) {
 		features, err := svc.AdminFeatureAvailability(adminUser(c))
 		if err != nil {

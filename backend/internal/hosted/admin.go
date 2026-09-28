@@ -62,8 +62,22 @@ func (e *Extension) registerAdminRoutes(api *gin.RouterGroup) {
 	group.GET("/login-methods", e.handleAdminLoginMethods)
 	group.PATCH("/login-methods/:methodType", e.handleAdminUpdateLoginMethod)
 	group.GET("/audit-events", e.handleAdminAuditEvents)
+	// 协议管理：当前版本 / 发布新版（强制重签）/ 签署记录。
+	e.registerAgreementRoutes(group)
+	// 验证码投递网关：SMTP 与短信的配置、脱敏读取与测试发送。
+	e.registerGatewayRoutes(group)
 	// 画布内容管理：列表 / 只读详情 / 处置。
 	e.registerCanvasModerationRoutes(group)
+	// 计费管理：套餐、订单（补单/退款）、优惠券与支付渠道配置。
+	e.registerAdminBillingRoutes(group)
+	// 角色与权限：RBAC 角色定义、权限点与账号角色分配。
+	e.registerAdminRbacRoutes(group)
+	// 素材管理：素材列表、处置状态与占用读数。
+	e.registerAdminAssetRoutes(group)
+	// 模板管理：画布模板上下架、分类与推荐位。
+	e.registerAdminTemplateRoutes(group)
+	// 工单与反馈：用户工单列表、回复与状态流转。
+	e.registerAdminTicketRoutes(group)
 }
 
 // requireAdmin 解析会话并收敛管理员判定：未登录 401，非管理员 403。

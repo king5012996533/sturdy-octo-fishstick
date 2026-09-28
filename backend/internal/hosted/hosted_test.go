@@ -232,3 +232,40 @@ func TestWorkspaceMiddlewareRejectsForeignSession(t *testing.T) {
 		t.Fatalf("认证路由不应被会话中间件拦截：%d %s", recorder.Code, recorder.Body.String())
 	}
 }
+
+// TestHostedPublicAppearanceIsAnonymous 确认登录页在拿到会话之前就能读到平台品牌。
+//
+// 这一条是运营可见面的回归线：登录页的 Logo 与文案来自公开外观接口，如果它被会话
+// 中间件拦住，后台改完品牌后访客看到的仍是内置默认值（默认值与线上恰好一致时，
+// 页面上看不出任何异常，问题会被一直掩盖）。
+func TestHostedPublicAppearanceIsAnonymous(t *testing.T) {
+	extension, _, _, service := newTestExtension(t)
+	defer extension.Close()
+	router := newTestRouter(extension, service)
+
+	recorder := perform(router, http.MethodGet, "/api/public/appearance", "", nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("匿名读取公开外观应返回 200，实际 %d：%s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Data struct {
+			Appearance struct {
+				BrandName string `json:"brandName"`
+			} `json:"appearance"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil || payload.Data.Appearance.BrandName == "" {
+		t.Fatalf("公开外观响应缺少品牌名：%s", recorder.Body.String())
+	}
+
+	// 未配置资源时应落到处理器的 404（未配置），而不是中间件的 401。
+	assetRecorder := perform(router, http.MethodGet, "/api/public/appearance/assets/logo", "", nil)
+	if assetRecorder.Code == http.StatusUnauthorized {
+		t.Fatalf("匿名读取外观资源不应被会话中间件拦截：%s", assetRecorder.Body.String())
+	}
+
+	// 其余业务接口仍然必须登录：放行的只有上面那两类路径。
+	if recorder := perform(router, http.MethodGet, "/api/admin/users", "", nil); recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("管理端仍应要求登录，实际 %d：%s", recorder.Code, recorder.Body.String())
+	}
+}

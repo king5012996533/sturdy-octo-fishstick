@@ -36,6 +36,7 @@ func (s *Service) phoneCodeStrategy() *Strategy {
 			if !mainlandPhonePattern.MatchString(phone) {
 				return nil, invalidArgument("请输入正确的手机号")
 			}
+			sender := s.resolveSMSSender()
 			if s.smsSender == nil {
 				return nil, internalFailure(errors.New("短信通道未配置"))
 			}
@@ -69,7 +70,7 @@ func (s *Service) phoneCodeStrategy() *Strategy {
 				Target:    phone,
 				Channel:   string(ChannelPhone),
 				ExpiresAt: expiresAt,
-				DevCode:   s.devEcho(code, s.smsSender),
+				DevCode:   s.devEcho(code, sender),
 			}, nil
 		},
 		Login: func(ctx context.Context, in LoginInput) (*LoginOutput, error) {

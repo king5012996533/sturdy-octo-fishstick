@@ -22,14 +22,34 @@ func EnsureDevSchema(db *gorm.DB) error {
 	if name := db.Dialector.Name(); name != "sqlite" {
 		return fmt.Errorf("auth: 拒绝为 %s 驱动创建账号表；该库的表结构由 Prisma 迁移管理", name)
 	}
-	if err := db.AutoMigrate(
+	// 计费域（套餐/订阅/订单/优惠券）同样只在开发库建表：它们的生产结构也要落到
+	// CanvasMind 的 Prisma 迁移里，理由与账号表一致。
+	models := []any{
 		&User{},
 		&Session{},
 		&VerificationCode{},
 		&AuthIdentity{},
 		&MethodConfig{},
 		&UserAgreement{},
-	); err != nil {
+		&AgreementVersion{},
+		&GatewayConfig{},
+	}
+	models = append(models, BillingModels()...)
+	// 角色权限与工单反馈同属账号侧平台能力：它们只在托管实例里被读写（本地桌面
+	// 拿不到管理员身份，也没有客服台），生产结构同样归 CanvasMind 的 Prisma 迁移。
+	models = append(models, RbacModels()...)
+	models = append(models, SupportModels()...)
+	if err := db.AutoMigrate(models...); err != nil {
+		return err
+	}
+
+	// 两个域各自还要建唯一索引（角色 code、账号-角色、工单号）：AutoMigrate 只按结构体标签
+	// 建索引，而它们的模型刻意不挂标签（这些表归 Prisma 迁移所有），索引由 Ensure<域>Schema
+	// 用幂等 SQL 声明。少调这一步，读取时的 ON CONFLICT 会直接报"不匹配任何唯一约束"。
+	if err := EnsureRbacSchema(db); err != nil {
+		return err
+	}
+	if err := EnsureSupportSchema(db); err != nil {
 		return err
 	}
 
@@ -51,6 +71,18 @@ func EnsureDevSchema(db *gorm.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_app_user_auth_identities_user_method ON app_user_auth_identities (user_id, method_type)`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_verification_codes_method_target_scene_created_at ON auth_verification_codes (method_type, target, scene, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_app_user_agreements_user_created_at ON app_user_agreements (user_id, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_app_user_agreements_version_type ON app_user_agreements (version, agreement_type)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_agreement_versions_published_at ON auth_agreement_versions (published_at DESC)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS uk_auth_gateway_configs_channel ON auth_gateway_configs (channel)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS uk_billing_plans_code ON billing_plans (code)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS uk_billing_orders_order_no ON billing_orders (order_no)`,
+		`CREATE INDEX IF NOT EXISTS idx_billing_orders_user_status_created_at ON billing_orders (user_id, status, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_billing_orders_status_expires_at ON billing_orders (status, expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_billing_subscriptions_user_status_expires_at ON billing_subscriptions (user_id, status, expires_at)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS uk_billing_coupons_code ON billing_coupons (code)`,
+		`CREATE INDEX IF NOT EXISTS idx_billing_coupon_redemptions_coupon_user ON billing_coupon_redemptions (coupon_id, user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_billing_coupon_redemptions_order ON billing_coupon_redemptions (order_id)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS uk_billing_payment_configs_channel ON billing_payment_configs (channel)`,
 	}
 	for _, statement := range statements {
 		if err := db.Exec(statement).Error; err != nil {

@@ -11,23 +11,45 @@ import { listAdminAuditEvents, type AdminAuditEvent } from "./api";
  * 于是原始动作串也会一起显示——归类只负责让人一眼看出这块改的是什么。
  */
 const actionGroups: Array<{ prefix: string; label: string; color: string }> = [
+    // 账号与权限。注意 user.roles 必须排在 user.role 之前：前缀匹配是"先到先得"，
+    // 顺序反了分组分配就会被账号角色吃掉。
+    { prefix: "user.roles", label: "角色分配", color: "gold" },
     { prefix: "user.status", label: "封禁解封", color: "red" },
     { prefix: "user.role", label: "账号角色", color: "gold" },
     { prefix: "user.password", label: "重置密码", color: "orange" },
     { prefix: "user.logout", label: "强制下线", color: "blue" },
+    { prefix: "role.", label: "角色与权限", color: "gold" },
     { prefix: "login-method", label: "登录方式", color: "geekblue" },
+    { prefix: "agreement", label: "协议管理", color: "geekblue" },
+    // 内容与素材
     { prefix: "canvas", label: "内容审核", color: "orange" },
+    { prefix: "asset.", label: "素材管理", color: "green" },
+    { prefix: "template.", label: "模板管理", color: "blue" },
+    // 模型与运行时
     { prefix: "channel", label: "渠道与模型", color: "cyan" },
     { prefix: "logical_model", label: "前台模型", color: "purple" },
-    { prefix: "plugin", label: "插件", color: "magenta" },
-    { prefix: "appearance", label: "品牌外观", color: "green" },
-    { prefix: "feature_availability", label: "功能开放", color: "lime" },
-    { prefix: "response_interception", label: "响应拦截", color: "volcano" },
     { prefix: "runtime_policy", label: "运行时策略", color: "default" },
+    { prefix: "response_interception", label: "响应拦截", color: "volcano" },
+    { prefix: "feature_availability", label: "功能开放", color: "lime" },
+    { prefix: "appearance", label: "品牌外观", color: "green" },
+    // 计费与商业化
+    { prefix: "plan.", label: "订阅套餐", color: "blue" },
+    { prefix: "order.", label: "订单", color: "geekblue" },
+    { prefix: "coupon.", label: "优惠券", color: "magenta" },
+    { prefix: "subscription.", label: "订阅", color: "purple" },
+    { prefix: "payment-channel.", label: "支付渠道", color: "cyan" },
+    { prefix: "gateway.", label: "聚合网关", color: "volcano" },
+    // 支撑与运维
+    { prefix: "ticket.", label: "工单", color: "cyan" },
+    { prefix: "plugin", label: "插件", color: "magenta" },
     { prefix: "api_log", label: "调用日志", color: "default" },
 ];
 
-function actionGroup(action: string) {
+/**
+ * 动作串 -> 分组。前缀匹配"先到先得"，因此 actionGroups 的顺序即优先级。
+ * 未命中的动作原样显示 label，等于提醒开发者这里漏了一类动作。
+ */
+export function auditActionGroup(action: string) {
     return actionGroups.find((group) => action.startsWith(group.prefix)) ?? { prefix: "", label: action, color: "default" };
 }
 
@@ -76,7 +98,7 @@ export function AuditPane() {
             key: "action",
             width: 168,
             render: (value: string) => {
-                const group = actionGroup(value);
+                const group = auditActionGroup(value);
                 return (
                     <span className="flex min-w-0 flex-col gap-1">
                         <Tag color={group.color}>{group.label}</Tag>

@@ -1,5 +1,5 @@
 import { App, ConfigProvider, theme as antdTheme } from "antd";
-import { ArrowLeft, Gauge, KeyRound, LayoutDashboard, RadioTower, ScrollText, ShieldAlert, SlidersHorizontal, Users, type LucideIcon } from "lucide-react";
+import { ArrowLeft, FileSignature, Gauge, Images, KeyRound, LayoutDashboard, LayoutTemplate, LifeBuoy, Package, RadioTower, Receipt, ScrollText, Send, Settings, ShieldAlert, ShieldCheck, SlidersHorizontal, TicketPercent, Users, type LucideIcon } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -7,22 +7,42 @@ import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { useUserStore } from "@/stores/use-user-store";
 
 import "./admin-console.css";
+import { AgreementsPane } from "./agreements-pane";
+import { AssetsPane } from "./assets-pane";
 import { AuditPane } from "./audit-pane";
 import { CanvasPane } from "./canvas-pane";
 import { ChannelsPane } from "./channels-pane";
+import { CouponsPane } from "./coupons-pane";
 import { DashboardPane } from "./dashboard-pane";
 import { FeaturesPane } from "./features-pane";
+import { GatewaysPane } from "./gateways-pane";
 import { LoginMethodsPane } from "./login-methods-pane";
+import { OrdersPane } from "./orders-pane";
 import { PolicyPane } from "./policy-pane";
+import { PlansPane } from "./plans-pane";
+import { RolesPane } from "./roles-pane";
+import { SettingsPane } from "./settings-pane";
+import { TemplatesPane } from "./templates-pane";
+import { TicketsPane } from "./tickets-pane";
 import { UsersPane } from "./users-pane";
 
-type ConsoleSectionKey = "dashboard" | "users" | "canvases" | "login-methods" | "channels" | "features" | "policy" | "audit";
+type ConsoleSectionKey = "dashboard" | "users" | "roles" | "canvases" | "assets" | "templates" | "login-methods" | "agreements" | "gateways" | "plans" | "orders" | "coupons" | "tickets" | "settings" | "channels" | "features" | "policy" | "audit";
 
 const consoleSections: Array<{ key: ConsoleSectionKey; label: string; description: string; icon: LucideIcon; pane: () => React.JSX.Element }> = [
     { key: "dashboard", label: "仪表盘", description: "用户、调用量与存储读数", icon: LayoutDashboard, pane: () => <DashboardPane /> },
     { key: "users", label: "用户管理", description: "账号、角色与封禁", icon: Users, pane: () => <UsersPane /> },
+    { key: "roles", label: "角色与权限", description: "角色定义与权限点分配", icon: ShieldCheck, pane: () => <RolesPane /> },
     { key: "canvases", label: "内容审核", description: "画布内容与处置", icon: ShieldAlert, pane: () => <CanvasPane /> },
+    { key: "assets", label: "素材管理", description: "上传素材与处置状态", icon: Images, pane: () => <AssetsPane /> },
+    { key: "templates", label: "模板管理", description: "画布模板上下架与推荐位", icon: LayoutTemplate, pane: () => <TemplatesPane /> },
     { key: "login-methods", label: "登录方式", description: "验证码、密码与第三方通道", icon: KeyRound, pane: () => <LoginMethodsPane /> },
+    { key: "agreements", label: "协议管理", description: "条款版本与签署留痕", icon: FileSignature, pane: () => <AgreementsPane /> },
+    { key: "gateways", label: "验证码网关", description: "邮件与短信投递通道", icon: Send, pane: () => <GatewaysPane /> },
+    { key: "plans", label: "订阅套餐", description: "可售套餐与配额", icon: Package, pane: () => <PlansPane /> },
+    { key: "orders", label: "订单管理", description: "收款、补单与退款", icon: Receipt, pane: () => <OrdersPane /> },
+    { key: "coupons", label: "优惠券", description: "折扣券与核销记录", icon: TicketPercent, pane: () => <CouponsPane /> },
+    { key: "tickets", label: "工单与反馈", description: "用户反馈与处理流转", icon: LifeBuoy, pane: () => <TicketsPane /> },
+    { key: "settings", label: "站点设置", description: "品牌、Logo 与备案信息", icon: Settings, pane: () => <SettingsPane /> },
     { key: "channels", label: "渠道与模型", description: "上游地址、密钥与可售模型", icon: RadioTower, pane: () => <ChannelsPane /> },
     { key: "features", label: "功能开放", description: "决定前台形态的开关", icon: SlidersHorizontal, pane: () => <FeaturesPane /> },
     { key: "policy", label: "运行时策略", description: "配额、超时与频控", icon: Gauge, pane: () => <PolicyPane /> },

@@ -8,6 +8,7 @@ import RouteErrorPage from "@/pages/route-error";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 
 const AssetsPage = lazy(loadAssetsPage);
+const BillingPage = lazy(() => import("@/pages/billing").then((module) => ({ default: module.BillingPage })));
 const HomePage = lazy(loadHomePage);
 const CanvasPage = lazy(loadCanvasPage);
 const CanvasProjectPage = lazy(loadCanvasProjectPage);
@@ -17,6 +18,7 @@ const PluginsPage = lazy(() => import("@/pages/plugins"));
 const EagleLibraryPage = lazy(() => import("@/pages/plugins/eagle"));
 const ProjectDetailPage = lazy(loadProjectDetailPage);
 const SettingsPage = lazy(() => import("@/pages/settings"));
+const SupportPage = lazy(() => import("@/pages/support").then((module) => ({ default: module.SupportPage })));
 const TestVoiceRecording = lazy(() => import("@/pages/test-voice-recording"));
 const UserLayout = lazy(() => import("@/layouts/user-layout"));
 const RequireFeature = lazy(() => import("@/components/workspace/require-feature").then((module) => ({ default: module.RequireFeature })));
@@ -104,6 +106,11 @@ export const router = createBrowserRouter([
                 element: <Navigate to="/" replace />,
             },
             { path: "/assets", element: deferred(<AssetsPage />) },
+            // 订阅与充值只在托管形态下有后端（/api/finance/* 注册在 hosted 路由组），
+            // 本地/桌面构建保留路由但入口被摇树删除，避免出现必然 404 的页面。
+            ...(__BEEFTV_HOSTED_AUTH__ ? [{ path: "/billing", element: deferred(<BillingPage />) }] : []),
+            // 帮助与反馈同订阅页：工单接口只注册在托管路由组里，本地/桌面构建没有后端。
+            ...(__BEEFTV_HOSTED_AUTH__ ? [{ path: "/support", element: deferred(<SupportPage />) }] : []),
             { path: "/skills", element: <Navigate to="/" replace /> },
             { path: "/skill", element: <Navigate to="/" replace /> },
             { path: "/skills/reference", element: <Navigate to="/" replace /> },

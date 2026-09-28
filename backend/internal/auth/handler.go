@@ -141,7 +141,33 @@ func RegisterRoutes(api *gin.RouterGroup, service *Service, cookie CookieOptions
 	})
 
 	group.GET("/agreements", func(c *gin.Context) {
-		respondOK(c, Agreements())
+		payload, err := service.AgreementsPayload()
+		if err != nil {
+			respondError(c, err)
+			return
+		}
+		respondOK(c, payload)
+	})
+
+	// 重新同意：发布新版本后，已登录用户在这里补一次留痕，而不是被强制登出再注册。
+	group.POST("/agreements/accept", func(c *gin.Context) {
+		var payload struct {
+			Version string `json:"version"`
+		}
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			respondError(c, invalidArgument("请求参数无效"))
+			return
+		}
+		user, err := service.SessionUser(c.Request.Context(), ReadSessionToken(c.Request))
+		if err != nil {
+			respondError(c, ErrNotAuthenticated)
+			return
+		}
+		if err := service.AcceptCurrentAgreements(user.ID, payload.Version, c.ClientIP(), c.Request.UserAgent()); err != nil {
+			respondError(c, err)
+			return
+		}
+		respondOK(c, gin.H{"accepted": true})
 	})
 
 	group.POST("/register", func(c *gin.Context) {
@@ -219,7 +245,20 @@ func RegisterRoutes(api *gin.RouterGroup, service *Service, cookie CookieOptions
 			respondOK(c, gin.H{"user": nil})
 			return
 		}
-		respondOK(c, gin.H{"user": user})
+		// 顺带回协议状态：前端据此判断是否需要弹出"重新同意"，不必再单独探一次。
+		currentVersion, acceptedVersion, agreementErr := service.AgreementStatus(user.ID)
+		if agreementErr != nil {
+			respondError(c, agreementErr)
+			return
+		}
+		respondOK(c, gin.H{
+			"user": user,
+			"agreements": gin.H{
+				"currentVersion":  currentVersion,
+				"acceptedVersion": acceptedVersion,
+				"accepted":        acceptedVersion != "" && acceptedVersion == currentVersion,
+			},
+		})
 	})
 
 	group.POST("/logout", func(c *gin.Context) {

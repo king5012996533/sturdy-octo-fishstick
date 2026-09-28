@@ -10,6 +10,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"infinite-canvas/backend/internal/app"
 	"infinite-canvas/backend/internal/auth"
@@ -45,7 +46,17 @@ type Extension struct {
 	dataDir string
 	ensure  func(userID string, displayName string) error
 	cookie  auth.CookieOptions
+	// janitor 是计费侧的清理协程开关。只允许启动一次，Close 时必须先停它再断开
+	// 数据库连接，否则最后一轮清理会打到已关闭的连接上。
+	janitorOnce sync.Once
+	janitorStop chan struct{}
 }
+
+// billingJanitorInterval 是超时订单清理周期。
+//
+// 5 分钟与订单 30 分钟的支付时限同量级：再密也只是空转，再疏则用户刚放弃支付，
+// 后台的"待支付"读数还会挂很久。
+const billingJanitorInterval = 5 * time.Minute
 
 // New 装配登录模块。
 //
@@ -144,11 +155,31 @@ func smsSender() auth.SMSSender {
 //
 // 这是多租户的唯一入口：工作区 ID 只来自会话里的用户 ID，请求参数无法覆盖它。
 // 认证自身的路由不参与校验，否则用户连登录页都打不开。
+// anonymousPathPrefixes 是会话建立之前就必须可达的路径。
+//
+// /api/auth/* 是登录流程本身；公开外观是登录页的品牌、文案与 Logo——访客在拿到会话
+// 之前就要渲染这一屏，否则后台改完品牌、访客看到的仍是内置默认值（而默认值恰好与
+// 线上一致时，故障会一直被掩盖）。这些响应里只有品牌与备案信息，没有任何密钥。
+//
+// 支付回调同样在这里显式登记，而不是让它自己去 init 里往这个切片追加：放行名单是
+// 一张安全边界清单，必须一眼看全，不能散落在各文件里。放行也不等于放权——回调的
+// 准入是渠道验签与金额核对（HandleBillingCallback），中间件只负责别提前判 401。
+var anonymousPathPrefixes = []string{auth.BasePath, "/api/public/appearance", billingCallbackPathPrefix}
+
+func isAnonymousPath(path string) bool {
+	for _, prefix := range anonymousPathPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func (e *Extension) WorkspaceMiddleware() gin.HandlerFunc {
 	// prepared 缓存已建过工作区的账号，避免把「确保存在」做成每请求一次写库。
 	var prepared sync.Map
 	return func(c *gin.Context) {
-		if strings.HasPrefix(c.Request.URL.Path, auth.BasePath) {
+		if isAnonymousPath(c.Request.URL.Path) {
 			c.Next()
 			return
 		}
@@ -194,11 +225,62 @@ func (e *Extension) RegisterRoutes(api *gin.RouterGroup) {
 	e.registerAdminRoutes(api)
 	e.registerAccountRoutes(api)
 	e.registerOwnCanvasModerationRoutes(api)
+	// 计费：套餐货架、结算试算、下单与支付（用户端，主体恒为会话账号）。
+	e.registerBillingRoutes(api)
+	// 工单与反馈：用户提交工单、查看自己的工单与回复。
+	e.registerSupportRoutes(api)
+	// 模板目录：前台可套用的画布模板（只读，仅返回已上架）。
+	e.registerTemplateCatalogRoutes(api)
+	// 计费清理协程：超时未支付的订单必须由平台自己关闭（用户放弃支付后没人会手动取消），
+	// 否则待支付读数失真，且订单占用的优惠券永远不会归还。
+	e.startBillingJanitor()
 }
 
-// Close 释放账号库连接。
+// startBillingJanitor 启动超时订单清理：先立刻扫一遍（补上停机期间积压的超时订单），
+// 之后按 billingJanitorInterval 周期执行。
+func (e *Extension) startBillingJanitor() {
+	if e == nil || e.service == nil {
+		return
+	}
+	e.janitorOnce.Do(func() {
+		stop := make(chan struct{})
+		e.janitorStop = stop
+		go func() {
+			sweep := func() {
+				count, err := e.service.ExpireStaleBillingOrders()
+				if err != nil {
+					log.Printf("hosted: 关闭超时订单失败: %v", err)
+					return
+				}
+				if count > 0 {
+					log.Printf("hosted: 已关闭 %d 笔超时未支付订单", count)
+				}
+			}
+			sweep()
+			ticker := time.NewTicker(billingJanitorInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-ticker.C:
+					sweep()
+				}
+			}
+		}()
+	})
+}
+
+// Close 停止后台清理协程并释放账号库连接。
 func (e *Extension) Close() error {
-	if e == nil || e.db == nil {
+	if e == nil {
+		return nil
+	}
+	if e.janitorStop != nil {
+		close(e.janitorStop)
+		e.janitorStop = nil
+	}
+	if e.db == nil {
 		return nil
 	}
 	sqlDB, err := e.db.DB()
