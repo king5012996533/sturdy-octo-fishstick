@@ -20991,3 +20991,53 @@ main[data-libtv-readonly-dense="true"] .canvas-floating-dock {
     border-color: color-mix(in srgb, var(--destructive) 45%, transparent);
     color: var(--destructive);
 }
+
+/* ---------------------------------------------------------------------------
+   KinoTV 首页细节打磨
+   1) 作曲栏左侧两个图标按钮原先 32px、右侧 pill 36px，底部一行会错开；统一成同一档。
+   2) 快捷卡提示固定单行，避免某一条换行后四张卡高低不齐。
+   3) 卡片次要文字统一（描述 12px / 标签 11px），和快捷卡提示同一档。
+   4) 精选灵感标题与筛选行的间距对齐到同一条 20px 节奏。
+   5) 右上角按钮右边距与内容列一致，避免 8px 的悬空。
+   --------------------------------------------------------------------------- */
+.app-user-workspace .creation-launchpad .creation-chat-controls .creation-chat-reference-add,
+.app-user-workspace .creation-launchpad .creation-chat-controls .creation-voice-trigger.ant-btn {
+    width: 36px !important;
+    min-width: 36px !important;
+    height: 36px !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: var(--user-surface-muted) !important;
+    color: var(--user-ink-muted) !important;
+    transition: background var(--user-motion), color var(--user-motion), transform var(--user-motion) !important;
+}
+
+.app-user-workspace .creation-launchpad .creation-chat-controls .creation-chat-reference-add svg,
+.app-user-workspace .creation-launchpad .creation-chat-controls .creation-voice-trigger.ant-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.app-user-workspace .creation-launchpad .creation-chat-controls .creation-chat-reference-add:hover:not(:disabled),
+.app-user-workspace .creation-launchpad .creation-chat-controls .creation-chat-reference-add:focus-visible:not(:disabled),
+.app-user-workspace .creation-launchpad .creation-chat-controls .creation-voice-trigger.ant-btn:hover,
+.app-user-workspace .creation-launchpad .creation-chat-controls .creation-voice-trigger.ant-btn:focus-visible {
+    background: var(--user-surface-hover) !important;
+    color: var(--user-ink) !important;
+    transform: translateY(-1px);
+}
+
+.app-user-workspace .creation-launchpad .creation-chat-controls .creation-chat-reference-add:disabled {
+    cursor: wait;
+    opacity: .5;
+}
+
+.app-user-workspace .creation-empty-suggest .suggest-copy span {
+    -webkit-line-clamp: 1 !important;
+}
+
+.app-user-workspace .creation-featured-copy > span { font-size: 12px !important; }
+.app-user-workspace .creation-featured-copy em { font-size: 11px !important; letter-spacing: .01em; }
+.app-user-workspace .creation-featured-heading { margin-bottom: 20px !important; }
+
+.app-user-workspace .creation-top-actions { right: 36px; }
