@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -406,6 +408,73 @@ func mustSaveCredential(t *testing.T, svc *Service, vendorID string, input Crede
 //
 // CreateSystemChannel 会校验出站域名可达性，用例里的地址固定指向 127.0.0.1；
 // 只放行这一个字面量主机，既能走到真实建渠道路径，又不依赖 DNS 与网络。
+// TestAddVendorCredentialModelsVerifiesUpstream 覆盖"目录翻不到时按标识登记"这条路径：
+// 上游确认存在的标识才写库，且新行停用、不带协议，等运营在模型列表里逐条确认。
+func TestAddVendorCredentialModelsVerifiesUpstream(t *testing.T) {
+	allowLoopbackUpstream(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/models/openai/whisper-large-v3" {
+			_, _ = w.Write([]byte(`{"owner":"openai","name":"whisper-large-v3"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"detail":"not found"}`))
+	}))
+	defer upstream.Close()
+
+	svc, db := newVendorTestService(t)
+	vendor := mustSaveVendor(t, svc, VendorInput{Code: "replicate", Name: "Replicate"})
+	credential := mustSaveCredential(t, svc, vendor.ID, CredentialInput{
+		Name: "主账号", BaseURL: upstream.URL, APIKey: "r8-token", APIFormat: "openai",
+	})
+
+	result, err := svc.AddVendorCredentialModels(context.Background(), vendorTestActor(), vendor.ID, credential.ID, []string{"openai/whisper-large-v3"})
+	if err != nil {
+		t.Fatalf("手动登记失败：%v", err)
+	}
+	if result.Added != 1 {
+		t.Fatalf("新增条数应为 1，实际 %d", result.Added)
+	}
+	var registered model.ChannelModel
+	if err := db.First(&registered, "channel_id = ? AND model_key = ?", credential.ChannelID, "openai/whisper-large-v3").Error; err != nil {
+		t.Fatalf("模型未落库：%v", err)
+	}
+	if registered.Enabled || registered.Protocol != "" {
+		t.Fatalf("登记行应为停用且无协议：%#v", registered)
+	}
+
+	// 上游 404 的标识必须被拒绝，且不能留下任何行：拼错的 ID 进路由表只会在用户
+	// 发起任务时才报错，那时已经收不到清晰的原因了。
+	_, err = svc.AddVendorCredentialModels(context.Background(), vendorTestActor(), vendor.ID, credential.ID, []string{"openai/typo-model"})
+	if err == nil || !strings.Contains(err.Error(), "上游没有模型") {
+		t.Fatalf("上游不存在的标识应被拒绝，实际 %v", err)
+	}
+	var count int64
+	if err := db.Model(&model.ChannelModel{}).Where("channel_id = ?", credential.ChannelID).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("被拒绝的标识不得写库，当前模型数 %d", count)
+	}
+}
+
+// TestAddVendorCredentialModelsRejectsMalformedIdentity 覆盖标识形态校验：带空格或
+// 查询串的输入会改变请求路径的含义，必须在发请求之前就挡住。
+func TestAddVendorCredentialModelsRejectsMalformedIdentity(t *testing.T) {
+	allowLoopbackUpstream(t)
+	svc, _ := newVendorTestService(t)
+	vendor := mustSaveVendor(t, svc, VendorInput{Code: "replicate", Name: "Replicate"})
+	credential := mustSaveCredential(t, svc, vendor.ID, CredentialInput{
+		Name: "主账号", BaseURL: "http://127.0.0.1:18080", APIKey: "r8-token", APIFormat: "openai",
+	})
+	for _, bad := range []string{"openai/whisper large-v3", "openai/whisper?limit=1", "../../etc/passwd"} {
+		if _, err := svc.AddVendorCredentialModels(context.Background(), vendorTestActor(), vendor.ID, credential.ID, []string{bad}); err == nil {
+			t.Fatalf("非法标识 %q 应被拒绝", bad)
+		}
+	}
+}
+
 func allowLoopbackUpstream(t *testing.T) {
 	t.Helper()
 	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")

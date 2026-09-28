@@ -34,6 +34,7 @@ func (e *Extension) registerAdminVendorRoutes(group *gin.RouterGroup) {
 	group.DELETE("/vendors/:id/credentials/:credentialId", e.handleAdminVendorCredentialDelete)
 	group.GET("/vendors/:id/credentials/:credentialId/models", e.handleAdminVendorCredentialModels)
 	group.POST("/vendors/:id/credentials/:credentialId/models/import", e.handleAdminVendorCredentialModelImport)
+	group.POST("/vendors/:id/credentials/:credentialId/models/manual", e.handleAdminVendorCredentialModelAdd)
 	group.POST("/vendors/:id/credentials/:credentialId/probe", e.handleAdminVendorCredentialProbe)
 }
 
@@ -291,6 +292,40 @@ func (e *Extension) handleAdminVendorCredentialModelImport(c *gin.Context) {
 		return
 	}
 	e.recordAudit(c, "credential.model.import", "credential", credentialID, "导入厂商凭据模型", gin.H{
+		"vendorId":  vendorID,
+		"requested": len(input.Models),
+		"added":     result.Added,
+	})
+	respondOK(c, gin.H{"models": billingList(result.Models), "added": result.Added})
+}
+
+// handleAdminVendorCredentialModelAdd 是"目录翻不到"的补救入口：运营直接按标识登记，
+// 服务端逐个向上游核对后才写库（见 Service.AddVendorCredentialModels）。
+func (e *Extension) handleAdminVendorCredentialModelAdd(c *gin.Context) {
+	actor := canvasActor(adminActor(c))
+	if e.canvas == nil || actor == nil {
+		respondFailure(c, http.StatusServiceUnavailable, "管理后台尚未就绪")
+		return
+	}
+	vendorID := strings.TrimSpace(c.Param("id"))
+	credentialID := strings.TrimSpace(c.Param("credentialId"))
+	if vendorID == "" || credentialID == "" {
+		respondFailure(c, http.StatusBadRequest, "缺少厂商或凭据标识")
+		return
+	}
+	var input struct {
+		Models []string `json:"models"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondFailure(c, http.StatusBadRequest, "模型参数格式错误")
+		return
+	}
+	result, err := e.canvas.AddVendorCredentialModels(c.Request.Context(), actor, vendorID, credentialID, input.Models)
+	if err != nil {
+		respondServiceError(c, err)
+		return
+	}
+	e.recordAudit(c, "credential.model.add", "credential", credentialID, "手动登记厂商模型", gin.H{
 		"vendorId":  vendorID,
 		"requested": len(input.Models),
 		"added":     result.Added,

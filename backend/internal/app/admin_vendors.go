@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"sort"
@@ -38,11 +39,18 @@ const (
 	// 永远拿不到流量，却仍在后台显示为“启用”，这种状态应该用 enabled 表达。
 	vendorCredentialMinWeight = 1
 	vendorCredentialMaxWeight = 1000
+	// vendorManualModelLimit 是手动登记的单次上限：这是"补几条被目录漏掉的模型"的入口，
+	// 不是批量导入通道，每条都要向上游发一次校验请求，放开会变成压测自己的上游。
+	vendorManualModelLimit = 50
 )
 
 // vendorCodePattern 与契约一致：小写字母数字开头，后接小写字母数字或连字符。
 // 不允许大写与下划线，是为了让标识可以直接作为配置键与路由片段使用。
 var vendorCodePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,63}$`)
+
+// vendorManualModelPattern 约束手动登记的模型标识：允许 owner/name 这类多段形式，
+// 但不允许空格、问号、井号等会改变请求路径或查询串的字符。
+var vendorManualModelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$`)
 
 // VendorCatalogItem 是协议注册表里的一个可接入厂商，后台新增厂商时从这里选。
 type VendorCatalogItem struct {
@@ -622,6 +630,62 @@ func (s *Service) ImportVendorCredentialModels(ctx context.Context, actor *model
 		return nil, err
 	}
 	return s.ImportAdminChannelModels(ctx, actor, credential.ChannelID, models)
+}
+
+// AddVendorCredentialModels 按模型标识逐个向上游核对后登记。
+//
+// 分页目录拉不全上游模型：Replicate 的公开目录按发布时间倒序、一页 25 条，要卖的
+// 常用模型基本排在后面。这个入口让运营直接按 owner/name 登记，代价是每个标识都要先
+// 向上游单模型接口核对——否则拼错的 ID 会先写进路由表，直到用户发起任务才报错。
+func (s *Service) AddVendorCredentialModels(ctx context.Context, actor *model.User, vendorID string, credentialID string, models []string) (*AdminChannelModelFetchResult, error) {
+	if err := s.RequireAdmin(actor); err != nil {
+		return nil, err
+	}
+	credential, err := s.vendorCredentialOwnedBy(vendorID, credentialID)
+	if err != nil {
+		return nil, err
+	}
+	channel, err := s.adminSystemChannel(credential.ChannelID)
+	if err != nil {
+		return nil, err
+	}
+	headers, err := ParseOutboundHeadersJSON(channel.HeadersJSON)
+	if err != nil {
+		return nil, err
+	}
+	request := ChannelModelsRequest{BaseURL: channel.BaseURL, APIKey: channel.APIKey, APIFormat: channel.APIFormat, Headers: headers}
+
+	chosen := make([]string, 0, len(models))
+	seen := make(map[string]struct{}, len(models))
+	for _, raw := range models {
+		name := strings.TrimPrefix(strings.TrimSpace(raw), "/")
+		if name == "" {
+			continue
+		}
+		if !vendorManualModelPattern.MatchString(name) {
+			return nil, BadAuthRequest("模型标识只能包含字母、数字、点、下划线与连字符，多段用 / 分隔：" + name)
+		}
+		key := channelModelCatalogKey(name)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		if len(chosen) >= vendorManualModelLimit {
+			return nil, BadAuthRequest(fmt.Sprintf("单次最多登记 %d 个模型，超过请分批", vendorManualModelLimit))
+		}
+		seen[key] = struct{}{}
+		if err := s.VerifyUpstreamChannelModel(ctx, request, name); err != nil {
+			return nil, err
+		}
+		chosen = append(chosen, name)
+	}
+	if len(chosen) == 0 {
+		return nil, BadAuthRequest("请至少填写一个模型标识")
+	}
+	added, err := s.registerChannelModels(channel, chosen)
+	if err != nil {
+		return nil, err
+	}
+	return &AdminChannelModelFetchResult{Models: chosen, Added: added}, nil
 }
 
 // ProbeVendorCredentialModels 探测上游模型目录，并把结果写回凭据的最近检查记录。

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -280,4 +281,72 @@ func channelModelsUpstreamError(err error) error {
 	default:
 		return WrapAppError(http.StatusBadGateway, httpErr.Error(), err)
 	}
+}
+
+// VerifyUpstreamChannelModel 用上游的单模型接口核对模型标识是否存在。
+//
+// 目录接口普遍带分页（Replicate 按发布时间倒序、一页 25 条），常用模型往往翻不到；
+// 按标识登记就成了必需入口，而"这个标识到底有没有"只能靠单模型接口判定。这里只把
+// 2xx 当成存在、404 当成不存在，其余状态码一律报错：把限流或鉴权失败说成"模型不存在"
+// 会让运营去改一个本来就对的标识。
+func (s *Service) VerifyUpstreamChannelModel(ctx context.Context, input ChannelModelsRequest, modelID string) error {
+	if err := s.resolveChannelModelsRequest(&input); err != nil {
+		return err
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(input.BaseURL), "/")
+	apiKey := strings.TrimSpace(input.APIKey)
+	if baseURL == "" {
+		return BadAuthRequest("请填写 Base URL")
+	}
+	if apiKey == "" {
+		return BadAuthRequest("请填写 API Key")
+	}
+	apiFormat := strings.ToLower(strings.TrimSpace(input.APIFormat))
+	if apiFormat == "" {
+		apiFormat = "openai"
+	}
+	if apiFormat != "openai" && apiFormat != "gemini" {
+		return BadAuthRequest("接口协议不支持按标识校验模型")
+	}
+	headers, err := NormalizeOutboundHeaders(input.Headers)
+	if err != nil {
+		return err
+	}
+	target := apiURL(baseURL, "/models/"+modelID)
+	if apiFormat == "gemini" {
+		if !strings.HasSuffix(strings.ToLower(baseURL), "/v1beta") {
+			baseURL += "/v1beta"
+		}
+		target = baseURL + "/models/" + modelID
+	}
+	if _, err := ValidateOutboundURL(target); err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return BadAuthRequest("模型服务地址无效")
+	}
+	if apiFormat == "gemini" {
+		request.Header.Set("x-goog-api-key", apiKey)
+	} else {
+		request.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	ApplyOutboundHeaders(request, headers)
+
+	// 用户密钥仅用于本次请求，不写库、不落日志。
+	if _, _, err := doBinary(request); err != nil {
+		var httpErr providerHTTPError
+		if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusNotFound {
+			return BadAuthRequest("上游没有模型 " + modelID + "，请核对标识是否拼错")
+		}
+		if errors.As(err, &httpErr) {
+			// 5xx 的正文常有"是哪一层挂了"的线索，截断后带上；不带上运营只能猜。
+			if detail := truncateRunes(strings.TrimSpace(httpErr.Body), 200); detail != "" {
+				return NewAppError(http.StatusBadGateway, fmt.Sprintf("上游返回状态 %d，暂时无法确认该模型是否存在：%s", httpErr.StatusCode, detail))
+			}
+			return NewAppError(http.StatusBadGateway, fmt.Sprintf("上游返回状态 %d，暂时无法确认该模型是否存在", httpErr.StatusCode))
+		}
+		return channelModelsUpstreamError(err)
+	}
+	return nil
 }

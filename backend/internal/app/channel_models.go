@@ -250,9 +250,22 @@ func (s *Service) ImportAdminChannelModels(ctx context.Context, actor *model.Use
 		return nil, BadAuthRequest("请至少选择一个有效的模型")
 	}
 
-	existing, err := s.repo.ChannelModels(channelID, true)
+	added, err := s.registerChannelModels(channel, chosen)
 	if err != nil {
 		return nil, err
+	}
+	return &AdminChannelModelFetchResult{Models: chosen, Added: added}, nil
+}
+
+// registerChannelModels 把上游模型标识登记成本渠道的模型行，返回真正新增的条数。
+//
+// 新行一律停用且不带协议与能力：协议决定请求怎么发、能力决定怎么计价校验，必须由运营
+// 在模型列表里逐条确认。导入动作顺手把上游目录变成线上供给，等于绕过了这道确认。
+// 已存在的（含历史软删）与已下架过的标识跳过，避免运营重复导入时把历史记录搅乱。
+func (s *Service) registerChannelModels(channel *model.ModelChannel, names []string) (int64, error) {
+	existing, err := s.repo.ChannelModels(channel.ID, true)
+	if err != nil {
+		return 0, err
 	}
 	known := make(map[string]struct{}, len(existing))
 	for _, item := range existing {
@@ -260,27 +273,30 @@ func (s *Service) ImportAdminChannelModels(ctx context.Context, actor *model.Use
 		known[channelModelCatalogKey(providerKey)] = struct{}{}
 	}
 	retired := retiredChannelModelKeys(channel.RetiredModelsJSON)
-	missing := make([]model.ChannelModel, 0, len(chosen))
-	for _, name := range chosen {
+	missing := make([]model.ChannelModel, 0, len(names))
+	for _, name := range names {
 		key := channelModelCatalogKey(name)
-		if _, ok := known[key]; ok || retired[key] {
+		if _, ok := known[key]; ok {
+			continue
+		}
+		if _, ok := retired[key]; ok {
 			continue
 		}
 		modelID, idErr := s.repo.NextPrefixedID("MODEL")
 		if idErr != nil {
-			return nil, idErr
+			return 0, idErr
 		}
-		missing = append(missing, model.ChannelModel{ID: modelID, ChannelID: channelID, ModelKey: name, DisplayName: name, Enabled: false})
+		missing = append(missing, model.ChannelModel{ID: modelID, ChannelID: channel.ID, ModelKey: name, DisplayName: name, Enabled: false})
 		known[key] = struct{}{}
 	}
 	added, err := s.repo.CreateMissingChannelModels(missing)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	if added > 0 {
 		s.invalidateRouteCatalog()
 	}
-	return &AdminChannelModelFetchResult{Models: chosen, Added: added}, nil
+	return added, nil
 }
 
 func (s *Service) fetchAdminChannelModelCatalog(ctx context.Context, actor *model.User, channelID string) ([]string, error) {
