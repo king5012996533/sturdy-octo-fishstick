@@ -7,7 +7,7 @@
 - 能力：`image`。
 - 默认 Base URL：`https://api.replicate.com`。
 - 鉴权驱动：`bearer`。
-- 创建：`POST /v1/predictions`。
+- 创建：`POST /v1/models/{owner}/{name}/predictions`（模型作用域端点）。
 - 查询：`GET /v1/predictions/{{taskId}}`。
 - 取消：`POST /v1/predictions/{{taskId}}/cancel`。
 
@@ -21,7 +21,7 @@
 
 | 统一字段 | 类型 | 必填 | 上游映射 | 说明 |
 | --- | --- | --- | --- | --- |
-| `model` | string | 是 | `model` | 图片模型 ID。 |
+| `model` | string | 是 | `path /v1/models/{model}/predictions` | 上游模型标识，owner/name 形式，进请求路径。 |
 | `prompt` | string | 是 | `prompt` | 图片提示词。 |
 | `images` | media[] | 否 | `provider image/reference fields` | 参考图或编辑源图，role 由业务层确定。 |
 | `imageCount` | integer | 否 | `n/sample_count` | 输出数量。 |
@@ -37,13 +37,9 @@
 | 上游位置 | 值或转换表达式 |
 | --- | --- |
 | `create.method` | `"POST"` |
-| `create.path` | `"/v1/predictions"` |
+| `create.pathTemplate` | `{"$concat":["/v1/models/",{"$ref":"request.model"},"/predictions"]}` |
 | `create.contentType` | `"application/json"` |
-| `create.body.version` | `{"$omitEmpty":{"$ref":"request.providerOptions.replicate-prediction-image.version"}}` |
-| `create.body.model` | `{"$omitEmpty":{"$coalesce":[{"$ref":"request.providerOptions.replicate-prediction-image.model"},{"$ref":"request.model"}]}}` |
-| `create.body.input` | `{"$omitEmpty":{"$coalesce":[{"$ref":"request.providerOptions.replicate-prediction-image.input"},{"prompt":{"$ref":"request.prompt"},"images":{"$map":{"from":{"$ref":"request.images"},"as":"media","in":{"$ref":"media.value"}}},"videos":{"$map":{"from":{"$ref":"request.videos"},"as":"media","in":{"$ref":"media.value"}}},"audios":{"$map":{"from":{"$ref":"request.audios"},"as":"media","in":{"$ref":"media.value"}}}}]}}` |
-| `create.body.prompt` | `{"$omitEmpty":{"$ref":"request.providerOptions.replicate-prediction-image.workflow"}}` |
-| `create.body.client_id` | `{"$omitEmpty":{"$ref":"request.providerOptions.replicate-prediction-image.client_id"}}` |
+| `create.body.input` | `{"$omitEmpty":{"$coalesce":[{"$ref":"request.providerOptions.replicate-prediction-image.input"},{"prompt":{"$ref":"request.prompt"},"images":{"$omitEmpty":{"$map":{"from":{"$ref":"request.images"},"as":"media","in":{"$ref":"media.value"}}}},"videos":{"$omitEmpty":{"$map":{"from":{"$ref":"request.videos"},"as":"media","in":{"$ref":"media.value"}}}},"audios":{"$omitEmpty":{"$map":{"from":{"$ref":"request.audios"},"as":"media","in":{"$ref":"media.value"}}}}}]}}` |
 | `create.body.webhook` | `{"$omitEmpty":{"$ref":"request.providerOptions.replicate-prediction-image.webhook"}}` |
 | `create.body.webhook_events_filter` | `{"$omitEmpty":{"$ref":"request.providerOptions.replicate-prediction-image.webhook_events_filter"}}` |
 | `poll.method` | `"GET"` |
@@ -55,13 +51,9 @@
 
 ## Provider 扩展键
 
-- `providerOptions.replicate-prediction-image.client_id`
 - `providerOptions.replicate-prediction-image.input`
-- `providerOptions.replicate-prediction-image.model`
-- `providerOptions.replicate-prediction-image.version`
 - `providerOptions.replicate-prediction-image.webhook`
 - `providerOptions.replicate-prediction-image.webhook_events_filter`
-- `providerOptions.replicate-prediction-image.workflow`
 
 动态模型或工作流允许使用文档声明的完整 `parameters/input/extra_body` 对象；该对象是协议本身的开放 schema，不会被宿主裁剪。
 
@@ -193,26 +185,17 @@
         ],
         "create": {
           "method": "POST",
-          "path": "/v1/predictions",
+          "pathTemplate": {
+            "$concat": [
+              "/v1/models/",
+              {
+                "$ref": "request.model"
+              },
+              "/predictions"
+            ]
+          },
           "contentType": "application/json",
           "body": {
-            "version": {
-              "$omitEmpty": {
-                "$ref": "request.providerOptions.replicate-prediction-image.version"
-              }
-            },
-            "model": {
-              "$omitEmpty": {
-                "$coalesce": [
-                  {
-                    "$ref": "request.providerOptions.replicate-prediction-image.model"
-                  },
-                  {
-                    "$ref": "request.model"
-                  }
-                ]
-              }
-            },
             "input": {
               "$omitEmpty": {
                 "$coalesce": [
@@ -224,50 +207,46 @@
                       "$ref": "request.prompt"
                     },
                     "images": {
-                      "$map": {
-                        "from": {
-                          "$ref": "request.images"
-                        },
-                        "as": "media",
-                        "in": {
-                          "$ref": "media.value"
+                      "$omitEmpty": {
+                        "$map": {
+                          "from": {
+                            "$ref": "request.images"
+                          },
+                          "as": "media",
+                          "in": {
+                            "$ref": "media.value"
+                          }
                         }
                       }
                     },
                     "videos": {
-                      "$map": {
-                        "from": {
-                          "$ref": "request.videos"
-                        },
-                        "as": "media",
-                        "in": {
-                          "$ref": "media.value"
+                      "$omitEmpty": {
+                        "$map": {
+                          "from": {
+                            "$ref": "request.videos"
+                          },
+                          "as": "media",
+                          "in": {
+                            "$ref": "media.value"
+                          }
                         }
                       }
                     },
                     "audios": {
-                      "$map": {
-                        "from": {
-                          "$ref": "request.audios"
-                        },
-                        "as": "media",
-                        "in": {
-                          "$ref": "media.value"
+                      "$omitEmpty": {
+                        "$map": {
+                          "from": {
+                            "$ref": "request.audios"
+                          },
+                          "as": "media",
+                          "in": {
+                            "$ref": "media.value"
+                          }
                         }
                       }
                     }
                   }
                 ]
-              }
-            },
-            "prompt": {
-              "$omitEmpty": {
-                "$ref": "request.providerOptions.replicate-prediction-image.workflow"
-              }
-            },
-            "client_id": {
-              "$omitEmpty": {
-                "$ref": "request.providerOptions.replicate-prediction-image.client_id"
               }
             },
             "webhook": {
