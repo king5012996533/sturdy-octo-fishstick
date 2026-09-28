@@ -716,7 +716,7 @@ function applyPluginReferenceCapability(video: VideoCapabilityConfig, protocol: 
 }
 
 function isSeedance2Family(protocol: ModelProtocol | undefined, modelName: string) {
-    return Boolean(protocol && ["openai", "newapi", "newapi-channel-2", "volcengine-ark-video", "volcengine-ark-agent-plan-video"].includes(protocol) && String(modelName).toLowerCase().includes("seedance-2"));
+    return Boolean(protocol && ["openai", "openai-videos", "newapi", "newapi-channel-2", "volcengine-ark-video", "volcengine-ark-agent-plan-video"].includes(protocol) && String(modelName).toLowerCase().includes("seedance-2"));
 }
 
 export function isSeedance25Model(modelName: string) {
