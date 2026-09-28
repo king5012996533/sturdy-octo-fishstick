@@ -1,6 +1,6 @@
-import { Bot, ChevronRight, Home, PanelLeftClose, PanelLeftOpen, Plus, Settings2, Sun, Moon } from "lucide-react";
+import { Bot, ChevronRight, Home, PanelLeftClose, PanelLeftOpen, Plus, Settings2, ShieldCheck, Sun, Moon } from "lucide-react";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
-import { useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { BrandLogoFrame } from "@/components/brand/brand-logo";
@@ -9,11 +9,25 @@ import { Kbd } from "@/components/ui/base/kbd";
 import { navigationTools, type NavigationToolSlug } from "@/constant/navigation-tools";
 import { aceternityMotion } from "@/lib/aceternity-motion";
 import { cn } from "@/lib/utils";
+import { userChannelConfigVisible } from "@/lib/user-channel-ui";
 import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
 import { useUserStore, type FeatureAvailability } from "@/stores/use-user-store";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
+
+/**
+ * 托管登录的退出入口。
+ *
+ * 与 app-providers 的登录门同一手法：常量在构建期被替换，本地/桌面构建下返回 null，
+ * 动态 import 变成死代码被摇树删除，本地产物里不会出现这个账号入口。
+ */
+function resolveHostedAuthSidebarFooter(): ComponentType<{ collapsed: boolean }> | null {
+    if (!__BEEFTV_HOSTED_AUTH__) return null;
+    return lazy(() => import("@/features/hosted-auth").then((module) => ({ default: module.HostedAuthSidebarFooter })));
+}
+
+const HostedAuthSidebarFooter = resolveHostedAuthSidebarFooter();
 
 export type WorkspaceNavItem = {
     id: string;
@@ -37,12 +51,12 @@ function toolItem(slug: NavigationToolSlug, to: string): WorkspaceNavItem {
     return { id: slug, title: tool?.label ?? slug, icon: tool?.icon, to };
 }
 
-function buildNav(features: FeatureAvailability): { groups: WorkspaceNavGroup[]; footer: WorkspaceNavItem[] } {
+function buildNav(features: FeatureAvailability, brandName: string, adminConsole: boolean): { groups: WorkspaceNavGroup[]; footer: WorkspaceNavItem[] } {
     const groups: WorkspaceNavGroup[] = [
         {
             items: [
                 { id: "new", title: "新建项目", icon: Plus, to: "/canvas?mode=new" },
-                { id: "create", title: "BeefTV Agent", icon: Bot, to: "/create", disabled: true },
+                { id: "create", title: `${brandName} Agent`, icon: Bot, to: "/create", disabled: true },
             ],
         },
         {
@@ -50,7 +64,14 @@ function buildNav(features: FeatureAvailability): { groups: WorkspaceNavGroup[];
                 { id: "home", title: "首页", icon: Home, to: "/" },
                 { ...toolItem("canvas", "/project"), title: "项目" },
                 { ...toolItem("assets", "/assets"), title: "资产" },
-                { id: "settings:channels", title: "模型配置", icon: Settings2, to: "/settings?section=channels" },
+                // 托管形态的模型与执行凭证都由平台持有，用户端没有任何可配置项：
+                // 保留入口只会把"选模型"包装成"配模型"，把用户引向一个空设置页。
+                ...(userChannelConfigVisible(features.customChannelsEnabled)
+                    ? [{ id: "settings:channels", title: "模型配置", icon: Settings2, to: "/settings?section=channels" }]
+                    : []),
+                // 平台配置与个人设置是两件事：管理后台只在托管形态、且当前账号是管理员时出现，
+                // 本地/桌面构建里 __BEEFTV_HOSTED_AUTH__ 被替换为 false，入口与后台代码一起被摇掉。
+                ...(adminConsole ? [{ id: "admin", title: "管理后台", icon: ShieldCheck, to: "/admin" }] : []),
             ],
         },
     ];
@@ -77,7 +98,16 @@ function WorkspaceSwitcher({ collapsed, onNavigate, onExpand, onCollapse }: { co
         <div className="app-workspace-sidebar-brand-row relative shrink-0 px-3 pt-3">
             <Link to="/" onClick={onNavigate} className="app-workspace-sidebar-brand-button group" aria-label={`${appearance.brandName}首页`}>
                 <span className="flex min-w-0 items-center gap-2">
-                    <BrandLogoFrame className="app-workspace-brand-mark grid size-8 shrink-0 place-items-center rounded-[var(--r-sm)] shadow-sm" logoClassName="size-5 object-contain" alt="" fallback={<span className="app-workspace-brand-placeholder" aria-hidden>B</span>} />
+                    <BrandLogoFrame
+                        className="app-workspace-brand-mark grid size-8 shrink-0 place-items-center rounded-[var(--r-sm)] shadow-sm"
+                        logoClassName="size-5 object-contain"
+                        alt=""
+                        fallback={
+                            <span className="app-workspace-brand-placeholder" aria-hidden>
+                                K
+                            </span>
+                        }
+                    />
                     <span className="flex min-w-0">
                         <span className="app-workspace-brand-wordmark truncate text-[var(--fs-body)] leading-none font-semibold">{appearance.brandName}</span>
                     </span>
@@ -90,21 +120,7 @@ function WorkspaceSwitcher({ collapsed, onNavigate, onExpand, onCollapse }: { co
     );
 }
 
-function NavItem({
-    item,
-    activeId,
-    onSelect,
-    onOpenSearch,
-    level = 0,
-    collapsed = false,
-}: {
-    item: WorkspaceNavItem;
-    activeId: string;
-    onSelect: (id: string) => void;
-    onOpenSearch: () => void;
-    level?: number;
-    collapsed?: boolean;
-}) {
+function NavItem({ item, activeId, onSelect, onOpenSearch, level = 0, collapsed = false }: { item: WorkspaceNavItem; activeId: string; onSelect: (id: string) => void; onOpenSearch: () => void; level?: number; collapsed?: boolean }) {
     const isActive = activeId === item.id || (item.id === "settings" && activeId.startsWith("settings:"));
     const hasChildren = Boolean(item.children?.length);
     const [isOpen, setIsOpen] = useState(false);
@@ -132,9 +148,7 @@ function NavItem({
             </span>
             <span className="app-workspace-nav-meta flex shrink-0 items-center gap-2">
                 {item.disabled && !collapsed ? <span className="text-[var(--fs-micro)] font-normal text-foreground/35">正在开发</span> : null}
-                {item.shortcut ? (
-                    <Kbd className="hidden group-hover:inline-flex">{item.shortcut}</Kbd>
-                ) : null}
+                {item.shortcut ? <Kbd className="hidden group-hover:inline-flex">{item.shortcut}</Kbd> : null}
                 {item.badge !== undefined ? <span className="flex min-w-5 items-center justify-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[var(--fs-tiny)] font-medium tabular-nums text-primary">{item.badge}</span> : null}
                 {hasChildren ? <ChevronRight className={cn("size-3.5 shrink-0 text-foreground/40 transition-transform duration-200", isOpen && "rotate-90")} strokeWidth={2} /> : null}
             </span>
@@ -146,14 +160,7 @@ function NavItem({
         collapsed && "is-collapsed",
         item.disabled ? "is-disabled text-foreground/30" : isActive ? "is-active font-medium" : "text-foreground/62 hover:bg-surface-hover hover:text-foreground",
     );
-    const activePill = isActive ? (
-        <motion.span
-            layoutId="workspace-nav-active-pill"
-            className="app-workspace-nav-active-pill"
-            aria-hidden
-            transition={reducedMotion ? { duration: 0 } : aceternityMotion.spring.dock}
-        />
-    ) : null;
+    const activePill = isActive ? <motion.span layoutId="workspace-nav-active-pill" className="app-workspace-nav-active-pill" aria-hidden transition={reducedMotion ? { duration: 0 } : aceternityMotion.spring.dock} /> : null;
 
     const handleClick = () => {
         if (item.action === "search") {
@@ -194,7 +201,16 @@ function NavItem({
                     {rowContent}
                 </span>
             ) : (
-                <button type="button" className={rowClassName} data-nav-id={item.id} style={rowStyle} aria-label={collapsed ? item.title : undefined} title={collapsed ? item.title : undefined} onClick={handleClick} aria-expanded={hasChildren ? isOpen : undefined}>
+                <button
+                    type="button"
+                    className={rowClassName}
+                    data-nav-id={item.id}
+                    style={rowStyle}
+                    aria-label={collapsed ? item.title : undefined}
+                    title={collapsed ? item.title : undefined}
+                    onClick={handleClick}
+                    aria-expanded={hasChildren ? isOpen : undefined}
+                >
                     {activePill}
                     {rowContent}
                 </button>
@@ -233,7 +249,11 @@ function NavGroup({ group, activeId, onNavigate, onOpenSearch, collapsed }: { gr
 
     // 无标题分组（核心导航入口）常驻展示，不做折叠。
     if (!group.heading || collapsed) {
-        return <div className="app-workspace-nav-group flex shrink-0 flex-col" data-nav-group-heading={group.heading || ""}>{content}</div>;
+        return (
+            <div className="app-workspace-nav-group flex shrink-0 flex-col" data-nav-group-heading={group.heading || ""}>
+                {content}
+            </div>
+        );
     }
 
     return (
@@ -255,7 +275,10 @@ export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExp
     const { pathname } = useLocation();
     const [searchParams] = useSearchParams();
     const features = useUserStore((state) => state.features);
-    const { groups, footer } = useMemo(() => buildNav(features), [features]);
+    const user = useUserStore((state) => state.user);
+    const brandName = useAppearanceStore((state) => state.appearance.brandName);
+    const adminConsole = __BEEFTV_HOSTED_AUTH__ && user?.role === "admin";
+    const { groups, footer } = useMemo(() => buildNav(features, brandName, adminConsole), [features, brandName, adminConsole]);
 
     const rawSlug = pathname.split("/").filter(Boolean)[0] || "home";
     // `/project` is the LibTV-compatible alias for the existing canvas library route.
@@ -283,15 +306,20 @@ export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExp
             <WorkspaceSwitcher collapsed={collapsed} onNavigate={onNavigate} onExpand={onExpand} onCollapse={onCollapse} />
 
             <LayoutGroup id="workspace-sidebar-nav">
-            <div
-                ref={scrollRef}
-                onScroll={handleScroll}
-                className={cn("app-workspace-sidebar-scroll-area flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-3 pt-7", collapsed && "is-collapsed", scrollState.hasTopFade && "has-top-fade", scrollState.hasBottomFade && "has-bottom-fade")}
-            >
-                {groups.map((group, index) => (
-                    <NavGroup key={index} group={group} activeId={activeId} onNavigate={onNavigate} onOpenSearch={onOpenSearch} collapsed={collapsed} />
-                ))}
-            </div>
+                <div
+                    ref={scrollRef}
+                    onScroll={handleScroll}
+                    className={cn(
+                        "app-workspace-sidebar-scroll-area flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-3 pt-7",
+                        collapsed && "is-collapsed",
+                        scrollState.hasTopFade && "has-top-fade",
+                        scrollState.hasBottomFade && "has-bottom-fade",
+                    )}
+                >
+                    {groups.map((group, index) => (
+                        <NavGroup key={index} group={group} activeId={activeId} onNavigate={onNavigate} onOpenSearch={onOpenSearch} collapsed={collapsed} />
+                    ))}
+                </div>
             </LayoutGroup>
 
             <div className="app-workspace-sidebar-footer shrink-0 px-3 py-3">
@@ -302,8 +330,19 @@ export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExp
                         ))}
                     </div>
                 ) : null}
+                {HostedAuthSidebarFooter ? (
+                    <Suspense fallback={null}>
+                        <HostedAuthSidebarFooter collapsed={collapsed} />
+                    </Suspense>
+                ) : null}
                 <WorkspaceSidebarUpdate collapsed={collapsed} />
-                <AnimatedThemeToggler theme={theme} onThemeChange={setTheme} aria-label={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"} title={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"} className="flex min-h-9 items-center justify-center gap-2 rounded-lg text-foreground/65 hover:bg-foreground/5 hover:text-foreground focus-visible:outline focus-visible:outline-2">
+                <AnimatedThemeToggler
+                    theme={theme}
+                    onThemeChange={setTheme}
+                    aria-label={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"}
+                    title={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"}
+                    className="flex min-h-9 items-center justify-center gap-2 rounded-lg text-foreground/65 hover:bg-foreground/5 hover:text-foreground focus-visible:outline focus-visible:outline-2"
+                >
                     {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
                     {!collapsed && <span className="text-sm">{theme === "dark" ? "浅色模式" : "深色模式"}</span>}
                 </AnimatedThemeToggler>

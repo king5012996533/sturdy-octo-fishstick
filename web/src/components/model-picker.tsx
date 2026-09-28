@@ -72,9 +72,13 @@ export function ModelPicker({
     // 旧画布可能保存过已下架或前端历史内置模型；它们不能重新进入当前可选目录。
     const current = options.includes(resolvedCurrent) ? resolvedCurrent : "";
     const creationVariant = variant === "creation";
+    // 没有可选模型时直接说明原因：上游那套"占位模型名"（2.0 / Lib Image 2.5 Pro）
+    // 会让人以为平台已经提供该能力，点下去才发现没有。
     const triggerLabel = current
         ? (creationVariant ? pickerModelDisplayName(config, current, showConfiguredModelName) : pickerModelOptionLabel(config, current, showConfiguredModelName))
-        : placeholder;
+        : options.length
+          ? placeholder
+          : emptyModelLabel(config, capability);
 
     useLayoutEffect(() => {
         const trigger = triggerRef.current;
@@ -258,6 +262,7 @@ export function ModelPicker({
                     ref={triggerRef}
                     type="button"
                     className={cn("canvas-composer-model-picker", fullWidth ? "w-full" : "min-w-36 max-w-full", className)}
+                    disabled={!options.length}
                     aria-haspopup="listbox"
                     aria-expanded={open}
                     aria-label={triggerLabel}

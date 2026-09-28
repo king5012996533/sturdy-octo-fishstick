@@ -83,3 +83,25 @@ func TestSystemProxyEventStreamEnforcesResponseLimit(t *testing.T) {
 		t.Fatalf("captured = %q, response = %q", captured, response.Body.String())
 	}
 }
+
+func TestSystemProxyEventStreamRedactsUpstreamCredential(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	response := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(response)
+	context.Request = httptest.NewRequest(http.MethodPost, "/api/ai/system/channel/responses", nil)
+	upstream := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader("data: upstream said sk-secret-key\n\ndata: done\n\n")),
+	}
+
+	if _, err := streamSystemProxyResponse(context, upstream, 1<<20, "sk-secret-key"); err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if strings.Contains(response.Body.String(), "sk-secret-key") {
+		t.Fatalf("stream leaked the platform credential: %q", response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "[REDACTED]") {
+		t.Fatalf("stream should redact the credential, body = %q", response.Body.String())
+	}
+}

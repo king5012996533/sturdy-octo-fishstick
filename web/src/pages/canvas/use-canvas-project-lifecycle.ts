@@ -32,6 +32,10 @@ function isExpectedLocalOnlySyncError(error: unknown) {
 type UseCanvasProjectLifecycleOptions = {
     projectId: string;
     projectLoaded: boolean;
+    /** 平台已下架：正文读取必然失败，也不应该由失败路径把用户踢回画布库。 */
+    moderationBlocked: boolean;
+    /** 审核清单还没回来：先不下结论，等它落地再决定是打开还是停在落地页。 */
+    moderationPending: boolean;
     nodes: CanvasNodeData[];
     connections: CanvasConnection[];
     chatSessions: CanvasAssistantSession[];
@@ -63,6 +67,8 @@ type UseCanvasProjectLifecycleOptions = {
 export function useCanvasProjectLifecycle({
     projectId,
     projectLoaded,
+    moderationBlocked,
+    moderationPending,
     nodes,
     connections,
     chatSessions,
@@ -120,6 +126,14 @@ export function useCanvasProjectLifecycle({
         // hydration. Blocking local editing here leaves projectLoaded=false:
         // nodes appear on screen but every persistence effect is skipped.
         if (!localMode && (!hydrated || !sessionHydrated)) return;
+        // 下架与"审核状态未知"都停在原地：读取会失败，而失败路径会把用户直接送回
+        // 画布库，等于把"哪一块被下架、为什么"这条信息吞掉。
+        if (moderationBlocked || moderationPending) {
+            editorReadyRef.current = false;
+            editorProjectIdRef.current = null;
+            setProjectLoaded(false);
+            return;
+        }
         let cancelled = false;
         // Keep load intent on the refs until this attempt finishes. React Strict
         // Mode remounts the effect; consuming the flags here would turn "load
@@ -234,7 +248,7 @@ export function useCanvasProjectLifecycle({
         return () => {
             cancelled = true;
         };
-    }, [hydrated, sessionHydrated, loadAttempt, message, navigate, openProject, projectId, resetHistory, setActiveChatId, setBackgroundMode, setCanvasAppearance, setChatSessions, setConnections, setNodes, setShowImageInfo, setViewport]);
+    }, [hydrated, sessionHydrated, loadAttempt, message, moderationBlocked, moderationPending, navigate, openProject, projectId, resetHistory, setActiveChatId, setBackgroundMode, setCanvasAppearance, setChatSessions, setConnections, setNodes, setShowImageInfo, setViewport]);
 
     useEffect(() => {
         if (!projectLoaded) return;

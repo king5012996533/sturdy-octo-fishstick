@@ -6,6 +6,8 @@ FROM oven/bun:1.3.13 AS web-build
 WORKDIR /app/web
 ARG BUILD_VERSION
 ENV CANVAS_BUILD_VERSION=${BUILD_VERSION}
+# 云端工作台需要账号登录；桌面与本地构建不设置该变量，产物中不含登录界面。
+ENV BEEFTV_HOSTED_AUTH=1
 COPY web/package.json web/bun.lock ./
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile --cache-dir=/root/.bun/install/cache
 COPY VERSION /app/VERSION

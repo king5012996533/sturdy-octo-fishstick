@@ -65,6 +65,31 @@ function devRoutes() {
     ];
 }
 
+/**
+ * 平台运营后台路由。
+ *
+ * 与 devRoutes/托管登录同一手法：常量在构建期被替换，本地/桌面构建返回空数组，
+ * 函数体内的动态 import 变成死代码被摇树删除，运营后台不会进入本地产物。
+ */
+function hostedAdminRoutes() {
+    if (!__BEEFTV_HOSTED_AUTH__) return [];
+    const AdminConsolePage = lazy(() => import("@/features/admin-console").then((module) => ({ default: module.AdminConsolePage })));
+    const RequireAdmin = lazy(() => import("@/features/admin-console/require-admin").then((module) => ({ default: module.RequireAdmin })));
+    return [
+        {
+            path: "/admin",
+            element: (
+                <Suspense fallback={<FullScreenLoader label="正在打开管理后台" detail="准备平台配置" />}>
+                    <RequireAdmin>
+                        <AdminConsolePage />
+                    </RequireAdmin>
+                </Suspense>
+            ),
+            errorElement: <RouteErrorPage />,
+        },
+    ];
+}
+
 export const router = createBrowserRouter([
     ...(import.meta.env.DEV ? devRoutes() : []),
     {
@@ -120,6 +145,7 @@ export const router = createBrowserRouter([
                 path: "/projects/:projectId/workflow/:unitId/:stage",
                 element: <LocalAwareProjectRoute />,
             },
+            ...hostedAdminRoutes(),
             { path: "/canvas", element: deferred(<CanvasPage />) },
             { path: "/canvas/:id", element: <CanvasProjectPage /> },
         ],

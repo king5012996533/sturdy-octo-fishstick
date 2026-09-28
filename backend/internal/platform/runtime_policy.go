@@ -66,6 +66,7 @@ type RuntimeRequestPolicy struct {
 	CustomRelayTimeoutMinutes  int   `json:"customRelayTimeoutMinutes"`
 	SystemRelayRequestMB       int64 `json:"systemRelayRequestMB"`
 	SystemRelayResponseMB      int64 `json:"systemRelayResponseMB"`
+	SystemRelayTimeoutMinutes  int   `json:"systemRelayTimeoutMinutes"`
 	ChannelCircuitFailureCount int   `json:"channelCircuitFailureCount"`
 	ChannelCircuitOpenSeconds  int   `json:"channelCircuitOpenSeconds"`
 }
@@ -134,6 +135,7 @@ func DefaultRuntimePolicy() RuntimePolicySetting {
 			CustomRelayTimeoutMinutes:  10,
 			SystemRelayRequestMB:       64,
 			SystemRelayResponseMB:      128,
+			SystemRelayTimeoutMinutes:  10,
 			ChannelCircuitFailureCount: min(envInt("CANVAS_CHANNEL_CIRCUIT_FAILURES", 5), maxRuntimeConcurrency),
 			ChannelCircuitOpenSeconds:  min(envInt("CANVAS_CHANNEL_CIRCUIT_SECONDS", 60), 86_400),
 		},
@@ -163,6 +165,7 @@ func selfUseRuntimePolicy() RuntimePolicySetting {
 		CustomRelayConcurrency: maxRuntimeConcurrency, CustomRelayRequestMB: maxRuntimeUploadMB,
 		CustomRelayResponseMB: maxRuntimeUploadMB, CustomRelayTimeoutMinutes: maxRuntimeTimeoutMinutes,
 		SystemRelayRequestMB: maxRuntimeUploadMB, SystemRelayResponseMB: maxRuntimeUploadMB,
+		SystemRelayTimeoutMinutes:  maxRuntimeTimeoutMinutes,
 		ChannelCircuitFailureCount: maxRuntimeConcurrency, ChannelCircuitOpenSeconds: 1,
 	}
 	return value
@@ -363,6 +366,9 @@ func validateRuntimePolicy(value RuntimePolicySetting) error {
 	}
 	if request.CustomRelayTimeoutMinutes < 1 || request.CustomRelayTimeoutMinutes > maxRuntimeTimeoutMinutes {
 		return kernel.BadAuthRequest(fmt.Sprintf("自定义渠道超时必须是 1-%d 分钟的整数", maxRuntimeTimeoutMinutes))
+	}
+	if request.SystemRelayTimeoutMinutes < 1 || request.SystemRelayTimeoutMinutes > maxRuntimeTimeoutMinutes {
+		return kernel.BadAuthRequest(fmt.Sprintf("系统渠道超时必须是 1-%d 分钟的整数", maxRuntimeTimeoutMinutes))
 	}
 	if request.ChannelCircuitFailureCount < 1 || request.ChannelCircuitFailureCount > maxRuntimeConcurrency {
 		return kernel.BadAuthRequest(fmt.Sprintf("渠道熔断失败次数必须是 1-%d 的整数", maxRuntimeConcurrency))

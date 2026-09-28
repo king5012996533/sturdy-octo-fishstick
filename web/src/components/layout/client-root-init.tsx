@@ -35,6 +35,7 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
         usePluginStore.getState().setPluginStates({});
     }, []);
 
+
     useEffect(() => {
         if (!userId || localMode || !pluginStoreHydrated) return;
         let cancelled = false;

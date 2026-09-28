@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -65,8 +66,11 @@ type Service struct {
 	prompts                  *prompts.Service
 	canvas                   *canvas.Service
 	beefAPI                  *beefapi.Service
-	mcpOnce                  sync.Once
-	mcpSession               *mcp.Session
+	// canvasModeration 只在托管实例打开：桌面库里没有 canvas_moderation 表，
+	// 每次都去查会把本地存画布打挂。
+	canvasModeration atomic.Bool
+	mcpOnce          sync.Once
+	mcpSession       *mcp.Session
 }
 
 const taskWorkerConcurrency = 3

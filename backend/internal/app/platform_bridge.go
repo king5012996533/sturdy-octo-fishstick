@@ -237,6 +237,25 @@ func defaultFeatureAvailability() FeatureAvailability {
 	return platform.DefaultFeatureAvailability()
 }
 
+// HostedFeatureDefaults 是托管实例首次启动时的功能开放默认值。
+//
+// 与本地默认值的唯一差别是自建渠道：托管形态由平台持有上游密钥与计费，
+// 用户可自建渠道就意味着可以直连上游绕过计费，因此必须默认关闭。
+func HostedFeatureDefaults() FeatureAvailability {
+	value := platform.DefaultFeatureAvailability()
+	value.CustomChannelsEnabled = false
+	return value
+}
+
+// EnsureHostedFeatureDefaults 在托管实例尚未配置过功能开放时写入托管默认值。
+// 返回 false 表示已有运维配置（或本实例是本地形态），此时不得覆盖。
+func (s *Service) EnsureHostedFeatureDefaults() (bool, error) {
+	if s == nil || s.IsLocalMode() {
+		return false, nil
+	}
+	return s.platformDomain().EnsureFeatureAvailability(HostedFeatureDefaults())
+}
+
 func publicFeatureAvailability(setting *model.SystemSetting, value FeatureAvailability) *PublicFeatureAvailability {
 	return platform.ProjectFeatureAvailability(setting, value)
 }

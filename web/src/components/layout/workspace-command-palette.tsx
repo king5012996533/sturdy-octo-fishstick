@@ -4,7 +4,9 @@ import { useNavigate } from "react-router";
 
 import { navigationTools } from "@/constant/navigation-tools";
 import { Kbd } from "@/components/ui/base/kbd";
+import { userChannelConfigVisible } from "@/lib/user-channel-ui";
 import { cn } from "@/lib/utils";
+import { useUserStore } from "@/stores/use-user-store";
 
 type PaletteEntry = {
     id: string;
@@ -17,6 +19,7 @@ type PaletteEntry = {
 /** 顶栏搜索 / ⌘K 命令面板：按功能开关过滤当前可用页面入口。 */
 export function WorkspaceCommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
     const navigate = useNavigate();
+    const customChannelsEnabled = useUserStore((state) => state.features.customChannelsEnabled);
     const [query, setQuery] = useState("");
     const [highlight, setHighlight] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -32,9 +35,10 @@ export function WorkspaceCommandPalette({ open, onClose }: { open: boolean; onCl
             toolEntry("canvas", "/canvas"),
             toolEntry("assets", "/assets"),
             toolEntry("skills", "/skills"),
-            toolEntry("settings", "/settings"),
+            // 托管形态没有模型配置页，入口不能只是隐藏：这里必须真的不出现在候选里。
+            ...(userChannelConfigVisible(customChannelsEnabled) ? [toolEntry("settings", "/settings")] : []),
         ];
-    }, []);
+    }, [customChannelsEnabled]);
 
     const filtered = useMemo(() => {
         const keyword = query.trim().toLowerCase();

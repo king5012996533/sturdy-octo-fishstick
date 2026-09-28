@@ -195,42 +195,73 @@ func (s *Service) UserCanvasProjectSummaries(userID string) ([]UserDataSummary, 
 }
 
 func (s *Service) UserCanvasProject(userID string, id string) (json.RawMessage, error) {
+	if err := s.canvasModerationBlock(id); err != nil {
+		return nil, err
+	}
 	return s.canvasDomain().UserCanvasProject(userID, id)
 }
 
 func (s *Service) UpsertUserCanvasProject(userID string, raw json.RawMessage) (UserDataSummary, error) {
+	if err := s.canvasModerationBlock(canvasIDFromPayload(raw)); err != nil {
+		return UserDataSummary{}, err
+	}
 	return s.canvasDomain().UpsertUserCanvasProject(userID, raw)
 }
 
 func (s *Service) CommitUserCanvasProjectAssets(userID string, raw json.RawMessage, assets []json.RawMessage) (UserDataSummary, error) {
+	if err := s.canvasModerationBlock(canvasIDFromPayload(raw)); err != nil {
+		return UserDataSummary{}, err
+	}
 	return s.canvasDomain().CommitUserCanvasProjectAssets(userID, raw, assets)
 }
 
 func (s *Service) DeleteUserCanvasNode(userID, canvasID, nodeID string) (UserDataSummary, error) {
+	if err := s.canvasModerationBlock(canvasID); err != nil {
+		return UserDataSummary{}, err
+	}
 	return s.canvasDomain().DeleteUserCanvasNode(userID, canvasID, nodeID)
 }
 
 func (s *Service) UpdateUserCanvasNode(userID, canvasID, nodeID string, patch map[string]json.RawMessage) (UserDataSummary, error) {
+	if err := s.canvasModerationBlock(canvasID); err != nil {
+		return UserDataSummary{}, err
+	}
 	return s.canvasDomain().UpdateUserCanvasNode(userID, canvasID, nodeID, patch)
 }
 
 func (s *Service) ConnectUserCanvasNodes(userID, canvasID, fromNodeID, toNodeID string, connection map[string]json.RawMessage) (UserDataSummary, error) {
+	if err := s.canvasModerationBlock(canvasID); err != nil {
+		return UserDataSummary{}, err
+	}
 	return s.canvasDomain().ConnectUserCanvasNodes(userID, canvasID, fromNodeID, toNodeID, connection)
 }
 
 func (s *Service) DeleteUserCanvasProject(userID string, id string) error {
+	// 下架期间也不允许用户自己删掉：证据要先留着，处置结论撤销后画布还要能恢复。
+	if err := s.canvasModerationBlock(id); err != nil {
+		return err
+	}
 	return s.canvasDomain().DeleteUserCanvasProject(userID, id)
 }
 
 func (s *Service) CanvasHistory(userID, canvasID string) (CanvasHistoryList, error) {
+	if err := s.canvasModerationBlock(canvasID); err != nil {
+		return CanvasHistoryList{}, err
+	}
 	return s.canvasDomain().CanvasHistory(userID, canvasID)
 }
 
 func (s *Service) CanvasHistorySnapshot(userID, canvasID, snapshotID string) (*model.CanvasSnapshot, error) {
+	if err := s.canvasModerationBlock(canvasID); err != nil {
+		return nil, err
+	}
 	return s.canvasDomain().CanvasHistorySnapshot(userID, canvasID, snapshotID)
 }
 
 func (s *Service) RestoreCanvasHistory(userID, canvasID, snapshotID string, revision *int64) (UserDataSummary, error) {
+	if err := s.canvasModerationBlock(canvasID); err != nil {
+		return UserDataSummary{}, err
+	}
 	return s.canvasDomain().RestoreCanvasHistory(userID, canvasID, snapshotID, revision)
 }
 
@@ -272,4 +303,21 @@ func containsInlineMediaDataURL(value interface{}) bool {
 
 func assetFromJSON(userID string, raw json.RawMessage) (model.Asset, error) {
 	return canvas.AssetFromJSON(userID, raw)
+}
+
+// canvasIDFromPayload 从画布正文里取出 ID。
+//
+// 保存接口的路径参数就是画布 ID，这里再解析一次正文是为了让"下架拦截"覆盖所有
+// 写入口，而不是逐个 handler 记得传 ID——漏一个 handler 就等于留了一条后门。
+func canvasIDFromPayload(raw json.RawMessage) string {
+	var identity struct {
+		ID string `json:"id"`
+	}
+	if len(raw) == 0 {
+		return ""
+	}
+	if err := json.Unmarshal(raw, &identity); err != nil {
+		return ""
+	}
+	return identity.ID
 }

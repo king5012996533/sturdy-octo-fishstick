@@ -112,6 +112,25 @@ func (s *Service) SystemChannelModel(channelID string, modelKey string) (*model.
 	return s.repo.ChannelModelByKey(channelID, strings.TrimPrefix(strings.TrimSpace(modelKey), "models/"))
 }
 
+// SystemChannelEnabledModels 返回渠道当前可执行的模型记录。
+//
+// 唯一授权来源是 channel_models：ModelsJSON 只是旧渠道表上的目录缓存，模型增删后不会同步，
+// 转发端点若只信缓存就会把已配置模型误判成未授权（或反过来放行已下线模型）。
+func (s *Service) SystemChannelEnabledModels(channelID string) ([]model.ChannelModel, error) {
+	items, err := s.repo.ChannelModels(channelID, false)
+	if err != nil {
+		return nil, err
+	}
+	enabled := make([]model.ChannelModel, 0, len(items))
+	for _, item := range items {
+		if !item.Enabled {
+			continue
+		}
+		enabled = append(enabled, item)
+	}
+	return enabled, nil
+}
+
 // SystemChannelHasProtocol 用于没有携带 model 字段的轮询请求：先确认渠道确实配置了该协议，
 // 再由 handler 按协议限定请求路径，避免用空模型绕过系统渠道授权。
 func (s *Service) SystemChannelHasProtocol(channelID string, protocol model.ChannelInterfaceType) (bool, error) {

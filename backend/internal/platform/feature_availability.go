@@ -94,6 +94,28 @@ func (s *Service) UpdateFeatureAvailability(actor *model.User, value FeatureAvai
 	return publicFeatureAvailability(&setting, value), nil
 }
 
+// EnsureFeatureAvailability 只在从未配置过功能开放时写入默认值。
+//
+// 托管实例首启需要一套「平台模式」默认值（例如关闭自建渠道），但运维一旦在后台
+// 接管过功能开放，启动流程就不得再覆盖它：返回 false 表示已存在配置。
+func (s *Service) EnsureFeatureAvailability(value FeatureAvailability) (bool, error) {
+	setting, _, err := s.readFeatureAvailability()
+	if err != nil {
+		return false, err
+	}
+	if setting != nil {
+		return false, nil
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return false, err
+	}
+	if err := s.repo.SaveSystemSetting(&model.SystemSetting{Key: featureAvailabilitySettingKey, ValueJSON: string(encoded), UpdatedBy: "hosted"}); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *Service) FeatureEnabled(feature string) (bool, error) {
 	_, value, err := s.readFeatureAvailability()
 	if err != nil {

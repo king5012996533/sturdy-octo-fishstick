@@ -2,7 +2,9 @@ import { PanelLeftClose, PanelLeftOpen, Settings2 } from "lucide-react";
 import { Link, useLocation } from "react-router";
 
 import { WorkspaceTopBarExtensionSlot } from "@/components/layout/workspace-top-bar-extension";
+import { userChannelConfigVisible } from "@/lib/user-channel-ui";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
+import { useUserStore } from "@/stores/use-user-store";
 
 const PAGE_TITLES: Record<string, string> = {
     home: "创作", create: "创作", projects: "短剧 Agent", canvas: "自由画布",
@@ -12,6 +14,7 @@ const PAGE_TITLES: Record<string, string> = {
 /** Compatibility workspace chrome retained for non-canvas routes. Canvas owns its own top bar. */
 export function WorkspaceTopBar({ sidebarOpen, onToggleSidebar }: { sidebarOpen: boolean; onToggleSidebar: () => void }) {
     const brandName = useAppearanceStore((state) => state.appearance.brandName);
+    const customChannelsEnabled = useUserStore((state) => state.features.customChannelsEnabled);
     const { pathname } = useLocation();
     const slug = pathname.split("/").filter(Boolean)[0];
     const pageTitle = slug ? PAGE_TITLES[slug] || brandName : PAGE_TITLES.home;
@@ -29,7 +32,9 @@ export function WorkspaceTopBar({ sidebarOpen, onToggleSidebar }: { sidebarOpen:
             </nav> : <span className="app-workspace-topbar-spacer" />}
             <WorkspaceTopBarExtensionSlot />
             <div className="app-workspace-topbar-actions">
-                <Link to="/settings?section=channels" className="app-workspace-topbar-utility"><Settings2 /><span>模型配置</span></Link>
+                {userChannelConfigVisible(customChannelsEnabled) ? (
+                    <Link to="/settings?section=channels" className="app-workspace-topbar-utility"><Settings2 /><span>模型配置</span></Link>
+                ) : null}
             </div>
         </header>
     );

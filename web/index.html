@@ -4,7 +4,15 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <meta name="description" content="AI 影视与短剧创作工作台" />
-        <link rel="icon" href="/beef-logo.png" type="image/png" />
+        <link rel="icon" href="/kino-mark.svg" type="image/svg+xml" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="KinoTV" />
+        <meta property="og:image" content="/og-kinotv.png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content="KinoTV · AI 影视创作工作台" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:image" content="/og-kinotv.png" />
         <title>正在加载</title>
         <style>
             html,
@@ -12,8 +20,12 @@
                 margin: 0;
                 background: var(--background, #0f0f0f);
             }
-            :root { --bootstrap-ink: 24, 24, 27; }
-            :root.dark { --bootstrap-ink: 255, 255, 255; }
+            :root {
+                --bootstrap-ink: 24, 24, 27;
+            }
+            :root.dark {
+                --bootstrap-ink: 255, 255, 255;
+            }
             #root:empty {
                 min-height: 100vh;
             }
@@ -43,8 +55,22 @@
                 border-radius: 999px;
                 animation: appearance-bootstrap-orbit 2.8s linear infinite;
             }
-            @keyframes appearance-bootstrap-pulse { 0%, 100% { opacity: .62; transform: scale(.82); } 50% { opacity: 1; transform: scale(1.08); } }
-            @keyframes appearance-bootstrap-orbit { to { transform: rotate(360deg); } }
+            @keyframes appearance-bootstrap-pulse {
+                0%,
+                100% {
+                    opacity: 0.62;
+                    transform: scale(0.82);
+                }
+                50% {
+                    opacity: 1;
+                    transform: scale(1.08);
+                }
+            }
+            @keyframes appearance-bootstrap-orbit {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
             @media (prefers-reduced-motion: reduce) {
                 #root:empty::before,
                 #root:empty::after {

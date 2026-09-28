@@ -1,0 +1,642 @@
+/*
+ * 平台运营后台（/admin）。
+ *
+ * 恒为暗色：这是一块运维/配置面板，跟随后台用户的亮暗主题会让渠道表格、
+ * 密钥字段在白天变得难以分辨状态。配色继续复用 --auth-* 皮肤令牌，
+ * 换肤时后台与登录页保持同一套底色，不会各自漂移。
+ */
+
+.admin-console {
+    --admin-hairline: rgba(255, 255, 255, 0.1);
+    --admin-hairline-soft: rgba(255, 255, 255, 0.06);
+    --admin-ink: rgba(255, 255, 255, 0.88);
+    --admin-ink-dim: rgba(255, 255, 255, 0.52);
+    --admin-ink-faint: rgba(255, 255, 255, 0.34);
+    --admin-field: rgba(255, 255, 255, 0.04);
+    --admin-field-hover: rgba(255, 255, 255, 0.07);
+    display: flex;
+    height: 100dvh;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+    background-color: var(--auth-page-bg);
+    color: var(--admin-ink);
+}
+
+/* ---------- 顶栏 ---------- */
+
+.admin-console-topbar {
+    display: flex;
+    min-height: 56px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 1px solid var(--admin-hairline-soft);
+    padding: 0 18px;
+    background-color: var(--auth-panel-bg);
+    background-image: linear-gradient(to right, rgba(255, 255, 255, 0.028) 1px, transparent 1px), linear-gradient(to bottom, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+    background-size: 56px 56px;
+}
+
+.admin-console-brand {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+}
+
+.admin-console-brand-mark {
+    display: grid;
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    place-items: center;
+    border: 1px solid var(--admin-hairline);
+    border-radius: var(--r-sm);
+    background: var(--admin-field);
+    font-family: var(--font-display);
+    font-size: var(--fs-body);
+    font-weight: 600;
+    color: #fff;
+}
+
+.admin-console-brand-text {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.admin-console-wordmark {
+    font-family: var(--font-display);
+    font-size: var(--fs-body);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: #fff;
+}
+
+.admin-console-mono {
+    font-family: var(--font-mono);
+    font-size: var(--fs-tiny);
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--admin-ink-faint);
+}
+
+.admin-console-topbar-actions {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 8px;
+}
+
+.admin-console-identity {
+    display: none;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--admin-hairline-soft);
+    border-radius: var(--r-full);
+    padding: 4px 10px 4px 6px;
+    background: var(--admin-field);
+}
+
+@media (min-width: 768px) {
+    .admin-console-identity {
+        display: flex;
+    }
+}
+
+.admin-console-identity-avatar {
+    display: grid;
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    place-items: center;
+    border-radius: var(--r-full);
+    background: color-mix(in srgb, var(--auth-accent) 26%, transparent);
+    font-size: var(--fs-tiny);
+    font-weight: 600;
+    color: #fff;
+}
+
+.admin-console-identity-name {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-caption);
+}
+
+/* ---------- 主体：左轨 + 舞台 ---------- */
+
+.admin-console-main {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+}
+
+.admin-console-rail {
+    display: flex;
+    width: 196px;
+    flex-shrink: 0;
+    flex-direction: column;
+    gap: 2px;
+    border-right: 1px solid var(--admin-hairline-soft);
+    padding: 14px 10px;
+    background: color-mix(in srgb, var(--auth-panel-bg) 72%, transparent);
+}
+
+.admin-console-rail-heading {
+    padding: 0 10px 8px;
+}
+
+.admin-console-rail-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid transparent;
+    border-radius: var(--r-md);
+    padding: 9px 10px;
+    text-align: left;
+    font-size: var(--fs-body);
+    color: var(--admin-ink-dim);
+    transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+.admin-console-rail-item:hover {
+    background: var(--admin-field-hover);
+    color: var(--admin-ink);
+}
+
+.admin-console-rail-item.is-active {
+    border-color: color-mix(in srgb, var(--auth-accent) 40%, transparent);
+    background: color-mix(in srgb, var(--auth-accent) 13%, transparent);
+    color: #fff;
+}
+
+.admin-console-rail-item-desc {
+    display: block;
+    font-size: var(--fs-label);
+    color: var(--admin-ink-faint);
+}
+
+.admin-console-stage {
+    min-width: 0;
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px;
+}
+
+@media (max-width: 900px) {
+    .admin-console-main {
+        flex-direction: column;
+    }
+
+    .admin-console-rail {
+        width: 100%;
+        flex-direction: row;
+        overflow-x: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--admin-hairline-soft);
+        padding: 8px 10px;
+    }
+
+    .admin-console-rail-heading,
+    .admin-console-rail-item-desc {
+        display: none;
+    }
+}
+
+/* ---------- 通用块 ---------- */
+
+.admin-section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.admin-section-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-heading-lg);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: #fff;
+}
+
+.admin-section-desc {
+    margin: 4px 0 0;
+    max-width: 78ch;
+    font-size: var(--fs-caption);
+    line-height: 1.7;
+    color: var(--admin-ink-dim);
+}
+
+.admin-card {
+    border: 1px solid var(--admin-hairline-soft);
+    border-radius: var(--r-lg);
+    background: color-mix(in srgb, var(--auth-panel-bg) 82%, transparent);
+}
+
+.admin-card-pad {
+    padding: 14px;
+}
+
+.admin-card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border-bottom: 1px solid var(--admin-hairline-soft);
+    padding: 12px 14px;
+}
+
+.admin-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+.admin-kv {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+    border: 1px solid var(--admin-hairline-soft);
+    border-radius: var(--r-md);
+    padding: 9px 11px;
+    background: var(--admin-field);
+}
+
+.admin-kv-label {
+    font-family: var(--font-mono);
+    font-size: var(--fs-tiny);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--admin-ink-faint);
+}
+
+.admin-kv-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-caption);
+    color: var(--admin-ink);
+}
+
+.admin-kv-value.is-mono {
+    font-family: var(--font-mono);
+}
+
+/* ---------- 渠道列表 ---------- */
+
+.admin-channel-layout {
+    display: grid;
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+}
+
+@media (max-width: 1080px) {
+    .admin-channel-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* 长模型列表会把左栏顶出视口，粘住它才能一直切换渠道。 */
+.admin-channel-rail {
+    position: sticky;
+    top: 0;
+}
+
+.admin-channel-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.admin-channel-item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid transparent;
+    border-radius: var(--r-md);
+    padding: 9px 10px;
+    text-align: left;
+    transition: background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.admin-channel-item:hover {
+    background: var(--admin-field-hover);
+}
+
+.admin-channel-item.is-active {
+    border-color: color-mix(in srgb, var(--auth-accent) 38%, transparent);
+    background: color-mix(in srgb, var(--auth-accent) 11%, transparent);
+}
+
+.admin-channel-item-main {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.admin-channel-item-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-caption);
+    font-weight: 500;
+    color: var(--admin-ink);
+}
+
+.admin-channel-item-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: var(--fs-tiny);
+    color: var(--admin-ink-faint);
+}
+
+.admin-channel-item-actions {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.16s ease;
+}
+
+.admin-channel-item:hover .admin-channel-item-actions,
+.admin-channel-item:focus-within .admin-channel-item-actions {
+    opacity: 1;
+}
+
+.admin-dot {
+    width: 7px;
+    height: 7px;
+    flex-shrink: 0;
+    border-radius: var(--r-full);
+    background: var(--admin-ink-faint);
+}
+
+.admin-dot.is-on {
+    background: var(--color-status-success, #34d399);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-status-success, #34d399) 18%, transparent);
+}
+
+.admin-dot.is-off {
+    background: var(--admin-ink-faint);
+}
+
+.admin-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 40px 16px;
+    text-align: center;
+    color: var(--admin-ink-faint);
+}
+
+.admin-inline-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    border: 1px solid var(--admin-hairline-soft);
+    border-radius: var(--r-md);
+    padding: 9px 11px;
+    background: var(--admin-field);
+    font-size: var(--fs-label);
+    line-height: 1.7;
+    color: var(--admin-ink-dim);
+}
+
+/* 表格与表单在暗色舞台上要压得住：AntD 默认描边在深底上偏亮。 */
+.admin-console .ant-table-wrapper .ant-table {
+    background: transparent;
+}
+
+.admin-console .admin-form-narrow {
+    max-width: 720px;
+}
+
+/* ---------- 仪表盘 ---------- */
+
+/* 8 张读数卡排成 4×2：auto-fit 在宽屏下会先排 7 张再落单一张，很难读。 */
+.admin-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+
+@media (max-width: 1100px) {
+    .admin-metric-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
+    .admin-metric-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.admin-metric {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 5px;
+    border: 1px solid var(--admin-hairline-soft);
+    border-radius: var(--r-lg);
+    padding: 13px 14px;
+    background: color-mix(in srgb, var(--auth-panel-bg) 82%, transparent);
+}
+
+.admin-metric-label {
+    font-family: var(--font-mono);
+    font-size: var(--fs-tiny);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--admin-ink-faint);
+}
+
+.admin-metric-value {
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    color: #fff;
+}
+
+.admin-metric-note {
+    font-size: var(--fs-label);
+    color: var(--admin-ink-faint);
+}
+
+.admin-trend-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-bottom: 6px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-tiny);
+    letter-spacing: 0.06em;
+    color: var(--admin-ink-faint);
+}
+
+.admin-trend {
+    display: block;
+    width: 100%;
+    height: 168px;
+    overflow: visible;
+}
+
+/* ---------- 反馈条 ---------- */
+
+/* 全局禁用了 antd 的 message/notification，反馈必须落在页面里，
+   否则保存成功与否在界面上不可见。 */
+.admin-notice {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    border: 1px solid var(--admin-hairline-soft);
+    border-radius: var(--r-md);
+    padding: 9px 11px;
+    background: var(--admin-field);
+    font-size: var(--fs-label);
+    line-height: 1.7;
+    color: var(--admin-ink-dim);
+}
+
+.admin-notice.is-error {
+    border-color: rgba(255, 120, 120, 0.34);
+    color: #ffb4b4;
+}
+
+.admin-notice.is-ok {
+    border-color: rgba(110, 235, 180, 0.3);
+    color: #9ceac4;
+}
+
+/* ---------- 用户管理 ---------- */
+
+.admin-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.admin-user-cell {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 9px;
+}
+
+.admin-user-avatar {
+    display: flex;
+    width: 26px;
+    height: 26px;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--admin-hairline);
+    border-radius: 50%;
+    background: var(--admin-field);
+    font-family: var(--font-mono);
+    font-size: var(--fs-label);
+    color: var(--admin-ink-dim);
+}
+
+.admin-user-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-caption);
+    color: var(--admin-ink);
+}
+
+.admin-user-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: var(--fs-tiny);
+    color: var(--admin-ink-faint);
+}
+
+/* 内容审核：列表里的画布标识与理由需要截断，详情弹窗内的节点摘要可滚动。 */
+.admin-canvas-id {
+    max-width: 260px;
+}
+
+.admin-canvas-reason {
+    max-width: 150px;
+}
+
+.admin-canvas-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    font-size: var(--fs-caption);
+    color: var(--admin-ink-dim);
+}
+
+.admin-canvas-meta b {
+    margin-right: 6px;
+    font-weight: 500;
+    color: var(--admin-ink-faint);
+}
+
+.admin-canvas-meta code {
+    font-family: var(--font-mono);
+    font-size: var(--fs-tiny);
+}
+
+.admin-canvas-nodes {
+    display: flex;
+    max-height: 320px;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+}
+
+.admin-canvas-node {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border: 1px solid var(--admin-hairline);
+    border-radius: 8px;
+    background: var(--admin-field);
+    padding: 8px 10px;
+}
+
+.admin-canvas-node-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.admin-canvas-node-body {
+    margin: 0;
+    font-size: var(--fs-caption);
+    line-height: 1.6;
+    color: var(--admin-ink-dim);
+    white-space: pre-wrap;
+    word-break: break-word;
+}

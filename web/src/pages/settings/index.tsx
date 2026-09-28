@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
+import { AccountOverviewPane } from "./account-overview-pane";
 import { ChannelSettingsPane, channelValidationError, focusInvalidChannelField, isChannelReady } from "./channel-settings-pane";
 import { ModelDefaultGrid } from "./model-default-grid";
 
@@ -24,8 +25,11 @@ export default function SettingsPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const requestedSection = searchParams.get("section");
     const customChannelsEnabled = useUserStore((state) => state.features.customChannelsEnabled);
-    const initialSection = isConfigSection(requestedSection) ? requestedSection : "channels";
-    const [activeTab, setActiveTab] = useState<ConfigSectionKey>(initialSection === "models" ? "channels" : initialSection);
+    // 平台托管关闭自建渠道后，落脚点必须停在只读的模型选择上：
+    // 停在用户渠道表单等于让用户以为"模型要自己填地址和密钥"。
+    const fallbackSection: ConfigSectionKey = customChannelsEnabled ? "channels" : "models";
+    const initialSection = isConfigSection(requestedSection) ? requestedSection : fallbackSection;
+    const [activeTab, setActiveTab] = useState<ConfigSectionKey>(initialSection);
     const config = useConfigStore((state) => state.config);
     const effectiveConfig = useEffectiveConfig();
     const updateConfig = useConfigStore((state) => state.updateConfig);
@@ -45,8 +49,8 @@ export default function SettingsPage() {
             setActiveTab(requestedSection);
             return;
         }
-        setActiveTab((current) => visibleConfigSections.some((section) => section.key === current) ? current : "channels");
-    }, [customChannelsEnabled, requestedSection, visibleConfigSections]);
+        setActiveTab((current) => visibleConfigSections.some((section) => section.key === current) ? current : fallbackSection);
+    }, [customChannelsEnabled, fallbackSection, requestedSection, visibleConfigSections]);
 
     const selectSection = (section: ConfigSectionKey) => {
         setActiveTab(section);
@@ -72,6 +76,20 @@ export default function SettingsPage() {
         navigate(-1);
     };
 
+    // 托管形态没有任何用户可配置项：模型与执行凭证都在平台侧，这里换成账户页，
+    // 让"去配置模型"这个入口落到一个能回答"我用了多少"的地方，而不是一个空表单。
+    // 构建开关也要算进来：即使后台把"允许用户自建渠道"打开（托管实例上那只剩接口与
+    // 计费语义），SaaS 产物也不会出现配置面。
+    if (__BEEFTV_HOSTED_AUTH__ || !customChannelsEnabled) {
+        return (
+            <main className="settings-page app-workspace-page app-user-workspace flex h-full min-h-0 flex-col text-foreground">
+                <div className="app-workspace-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 md:px-6">
+                    <AccountOverviewPane />
+                </div>
+            </main>
+        );
+    }
+
     const panes: Record<ConfigSectionKey, ReactNode> = {
         channels: (
             <SettingsPane>
@@ -91,7 +109,7 @@ export default function SettingsPage() {
                 <div className="settings-pane-header">
                     <div className="min-w-0">
                         <h2>模型选择</h2>
-                        <p>按领域选择默认模型；模型能力与请求协议在渠道“模型与能力”中配置。</p>
+                        <p>{customChannelsEnabled ? "按领域选择默认模型；模型能力与请求协议在渠道“模型与能力”中配置。" : "模型由平台统一提供，按领域选择默认模型即可。"}</p>
                     </div>
                 </div>
                 <div className="settings-section">

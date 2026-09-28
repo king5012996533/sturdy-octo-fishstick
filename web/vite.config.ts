@@ -5,6 +5,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 import { resolveHeavyMediaEnabled } from "./media-build-mode";
+import { resolveHostedAuthEnabled } from "./hosted-auth-build-mode";
 
 const webDir = dirname(fileURLToPath(import.meta.url));
 const appVersion = process.env.CANVAS_BUILD_VERSION?.trim() || readFileSync(resolve(webDir, "../VERSION"), "utf8").trim();
@@ -12,6 +13,7 @@ const appChangelog = readFileSync(resolve(webDir, "../CHANGELOG.md"), "utf8");
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET?.trim() || "http://127.0.0.1:8080";
 const desktopLaunchToken = process.env.VITE_DESKTOP_LAUNCH_TOKEN?.trim();
 const heavyMediaEnabled = resolveHeavyMediaEnabled(process.env.BEEFTV_FULL_MEDIA_RESOURCES);
+const hostedAuthEnabled = resolveHostedAuthEnabled(process.env.BEEFTV_HOSTED_AUTH);
 
 function pruneOptionalMediaPlugin() {
     return {
@@ -39,6 +41,7 @@ export default defineConfig({
         __APP_VERSION__: JSON.stringify(appVersion),
         __APP_CHANGELOG__: JSON.stringify(appChangelog),
         __BEEFTV_HEAVY_MEDIA_ENABLED__: JSON.stringify(heavyMediaEnabled),
+        __BEEFTV_HOSTED_AUTH__: JSON.stringify(hostedAuthEnabled),
         "import.meta.env.VITE_APP_VERSION": JSON.stringify(appVersion),
     },
     server: {

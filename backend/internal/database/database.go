@@ -1,10 +1,13 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"gorm.io/driver/mysql"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -30,6 +33,12 @@ func Open(config Config) (*gorm.DB, error) {
 			dsn = config.DataDir + "/open_ai_canvas.db?_busy_timeout=5000&_journal_mode=WAL&_foreign_keys=on&_synchronous=NORMAL"
 		}
 		return gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	case "mysql":
+		dsn := strings.TrimSpace(config.DSN)
+		if dsn == "" {
+			return nil, errors.New("mysql 驱动需要显式配置 DSN")
+		}
+		return gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	default:
 		return nil, fmt.Errorf("不支持的数据库驱动：%s", driver)
 	}
@@ -39,6 +48,14 @@ func ConfigurePool(db *gorm.DB) error {
 	sqlDB, err := db.DB()
 	if err != nil {
 		return err
+	}
+	if db.Dialector.Name() == "mysql" {
+		// MySQL 由服务端承担并发；这里只约束生命周期，避免连接被中间设备静默掐断后仍被复用。
+		sqlDB.SetMaxOpenConns(20)
+		sqlDB.SetMaxIdleConns(10)
+		sqlDB.SetConnMaxLifetime(30 * time.Minute)
+		sqlDB.SetConnMaxIdleTime(5 * time.Minute)
+		return nil
 	}
 	// SQLite serializes writers. A single shared connection avoids intermittent
 	// SQLITE_BUSY failures under concurrent autosave/task updates while WAL

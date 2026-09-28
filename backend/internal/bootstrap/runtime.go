@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -38,6 +39,7 @@ type Runtime struct {
 	status      *systemStatus
 	launchToken string
 	beefAPI     *beefapi.Service
+	hosted      HostedExtension
 	listener    net.Listener
 	httpServer  *http.Server
 	serveErr    chan error
@@ -80,12 +82,29 @@ func Open(_ context.Context, raw Config) (*Runtime, error) {
 	} else {
 		err = database.RequireLocalSchema(db)
 	}
+	if err == nil && cfg.HostedFactory != nil {
+		// 审计流水是托管专属表，本地结构迁移刻意不含它（桌面产物必须证明结构里
+		// 没有托管表），所以由托管装配这一层显式补建或校验。
+		if cfg.AutoMigrate {
+			err = database.MigrateHostedSharedSchema(db)
+		} else {
+			err = database.RequireHostedSharedSchema(db)
+		}
+	}
 	if err != nil {
 		cleanupDB()
 		return nil, err
 	}
 
-	svc := app.NewLocal(repository.New(db), cfg.DataDir)
+	// 托管实例（配置了 HostedFactory）代表平台持有系统渠道的执行凭证，必须用
+	// hosted 模式构造服务：本地模式会拒绝系统渠道调用，并把功能开放读成硬编码的
+	// 本地默认值。桌面/纯本地装载没有 HostedFactory，保持本地模式不变。
+	var svc *app.Service
+	if cfg.HostedFactory != nil {
+		svc = app.New(repository.New(db), cfg.DataDir)
+	} else {
+		svc = app.NewLocal(repository.New(db), cfg.DataDir)
+	}
 	cleanupService := func() {
 		_ = svc.Close()
 		cleanupDB()
@@ -94,9 +113,33 @@ func Open(_ context.Context, raw Config) (*Runtime, error) {
 		cleanupService()
 		return nil, err
 	}
+	var hosted HostedExtension
+	if cfg.HostedFactory != nil {
+		hosted, err = cfg.HostedFactory(HostedDeps{DataDir: cfg.DataDir, Service: svc})
+		if err != nil {
+			cleanupService()
+			return nil, err
+		}
+	}
+	cleanupAll := func() {
+		if hosted != nil {
+			_ = hosted.Close()
+		}
+		cleanupService()
+	}
+	if hosted != nil {
+		seeded, seedErr := svc.EnsureHostedFeatureDefaults()
+		if seedErr != nil {
+			cleanupAll()
+			return nil, seedErr
+		}
+		if seeded {
+			log.Printf("hosted: 已写入托管功能开放默认值（自建渠道默认关闭，可在后台开启）")
+		}
+	}
 	providerConfig, configErr := workspace.NewProviderConfig(cfg.DataDir)
 	if configErr != nil {
-		cleanupService()
+		cleanupAll()
 		return nil, configErr
 	}
 	beefAPIConnection, beefAPIErr := beefapi.New(beefapi.Options{
@@ -122,7 +165,7 @@ func Open(_ context.Context, raw Config) (*Runtime, error) {
 		},
 	})
 	if beefAPIErr != nil {
-		cleanupService()
+		cleanupAll()
 		return nil, beefAPIErr
 	}
 	svc.SetBeefAPI(beefAPIConnection)
@@ -135,16 +178,20 @@ func Open(_ context.Context, raw Config) (*Runtime, error) {
 		Generation: taskService, ProviderConfig: providerConfig, Agent: localKernel, Lifecycle: taskService,
 	})
 	if err != nil {
-		cleanupService()
+		cleanupAll()
 		return nil, err
 	}
 
-	owner, ownerErr := svc.LocalWorkspaceOwner()
-	if ownerErr != nil {
-		cleanupService()
-		return nil, ownerErr
+	// 启用托管登录后，工作区由会话决定；桌面版仍固定在本地拥有者上。
+	var scope workspace.Context
+	if hosted == nil {
+		owner, ownerErr := svc.LocalWorkspaceOwner()
+		if ownerErr != nil {
+			cleanupAll()
+			return nil, ownerErr
+		}
+		scope = workspace.Context{ID: owner.ID, DataDir: cfg.DataDir}
 	}
-	scope := workspace.Context{ID: owner.ID, DataDir: cfg.DataDir}
 
 	router := gin.New()
 	router.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
@@ -157,10 +204,20 @@ func Open(_ context.Context, raw Config) (*Runtime, error) {
 	if cfg.Profile == ProfileDesktop {
 		router.Use(desktopCORSMiddleware())
 	}
-	router.Use(canvasHandler.WorkspaceMiddleware(scope))
+	if hosted != nil {
+		router.Use(hosted.WorkspaceMiddleware())
+	} else {
+		router.Use(canvasHandler.WorkspaceMiddleware(scope))
+	}
 	api := router.Group("/api")
 	status := newSystemStatus(db, svc, true)
 	registerSystemStatusRoutes(api, status)
+	if hosted != nil {
+		hosted.RegisterRoutes(api)
+		// 系统渠道目录是托管专属读路径：桌面/本地产物不得暴露它
+		// （见 internal/handler/api_test.go 的桌面路由边界断言）。
+		canvasHandler.RegisterModelCatalogRoutes(api, svc)
+	}
 	canvasHandler.RegisterDesktopCanvasAPIWithDependencies(api, svc, canvasHandler.RuntimeDependencies{
 		RequestCoordinator: localKernel,
 		ProviderConfig:     localRoot.ProviderConfig,
@@ -170,6 +227,14 @@ func Open(_ context.Context, raw Config) (*Runtime, error) {
 		Generation:         localRoot.Generation,
 		BeefAPI:            beefAPIConnection,
 	})
+	if hosted != nil {
+		// 平台转发端点是托管专属写路径，且依赖上面注册的 RuntimeDependenciesMiddleware
+		// （频控与并发协调从 context 取依赖），因此必须挂在 desktop 路由之后。
+		canvasHandler.RegisterSystemRelayRoutes(api, svc)
+		// 管理端接口只在托管实例暴露：桌面产物的路由边界断言把它们列为托管专属
+		// （见 internal/handler/api_test.go），身份由 /admin 分组的管理员守卫收敛。
+		canvasHandler.RegisterAdminRoutes(api, svc)
+	}
 	router.NoRoute(func(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": http.StatusNotFound, "msg": "请求不存在"})
 	})
@@ -181,7 +246,7 @@ func Open(_ context.Context, raw Config) (*Runtime, error) {
 		if launchToken == "" {
 			launchToken, err = httptransport.NewLaunchToken()
 			if err != nil {
-				cleanupService()
+				cleanupAll()
 				return nil, err
 			}
 		}
@@ -196,6 +261,7 @@ func Open(_ context.Context, raw Config) (*Runtime, error) {
 		status:      status,
 		launchToken: launchToken,
 		beefAPI:     beefAPIConnection,
+		hosted:      hosted,
 		serveErr:    make(chan error, 1),
 	}, nil
 }
@@ -337,6 +403,11 @@ func (r *Runtime) Close(ctx context.Context) error {
 		if sqlDB, err := r.db.DB(); err == nil {
 			if err := sqlDB.Close(); err != nil {
 				failures = append(failures, err)
+			}
+		}
+		if r.hosted != nil {
+			if hostedErr := r.hosted.Close(); hostedErr != nil {
+				failures = append(failures, hostedErr)
 			}
 		}
 		r.closeErr = errors.Join(failures...)

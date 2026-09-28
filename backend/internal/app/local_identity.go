@@ -1,6 +1,8 @@
 package app
 
 import (
+	"strings"
+
 	"infinite-canvas/backend/internal/model"
 )
 
@@ -31,6 +33,25 @@ func (s *Service) WorkspaceOwner(id string) (*model.User, error) {
 		return nil, err
 	}
 	return localWorkspacePrincipal(value), nil
+}
+
+// EnsureWorkspace 为新登录账号准备工作区，重复调用无副作用。
+//
+// 多租户下每个账号各自拥有一份画布数据，工作区必须在首个请求到达前存在，
+// 否则后续所有按 workspace 过滤的查询都会落空。
+func (s *Service) EnsureWorkspace(id string, displayName string) error {
+	if s == nil || s.repo == nil {
+		return Unauthorized("本地工作区尚未初始化")
+	}
+	if strings.TrimSpace(id) == "" {
+		return Unauthorized("缺少工作区标识")
+	}
+	name := strings.TrimSpace(displayName)
+	if name == "" {
+		name = id
+	}
+	_, err := s.repo.EnsureWorkspace(id, name)
+	return err
 }
 
 func localWorkspacePrincipal(value *model.Workspace) *model.User {

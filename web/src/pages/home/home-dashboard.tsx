@@ -12,7 +12,7 @@ function formatDate(value: string) {
 export function HomeDashboard({ projects, loading, error, onRetry }: { projects: CanvasLibrarySummary[]; loading: boolean; error: boolean; onRetry: () => void }) {
     const navigate = useNavigate();
     return (
-        <main className="beeftv-home" aria-label="BeefTV 首页">
+        <main className="beeftv-home" aria-label="KinoTV 首页">
             <section className="beeftv-home-hero" aria-label="新建画布">
                 <span className="beeftv-home-dot-base" aria-hidden />
                 <span className="beeftv-home-dot-flow" aria-hidden />

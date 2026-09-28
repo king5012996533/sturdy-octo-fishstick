@@ -35,5 +35,8 @@ test("模型选择器无障碍名称跟随当前显示的模型，而不是占�
     expect(picker).toContain("aria-label={triggerLabel}");
     expect(picker).toContain("{triggerLabel}");
     const prompt = await Bun.file(new URL("../src/components/canvas/canvas-node-prompt-panel.tsx", import.meta.url)).text();
-    expect(prompt).toContain("placeholder={localOnly ? localModelPlaceholder(mode) : undefined}");
+    // 上游那套假模型占位（2.0 / Lib Image 2.5 Pro / Seed Audio 1.0）会让人以为该能力
+    // 已经可用，点下去才发现没有——已删除，空态改由选择器自己说明原因。
+    expect(prompt).not.toContain("localModelPlaceholder");
+    expect(picker).toContain("emptyModelLabel(config, capability)");
 });

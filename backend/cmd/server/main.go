@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"infinite-canvas/backend/internal/bootstrap"
+	"infinite-canvas/backend/internal/hosted"
 
 	"github.com/gin-gonic/gin"
 )
@@ -41,6 +42,14 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	cookieSecure, err := envBool("CANVAS_AUTH_COOKIE_SECURE", false)
+	if err != nil {
+		return err
+	}
+	devEchoCode, err := envBool("CANVAS_AUTH_DEV_ECHO_CODE", false)
+	if err != nil {
+		return err
+	}
 	runtime, err := bootstrap.Open(ctx, bootstrap.Config{
 		Profile:          bootstrap.ProfileServer,
 		DataDir:          dataDir,
@@ -50,6 +59,13 @@ func run(ctx context.Context) error {
 		AutoMigrate:      autoMigrate,
 		ShutdownTimeout:  workerTimeout,
 		RouterMiddleware: []gin.HandlerFunc{corsMiddleware},
+		HostedFactory: hostedFactory(hosted.Options{
+			DatabaseDriver: env("CANVAS_AUTH_DATABASE_DRIVER", ""),
+			DatabaseURL:    strings.TrimSpace(os.Getenv("CANVAS_AUTH_DATABASE_URL")),
+			StateSecret:    strings.TrimSpace(os.Getenv("CANVAS_AUTH_STATE_SECRET")),
+			CookieSecure:   cookieSecure,
+			DevEchoCode:    devEchoCode,
+		}),
 	})
 	if err != nil {
 		return err
@@ -217,4 +233,17 @@ func allowedOriginWithPolicy(c *gin.Context, origin string, policy corsPolicy) b
 	}
 	host := strings.ToLower(parsed.Hostname())
 	return (host == "localhost" || host == "127.0.0.1" || host == "::1") && (parsed.Scheme == "http" || parsed.Scheme == "https")
+}
+
+// hostedFactory 只在配置了账号库时装配托管能力。
+//
+// 未配置时返回 nil，服务端退回到单工作区模式；桌面版永远不注入工厂，
+// 因此认证代码不会进入本地二进制。
+func hostedFactory(options hosted.Options) bootstrap.HostedFactory {
+	if strings.TrimSpace(options.DatabaseURL) == "" {
+		return nil
+	}
+	return func(deps bootstrap.HostedDeps) (bootstrap.HostedExtension, error) {
+		return hosted.New(deps, options)
+	}
 }

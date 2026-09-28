@@ -124,6 +124,8 @@ import { bringCanvasNodeToFront, type CanvasNodeStackOrder } from "@/lib/canvas/
 import { AiArtCritiqueModal } from "@/components/canvas/art-critique/ai-art-critique-modal";
 import { CanvasNodeGraphContext, type CanvasNodeGraphContextValue } from "@/components/canvas/canvas-node-graph-context";
 import { CanvasRefreshShell } from "./canvas-refresh-shell";
+import { useOwnCanvasModeration } from "@/lib/use-own-canvas-moderation";
+import { CanvasModerationBlocked } from "./canvas-moderation-blocked";
 import { queryGenerationTask } from "@/services/api/task-center";
 import type { CanvasImageEmotionPayload } from "@/components/canvas/canvas-node-emotion-panel";
 import { CanvasEmotionWorkspace } from "@/components/canvas/canvas-emotion-workspace";
@@ -284,6 +286,9 @@ function InfiniteCanvasPage() {
     const shortDramaEnabled = useUserStore((state) => state.features.shortDramaEnabled);
     const storageMode = useUserStore((state) => state.storageMode);
     const user = useUserStore((state) => state.user);
+    // 平台下架只影响这一块画布：命中时直接给落地页，不让本地缓存把它"救"回来。
+    const canvasModeration = useOwnCanvasModeration();
+    const moderationBlock = canvasModeration.byId.get(projectId);
     const localOnly = isLocalWorkspaceMode() || storageMode === "local" || user?.username === "local" || import.meta.env.VITE_CANVAS_LOCAL_MODE !== "false";
     const importCanvasProject = useCanvasStore((state) => state.importProject);
     const storedCanvasProjects = useCanvasStore((state) => state.projects);
@@ -484,6 +489,8 @@ function InfiniteCanvasPage() {
 
     const { loadError, retryLoad, addedSkills, agentCreatedNodes, clearCanvasFiles, createAndOpenCanvas, currentProject, deleteCurrentProject, renameCurrentProject, reloadLatestCanvasProject, restoreCanvasProjectVersion, saveCanvasProject, forceSaveCanvasProject, updateProject } = useCanvasProjectLifecycle({
         projectId,
+        moderationBlocked: Boolean(moderationBlock),
+        moderationPending: canvasModeration.pending,
         projectLoaded,
         nodes,
         connections,
@@ -2912,6 +2919,7 @@ function InfiniteCanvasPage() {
                 <Link to="/canvas">返回画布库</Link>
             </main>
         );
+    if (moderationBlock) return <CanvasModerationBlocked notice={moderationBlock} />;
     if (!projectLoaded) return <CanvasRefreshShell />;
 
     return (

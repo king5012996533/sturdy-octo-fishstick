@@ -16,10 +16,15 @@
    ------------------------------------------------------------------------- */
 :root {
 
-    /* --- 0. 字体（composio：Inter + 开源等宽；@theme inline 自引用解析点）--- */
-    --font-sans: "Inter Variable", "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
-    --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --font-heading: "Inter Variable", "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+    /* --- 0. 字体（KinoTV 字系；@theme inline 自引用解析点）---
+       Display 用 Space Grotesk：几何骨架、字腔偏紧，标题上是「仪器面板」而不是中性无衬线，
+       和上游的 Inter 一眼可分。界面正文与等宽分别用 Geist / Geist Mono：同厂字系，小字号
+       下比 Inter 更收，数字与代码不会在密集列表里发飘。中文没有本地字体包（体积原因），
+       按系统栈回落 PingFang → 鸿蒙/思源 → 雅黑。 */
+    --font-display: "Space Grotesk Variable", "Space Grotesk", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+    --font-sans: "Geist Variable", "Geist", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --font-heading: var(--font-display);
     /* --- 1. 色彩（oklch 色板）--- */
     --color-neutral-0: oklch(1 0 0);
     --color-neutral-50: oklch(0.985 0 0);
@@ -474,9 +479,10 @@
     --radius-md: calc(var(--radius) - 2px);
     --radius-lg: var(--radius);
     --radius-xl: calc(var(--radius) + 4px);
-    --font-heading: var(--font-sans);
+    --font-heading: var(--font-heading);
     --font-sans: var(--font-sans);
     --font-mono: var(--font-mono);
+    --font-display: var(--font-display);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -1192,11 +1198,11 @@
 @layer utilities {
 
     /* --- composio 排版语义类（tokens.json typography 14 档；abcDiatype → Inter，code → JetBrains Mono）--- */
-    .typ-display-mega { font-family: var(--font-sans); font-size: var(--typ-display-mega); line-height: 1.05; font-weight: 500; letter-spacing: -2.16px; }
-    .typ-display-xl { font-family: var(--font-sans); font-size: var(--typ-display-xl); line-height: 1.05; font-weight: 500; letter-spacing: -1.68px; }
-    .typ-display-lg { font-family: var(--font-sans); font-size: var(--typ-display-lg); line-height: 1.1; font-weight: 500; letter-spacing: -1.32px; }
-    .typ-display-md { font-family: var(--font-sans); font-size: var(--typ-display-md); line-height: 1.15; font-weight: 500; letter-spacing: -0.96px; }
-    .typ-display-sm { font-family: var(--font-sans); font-size: var(--typ-display-sm); line-height: 1.25; font-weight: 500; letter-spacing: -0.5px; }
+    .typ-display-mega { font-family: var(--font-display); font-size: var(--typ-display-mega); line-height: 1.05; font-weight: 500; letter-spacing: -2.16px; }
+    .typ-display-xl { font-family: var(--font-display); font-size: var(--typ-display-xl); line-height: 1.05; font-weight: 500; letter-spacing: -1.68px; }
+    .typ-display-lg { font-family: var(--font-display); font-size: var(--typ-display-lg); line-height: 1.1; font-weight: 500; letter-spacing: -1.32px; }
+    .typ-display-md { font-family: var(--font-display); font-size: var(--typ-display-md); line-height: 1.15; font-weight: 500; letter-spacing: -0.96px; }
+    .typ-display-sm { font-family: var(--font-display); font-size: var(--typ-display-sm); line-height: 1.25; font-weight: 500; letter-spacing: -0.5px; }
     .typ-title-md { font-family: var(--font-sans); font-size: var(--typ-title-md); line-height: 1.4; font-weight: 600; letter-spacing: 0; }
     .typ-title-sm { font-family: var(--font-sans); font-size: var(--typ-title-sm); line-height: 1.4; font-weight: 600; letter-spacing: 0; }
     .typ-body-md { font-family: var(--font-sans); font-size: var(--typ-body-md); line-height: 1.5; font-weight: 400; letter-spacing: 0; }
@@ -2823,7 +2829,7 @@
     }
 
     .full-screen-loader-logo-image { width: 38px; height: 38px; }
-    .full-screen-loader-logo-fallback { display: block; width: 36px; height: 36px; background: currentColor; mask: url('/beef-logo.png') center / contain no-repeat; -webkit-mask: url('/beef-logo.png') center / contain no-repeat; }
+    .full-screen-loader-logo-fallback { display: block; width: 36px; height: 36px; background: currentColor; mask: url('/kino-mark.svg') center / contain no-repeat; -webkit-mask: url('/kino-mark.svg') center / contain no-repeat; }
     .workspace-route-loader-logo .full-screen-loader-logo-fallback { width: 16px; height: 16px; }
 
     .full-screen-loader-orbit {
@@ -20814,4 +20820,174 @@ main[data-libtv-readonly-dense="true"] .canvas-floating-dock {
 }
 .canvas-model-picker-description {
     display: none !important;
+}
+
+/* ---------- 账户与用量（托管形态的 /settings） ---------- */
+/* 托管实例上前台没有可配置的模型，这块页面只读：账号、用量与协议留痕。
+   配色跟随主题（color-mix 取 foreground），不在亮/暗之间各自写一套颜色。 */
+.account-block {
+    margin-bottom: 14px;
+    border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+    border-radius: var(--r-lg);
+    padding: 16px;
+    background: color-mix(in srgb, var(--foreground) 3%, transparent);
+}
+
+.account-block-title {
+    margin: 0 0 12px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-tiny);
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--foreground) 44%, transparent);
+}
+
+.account-identity {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.account-avatar {
+    display: flex;
+    height: 34px;
+    width: 34px;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid color-mix(in srgb, var(--foreground) 14%, transparent);
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--foreground) 6%, transparent);
+    font-family: var(--font-mono);
+    font-size: var(--fs-body);
+    color: color-mix(in srgb, var(--foreground) 62%, transparent);
+}
+
+.account-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-body);
+    font-weight: 600;
+}
+
+.account-sub {
+    font-size: var(--fs-label);
+    line-height: 1.7;
+    color: color-mix(in srgb, var(--foreground) 45%, transparent);
+}
+
+.account-kv {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 32px;
+    margin: 0;
+}
+
+.account-kv > div {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.account-kv dt {
+    font-family: var(--font-mono);
+    font-size: var(--fs-tiny);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--foreground) 40%, transparent);
+}
+
+.account-kv dd {
+    margin: 0;
+    font-size: var(--fs-caption);
+}
+
+.account-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+}
+
+.account-metric {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 4px;
+    border: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
+    border-radius: var(--r-md);
+    padding: 11px 12px;
+}
+
+.account-metric-label {
+    font-family: var(--font-mono);
+    font-size: var(--fs-tiny);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--foreground) 40%, transparent);
+}
+
+.account-metric-value {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+}
+
+.account-metric-note {
+    font-size: var(--fs-label);
+    color: color-mix(in srgb, var(--foreground) 42%, transparent);
+}
+
+.account-agreements {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.account-agreements li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border-bottom: 1px dashed color-mix(in srgb, var(--foreground) 9%, transparent);
+    padding-bottom: 8px;
+    font-size: var(--fs-caption);
+}
+
+.account-agreements li:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+}
+
+.account-agreement-version {
+    font-family: var(--font-mono);
+    font-size: var(--fs-label);
+    color: color-mix(in srgb, var(--foreground) 46%, transparent);
+}
+
+.account-notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+    border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+    border-radius: var(--r-md);
+    padding: 9px 11px;
+    font-size: var(--fs-label);
+    line-height: 1.7;
+    color: color-mix(in srgb, var(--foreground) 55%, transparent);
+}
+
+.account-notice.is-error {
+    border-color: color-mix(in srgb, var(--destructive) 45%, transparent);
+    color: var(--destructive);
 }

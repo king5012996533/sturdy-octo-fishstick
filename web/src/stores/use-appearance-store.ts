@@ -5,22 +5,24 @@ import { applySkinTheme, DEFAULT_CLASSIC_SKIN, normalizeSkinDefinition } from "@
 
 export const DEFAULT_PUBLIC_APPEARANCE: PublicAppearance = {
     schemaVersion: 7,
-    brandName: "BeefTV",
-    brandSlug: "beeftv",
+    brandName: "KinoTV",
+    brandSlug: "kinotv",
     authHeroTitle: "让一个故事，\n从文字走向银幕。",
     authHeroDescription: "",
-    logoUrl: "/beef-logo.png",
-    darkLogoUrl: "/beef-logo.png",
+    // 单色方标而不是横排字标：侧栏与加载器都按 16-40px 渲染，横排字标在这个尺寸下
+    // 只剩一团灰。浅色主题由 BrandLogo 的 invert 滤镜处理，所以只维护一份白色资产。
+    logoUrl: "/kino-mark.svg",
+    darkLogoUrl: "/kino-mark.svg",
     logoFrameEnabled: false,
     authVideoUrl: "https://boss-shjd.biliapi.net/updream/aniforge/video/video_bbcb00bd-650d-4249-9346-5cd21fd2484c_m1hc-u0-1pu13x-3v1s.mp4",
     authVideoPosterUrl: "https://i0.hdslb.com/bfs/aitool/aniforge/image/02933f26-5f1b-49ff-a811-b7f95ee5e5b8_m1hc-u0-sau.jpg",
     authVideoAutoplay: true,
     skinId: "classic",
     activeSkin: DEFAULT_CLASSIC_SKIN,
-    seoTitle: "BeefTV",
-    seoDescription: "BeefTV，本地优先的开源 AI 视频创作工作台。",
+    seoTitle: "KinoTV",
+    seoDescription: "KinoTV，AI 影视创作工作台：画布、分镜、素材与成片在同一条时间线上完成。",
     seoKeywords: "",
-    footerCopyright: `© ${new Date().getFullYear()} BeefTV. Open source video studio.`,
+    footerCopyright: `© ${new Date().getFullYear()} KinoTV. All rights reserved.`,
     icpFilingEnabled: false,
     icpFilingNumber: "",
     logoConfigured: false,
@@ -113,7 +115,7 @@ export function applyAppearanceMetadata(appearance: PublicAppearance, targetDocu
     setMeta(targetDocument, "property", "og:description", appearance.seoDescription);
     setMeta(targetDocument, "property", "og:site_name", appearance.brandName);
     setMeta(targetDocument, "property", "og:type", "website");
-    setMeta(targetDocument, "name", "twitter:card", "summary");
+    setMeta(targetDocument, "name", "twitter:card", "summary_large_image");
     setMeta(targetDocument, "name", "twitter:title", appearance.seoTitle || appearance.brandName);
     setMeta(targetDocument, "name", "twitter:description", appearance.seoDescription);
     const mode = "dark";
@@ -157,7 +159,7 @@ export function appearanceLogoURL(appearance: PublicAppearance, theme: "light" |
 }
 
 export function brandStudioLabel(appearance: PublicAppearance) {
-    if (appearance.brandName === DEFAULT_PUBLIC_APPEARANCE.brandName && appearance.brandSlug === DEFAULT_PUBLIC_APPEARANCE.brandSlug) return "BEEF CREATIVE STUDIO";
+    if (appearance.brandName === DEFAULT_PUBLIC_APPEARANCE.brandName && appearance.brandSlug === DEFAULT_PUBLIC_APPEARANCE.brandSlug) return "KINO CREATIVE STUDIO";
     return appearance.brandSlug.replace(/-+/g, " ").toLocaleUpperCase();
 }
 

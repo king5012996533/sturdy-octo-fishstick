@@ -273,36 +273,55 @@ func customRelayAPIKey(value string) (string, error) {
 	return apiKey, nil
 }
 
-func redactRelaySecret(body []byte, apiKey string) []byte {
-	if apiKey == "" {
-		return body
+func redactRelaySecret(body []byte, secrets ...string) []byte {
+	for _, secret := range secrets {
+		if secret == "" {
+			continue
+		}
+		body = bytes.ReplaceAll(body, []byte(secret), []byte("[REDACTED]"))
 	}
-	return bytes.ReplaceAll(body, []byte(apiKey), []byte("[REDACTED]"))
+	return body
 }
 
 type relayStreamRedactor struct {
-	secret  []byte
+	secrets [][]byte
 	pending []byte
 }
 
-func newRelayStreamRedactor(secret string) *relayStreamRedactor {
-	return &relayStreamRedactor{secret: []byte(secret)}
+// newRelayStreamRedactor 支持多个密钥：系统渠道同时持有 API Key 与 Secret Key，
+// 上游回显任意一个都必须被抹掉。
+func newRelayStreamRedactor(secrets ...string) *relayStreamRedactor {
+	normalized := make([][]byte, 0, len(secrets))
+	for _, secret := range secrets {
+		if secret == "" {
+			continue
+		}
+		normalized = append(normalized, []byte(secret))
+	}
+	return &relayStreamRedactor{secrets: normalized}
 }
 
 func (r *relayStreamRedactor) Push(chunk []byte, final bool) []byte {
 	r.pending = append(r.pending, chunk...)
-	if len(r.secret) == 0 {
+	if len(r.secrets) == 0 {
 		result := append([]byte(nil), r.pending...)
 		r.pending = r.pending[:0]
 		return result
 	}
-	r.pending = bytes.ReplaceAll(r.pending, r.secret, []byte("[REDACTED]"))
+	for _, secret := range r.secrets {
+		r.pending = bytes.ReplaceAll(r.pending, secret, []byte("[REDACTED]"))
+	}
 	if final {
 		result := append([]byte(nil), r.pending...)
 		r.pending = r.pending[:0]
 		return result
 	}
-	keep := relaySecretPrefixSuffixLength(r.pending, r.secret)
+	keep := 0
+	for _, secret := range r.secrets {
+		if length := relaySecretPrefixSuffixLength(r.pending, secret); length > keep {
+			keep = length
+		}
+	}
 	cut := len(r.pending) - keep
 	result := append([]byte(nil), r.pending[:cut]...)
 	r.pending = append(r.pending[:0], r.pending[cut:]...)

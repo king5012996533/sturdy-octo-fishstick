@@ -157,6 +157,23 @@ func normalizeAdminPage(page int, limit int) (int, int) {
 	return page, limit
 }
 
+// AdminSystemChannel 读取单个系统渠道的管理视图（含密钥是否已配置、脱敏后的模型列表）。
+func (s *Service) AdminSystemChannel(actor *model.User, id string) (*PublicModelChannel, error) {
+	if err := s.RequireAdmin(actor); err != nil {
+		return nil, err
+	}
+	channel, err := s.adminSystemChannel(id)
+	if err != nil {
+		return nil, err
+	}
+	items, err := s.repo.ChannelModels(channel.ID, true)
+	if err != nil {
+		return nil, err
+	}
+	public := publicChannel(*channel, true, items)
+	return &public, nil
+}
+
 func (s *Service) CreateSystemChannel(actor *model.User, req ChannelRequest) (*PublicModelChannel, error) {
 	if err := s.RequireAdmin(actor); err != nil {
 		return nil, err

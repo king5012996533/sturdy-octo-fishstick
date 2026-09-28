@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"infinite-canvas/backend/internal/model"
@@ -25,6 +27,36 @@ type PluginProviderCatalogItem struct {
 	Enabled           bool                        `json:"enabled"`
 	UnavailableReason string                      `json:"unavailableReason,omitempty"`
 	Workflows         []protocol.ManifestWorkflow `json:"workflows,omitempty"`
+}
+
+// AdminProtocolCatalog 列出管理员可以为系统渠道模型选择的请求协议。
+//
+// 数据源必须是通道保存时做校验的那份合并注册表（s.protocolRegistry()），而不是
+// 插件包视图：管理端另取一份"官方协议清单"，就会重新出现前端能选中、后端却报
+// "请选择有效的模型请求协议"的分裂——上一轮 save 失败正是这么来的。
+func (s *Service) AdminProtocolCatalog(actor *model.User, capability string) ([]PluginProviderCatalogItem, error) {
+	if err := s.RequireAdmin(actor); err != nil {
+		return nil, err
+	}
+	wantCapability := protocol.Capability(strings.TrimSpace(capability))
+	metadataList := s.protocolRegistry().List(protocol.SurfaceAdminSystemChannel, wantCapability, false)
+	items := make([]PluginProviderCatalogItem, 0, len(metadataList))
+	for _, metadata := range metadataList {
+		items = append(items, PluginProviderCatalogItem{
+			ID:          metadata.ID,
+			Version:     metadata.Version,
+			Name:        metadata.Name,
+			Vendor:      metadata.Vendor,
+			Categories:  metadata.Categories,
+			Scopes:      metadata.Scopes,
+			Create:      metadata.Create,
+			Poll:        metadata.Poll,
+			ContentType: metadata.ContentType,
+			Enabled:     metadata.Enabled,
+		})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	return items, nil
 }
 
 // PluginProviderCatalog projects provider and workflow contributions from the
@@ -96,13 +128,63 @@ func operationSummaryPtr(operation *protocol.ManifestOperation) string {
 	return operationSummary(*operation)
 }
 
+// protocolRegistry 返回当前可用的协议注册表：运行时插件优先，其次官方插件包，最后内置协议。
+//
+// 三层合并而不是单取运行时快照：执行路径本来就会在 protocol.Builtins() 里解析协议
+// （provider_protocol.go），管理端若只认插件注册表，未安装插件包的部署就会出现
+// 「模型跑得起来，却保存不了」的死角。同名协议按上面的优先级取第一个（插件可覆盖内置）。
 func (s *Service) protocolRegistry() *protocol.Registry {
+	var snapshot *protocol.Registry
 	if s.pluginRuntime != nil {
-		if registry := s.pluginRuntime.registrySnapshot(); registry != nil {
-			return registry
+		snapshot = s.pluginRuntime.registrySnapshot()
+	}
+	return mergedProtocolRegistry(snapshot, loadOfficialFallbackRegistry())
+}
+
+type protocolRegistryCacheEntry struct {
+	snapshot *protocol.Registry
+	official *protocol.Registry
+	merged   *protocol.Registry
+}
+
+var (
+	protocolRegistryCacheMu sync.Mutex
+	protocolRegistryCache   protocolRegistryCacheEntry
+)
+
+// mergedProtocolRegistry 按来源优先级合并注册表并缓存结果。
+// 插件快照指针变化（安装/卸载/重载）时自动重建，避免每次解析都重新拼装。
+func mergedProtocolRegistry(snapshot *protocol.Registry, official *protocol.Registry) *protocol.Registry {
+	protocolRegistryCacheMu.Lock()
+	defer protocolRegistryCacheMu.Unlock()
+	if protocolRegistryCache.merged != nil && protocolRegistryCache.snapshot == snapshot && protocolRegistryCache.official == official {
+		return protocolRegistryCache.merged
+	}
+	adapters := make([]protocol.Adapter, 0, 64)
+	seen := make(map[string]bool, 64)
+	for _, source := range []*protocol.Registry{snapshot, official, protocol.Builtins()} {
+		if source == nil {
+			continue
+		}
+		for _, metadata := range source.List("", "", true) {
+			id := strings.TrimSpace(metadata.ID)
+			if id == "" || seen[id] {
+				continue
+			}
+			adapter, ok := source.Get(id)
+			if !ok {
+				continue
+			}
+			seen[id] = true
+			adapters = append(adapters, adapter)
 		}
 	}
-	return loadOfficialFallbackRegistry()
+	merged, err := protocol.NewRegistry(adapters...)
+	if err != nil {
+		merged = protocol.Builtins()
+	}
+	protocolRegistryCache = protocolRegistryCacheEntry{snapshot: snapshot, official: official, merged: merged}
+	return merged
 }
 
 func (s *Service) protocolMetadata(id string) (protocol.Metadata, bool) {

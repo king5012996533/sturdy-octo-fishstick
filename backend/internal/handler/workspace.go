@@ -23,7 +23,7 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 			fail(c, http.StatusInternalServerError, err)
 			return
 		}
-		user, err := svc.WorkspaceOwner(scope.ID)
+		user, err := currentUser(c, svc)
 		if err != nil {
 			failService(c, err)
 			return
