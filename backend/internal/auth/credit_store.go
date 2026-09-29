@@ -102,6 +102,25 @@ func (s *Store) CreditLedgerEntries(filter CreditLedgerFilter) ([]CreditLedgerEn
 	return entries, total, nil
 }
 
+// CreditEntryByRef 按业务引用取一条流水，不存在时返回 (nil, nil)。
+//
+// 退回路径靠它拿"当初扣了多少"：金额从流水里读而不是由调用方回传，调用方就没有机会
+// 退错数目——上游价格随时会调，让失败路径重新算一遍价，退的未必是当初扣的那笔。
+func (s *Store) CreditEntryByRef(userID string, kind string, refType string, refID string) (*CreditLedgerEntry, error) {
+	var entry CreditLedgerEntry
+	err := s.db.Where(
+		"user_id = ? AND kind = ? AND ref_type = ? AND ref_id = ?",
+		userID, kind, refType, refID,
+	).First(&entry).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("auth: 按业务引用查询积分流水失败: %w", err)
+	}
+	return &entry, nil
+}
+
 // AppendCreditEntries 在同一个事务里落一串积分变动。
 //
 // 做成批量而不是"单条 + 调用方循环"，是因为一次充值的本金与赠送必须同生共死：

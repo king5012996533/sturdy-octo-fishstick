@@ -131,7 +131,16 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 		return nil, fmt.Errorf("序列化任务输入失败：%w", err)
 	}
 	task.InputJSON = string(inputJSON)
+	// 先扣费再落库：反过来做的话，扣费失败时任务已经入队，worker 可能已经调上游了。
+	// 扣费在落库前失败只会让这次提交整体失败，用户重试即可，不存在半成品任务。
+	if err := s.chargeTaskCredits(&task, normalizedInput); err != nil {
+		return nil, err
+	}
 	err = s.createTaskWithinStorageQuota(&task, policy)
+	if err != nil {
+		// 扣了费却没落库：这条任务不存在，没有任何后续路径会替它退款，必须当场退。
+		s.refundTaskCredits(task.UserID, task.ID, "任务创建失败退回预扣")
+	}
 	if errors.Is(err, repository.ErrActiveTaskLimit) {
 		return nil, BadAuthRequest(fmt.Sprintf("同时排队或运行的任务最多 %d 个，请等待已有任务完成", policy.Task.ActiveTaskLimit))
 	}

@@ -106,6 +106,7 @@ func (w *taskWorkerCoordinator) failTimelineTask(task *model.Task, stage string,
 	if !done {
 		return fmt.Errorf("时间线任务状态或租约已变化：%w", repository.ErrTaskStateConflict)
 	}
+	s.refundTaskCredits(task.UserID, task.ID, "转写失败退回预扣")
 	s.logInfo(task.UserID, task.ID, fmt.Sprintf("时间线转写失败: %s", message), "")
 	return nil
 }

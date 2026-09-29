@@ -66,6 +66,8 @@ type Service struct {
 	prompts                  *prompts.Service
 	canvas                   *canvas.Service
 	beefAPI                  *beefapi.Service
+	// taskCreditLedger 只在托管实例注入；为 nil 表示当前形态不计费。
+	taskCreditLedger TaskCreditLedger
 	// canvasModeration 只在托管实例打开：桌面库里没有 canvas_moderation 表，
 	// 每次都去查会把本地存画布打挂。
 	canvasModeration atomic.Bool

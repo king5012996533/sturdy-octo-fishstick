@@ -67,8 +67,18 @@ func (o *taskTerminalOutputStub) RegisterTaskOutputFromTask(model.Task) error {
 	return o.err
 }
 
+type taskTerminalRefundStub struct {
+	taskIDs []string
+	notes   []string
+}
+
+func (r *taskTerminalRefundStub) refundTaskCredits(_ string, taskID string, note string) {
+	r.taskIDs = append(r.taskIDs, taskID)
+	r.notes = append(r.notes, note)
+}
+
 func newTaskTerminalCoordinatorForTest(repo taskTerminalRepository, replay *taskTerminalReplayStub, logger *taskTerminalLoggerStub, outputs *taskTerminalOutputStub) *taskTerminalCoordinator {
-	return &taskTerminalCoordinator{repo: repo, replay: replay, logger: logger, outputs: outputs, userFacingMessage: func(err error) string { return "public: " + err.Error() }}
+	return &taskTerminalCoordinator{repo: repo, replay: replay, logger: logger, outputs: outputs, refund: &taskTerminalRefundStub{}, userFacingMessage: func(err error) string { return "public: " + err.Error() }}
 }
 
 func TestTaskTerminalConflictDoesNotFinalize(t *testing.T) {
@@ -104,7 +114,9 @@ func TestTaskTerminalCoordinatorRecordsProviderFailure(t *testing.T) {
 	task := &model.Task{ID: "task-1", UserID: "user-1"}
 	repo := &taskTerminalRepositoryStub{task: task}
 	replay := &taskTerminalReplayStub{}
+	refund := &taskTerminalRefundStub{}
 	coordinator := newTaskTerminalCoordinatorForTest(repo, replay, &taskTerminalLoggerStub{}, &taskTerminalOutputStub{})
+	coordinator.refund = refund
 	failure := errors.New("provider unavailable")
 	if err := coordinator.handleExecutionFailure(task, failure, false, true); !errors.Is(err, failure) {
 		t.Fatalf("handleExecutionFailure() error = %v, want %v", err, failure)
@@ -114,6 +126,33 @@ func TestTaskTerminalCoordinatorRecordsProviderFailure(t *testing.T) {
 	}
 	if len(replay.statuses) != 1 || replay.statuses[0] != model.TaskStatusFailed {
 		t.Fatalf("unexpected replay statuses: %v", replay.statuses)
+	}
+	// 上游没交付，预扣就得退回；而取消不是"上游失败"，退款集中在失败这一条路上。
+	if len(refund.taskIDs) != 1 || refund.taskIDs[0] != "task-1" {
+		t.Fatalf("失败终态应退回一次预扣，实际 %v", refund.taskIDs)
+	}
+}
+
+func TestTaskTerminalCoordinatorDoesNotRefundSuccessfulTerminal(t *testing.T) {
+	task := &model.Task{ID: "task-2", UserID: "user-1", Status: model.TaskStatusSucceeded}
+	refund := &taskTerminalRefundStub{}
+	coordinator := newTaskTerminalCoordinatorForTest(&taskTerminalRepositoryStub{task: task}, &taskTerminalReplayStub{}, &taskTerminalLoggerStub{}, &taskTerminalOutputStub{})
+	coordinator.refund = refund
+	if err := coordinator.markTerminalState(task); err != nil {
+		t.Fatalf("markTerminalState() error = %v", err)
+	}
+	if len(refund.taskIDs) != 0 {
+		t.Fatalf("非失败终态不应退款，实际 %v", refund.taskIDs)
+	}
+}
+
+func TestTaskTerminalCoordinatorWithoutRefundPortSucceeds(t *testing.T) {
+	// 桌面与本地装载没有计费端口：失败终态仍要能正常落库。
+	task := &model.Task{ID: "task-3", UserID: "user-1", Status: model.TaskStatusFailed}
+	coordinator := newTaskTerminalCoordinatorForTest(&taskTerminalRepositoryStub{task: task}, &taskTerminalReplayStub{}, &taskTerminalLoggerStub{}, &taskTerminalOutputStub{})
+	coordinator.refund = nil
+	if err := coordinator.markTerminalState(task); err != nil {
+		t.Fatalf("markTerminalState() error = %v", err)
 	}
 }
 

@@ -139,11 +139,24 @@ func (s *Service) ChargeTask(input TaskChargeInput) (*TaskChargeQuote, *CreditLe
 
 // RefundTaskCharge 退回一次任务预扣，供失败与取消路径调用。
 //
-// 金额由调用方从任务上回传的报价带来，而不是在这里重新算一遍：上游价格随时会调，
-// 重新解析出来的可能是另一个数，那样退的就未必是当初扣的那笔。
-func (s *Service) RefundTaskCharge(userID string, taskID string, credits int64, note string) error {
-	_, _, err := s.RefundTaskCredits(userID, taskID, credits, note)
-	return err
+// 退多少从流水里读，不由调用方传：调用方手上只有"这个任务失败了"，让它自己算金额，
+// 上游调价之后就会退成一个不再等于当初扣款的值。返回 refunded=false 表示没有可退的
+// 东西（任务免费，或这笔预扣早已退过），这不是错误——失败路径会被重放，第二次退
+// 理应是空操作。
+func (s *Service) RefundTaskCharge(userID string, taskID string, note string) (int64, bool, error) {
+	charge, err := s.store.CreditEntryByRef(userID, CreditKindCharge, CreditRefTask, taskID)
+	if err != nil {
+		return 0, false, internalFailure(err)
+	}
+	if charge == nil || charge.Amount >= 0 {
+		return 0, false, nil
+	}
+	credits := -charge.Amount
+	_, created, err := s.RefundTaskCredits(userID, taskID, credits, note)
+	if err != nil {
+		return 0, false, err
+	}
+	return credits, created, nil
 }
 
 // upstreamUnitPriceOf 取定价行上的上游成本，行不存在时返回 nil。

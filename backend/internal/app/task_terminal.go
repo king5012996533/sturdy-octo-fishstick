@@ -19,6 +19,7 @@ type taskTerminalCoordinator struct {
 	replay            taskReplayLifecycle
 	logger            taskLifecycleLogger
 	outputs           taskOutputLifecycle
+	refund            taskRefundLifecycle
 	userFacingMessage func(error) string
 	logFailedAttempt  func(model.Task, error)
 }
@@ -40,10 +41,19 @@ type taskOutputLifecycle interface {
 	RegisterTaskOutputFromTask(task model.Task) error
 }
 
+// taskRefundLifecycle 是终态路径退回预扣的窄端口。
+//
+// 单独一个接口而不是并进 taskLifecycleLogger：写日志是纯观测，退回是资金动作，
+// 让两者的实现被迫同时存在，会让"只想记日志"的测试替身不得不假装能退钱。
+type taskRefundLifecycle interface {
+	refundTaskCredits(userID string, taskID string, note string)
+}
+
 type taskTerminalServiceAdapter struct {
 	finalizeReplay func(string, model.TaskStatus) error
 	writeLog       func(string, string, string, string, string) error
 	registerOutput func(model.Task) error
+	refundCredits  func(string, string, string)
 }
 
 func (a taskTerminalServiceAdapter) finalizeTaskTextReplay(taskID string, status model.TaskStatus) error {
@@ -58,17 +68,29 @@ func (a taskTerminalServiceAdapter) RegisterTaskOutputFromTask(task model.Task) 
 	return a.registerOutput(task)
 }
 
+// refundTaskCredits 是 taskRefundLifecycle 的适配入口。
+//
+// 函数为 nil 时直接返回：桌面与本地装载没有计费端口，那里不该为"退不了钱"报错。
+func (a taskTerminalServiceAdapter) refundTaskCredits(userID string, taskID string, note string) {
+	if a.refundCredits == nil {
+		return
+	}
+	a.refundCredits(userID, taskID, note)
+}
+
 func newTaskTerminalCoordinator(s *Service) *taskTerminalCoordinator {
 	adapter := taskTerminalServiceAdapter{
 		finalizeReplay: s.finalizeTaskTextReplay,
 		writeLog:       s.log,
 		registerOutput: s.RegisterTaskOutputFromTask,
+		refundCredits:  s.refundTaskCredits,
 	}
 	return &taskTerminalCoordinator{
 		repo:              s.repo,
 		replay:            adapter,
 		logger:            adapter,
 		outputs:           adapter,
+		refund:            adapter,
 		userFacingMessage: s.UserFacingErrorMessage,
 		logFailedAttempt:  s.ensureFailedProviderAttemptLogged,
 	}
@@ -195,6 +217,11 @@ func (c *taskTerminalCoordinator) markTerminalState(task *model.Task) error {
 	}
 	if !updated {
 		return repository.ErrTaskStateConflict
+	}
+	// 终态是失败才退钱：成功意味着上游确实出了东西，那笔预扣就是它的价格。
+	// refund 为 nil 表示当前形态不计费（桌面 / 本地装载），不是"该退但退不了"。
+	if c.refund != nil && task.Status == model.TaskStatusFailed {
+		c.refund.refundTaskCredits(task.UserID, task.ID, "任务失败退回预扣")
 	}
 	return nil
 }

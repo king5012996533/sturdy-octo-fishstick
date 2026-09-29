@@ -1,0 +1,166 @@
+package app
+
+import (
+	"errors"
+	"testing"
+
+	"infinite-canvas/backend/internal/model"
+)
+
+// fakeCreditLedger 记录计费端口的调用，用来断言"任务域到底把什么交给了计费域"。
+type fakeCreditLedger struct {
+	requests      []TaskChargeRequest
+	chargeErr     error
+	charges       int64
+	refunds       []string
+	refundCredits int64
+	refunded      bool
+	refundErr     error
+}
+
+func (f *fakeCreditLedger) ChargeTask(request TaskChargeRequest) (TaskChargeOutcome, error) {
+	if f.chargeErr != nil {
+		return TaskChargeOutcome{}, f.chargeErr
+	}
+	f.requests = append(f.requests, request)
+	return TaskChargeOutcome{Credits: f.charges}, nil
+}
+
+func (f *fakeCreditLedger) RefundTask(userID string, taskID string, note string) (int64, bool, error) {
+	if f.refundErr != nil {
+		return 0, false, f.refundErr
+	}
+	f.refunds = append(f.refunds, taskID+"|"+note)
+	return f.refundCredits, f.refunded, nil
+}
+
+// newTaskCreditTestService 建一个带计费端口的托管服务；其余依赖留空，
+// 这些用例只覆盖端口编排，不碰存储。
+func newTaskCreditTestService(t *testing.T) (*Service, *fakeCreditLedger) {
+	t.Helper()
+	svc, _ := newFeatureAvailabilityTestService(t)
+	ledger := &fakeCreditLedger{charges: 450}
+	svc.UseTaskCreditLedger(ledger)
+	return svc, ledger
+}
+
+// TestChargeTaskCreditsDerivesModelKeyCapabilityAndQuantity 覆盖交给计费域的三个关键字段。
+//
+// 模型标识取「渠道::模型」而不是裸模型名：不同渠道可能上架同名 SKU，裸名会让两家
+// 的价目表串在一起。用量取视频秒数，图片取张数。
+func TestChargeTaskCreditsDerivesModelKeyCapabilityAndQuantity(t *testing.T) {
+	svc, ledger := newTaskCreditTestService(t)
+	task := &model.Task{ID: "task-1", UserID: "user-1", Type: "canvas_video", Operation: "image_to_video"}
+	input := map[string]any{
+		"mode":              "video",
+		"config":            map[string]any{"channelId": "CHANNEL_000007", "channelModelKey": "seedance-2.5", "model": "seedance-2.5", "videoSeconds": "30"},
+		"capabilityOptions": map[string]any{"videoSeconds": "30", "size": "16:9"},
+	}
+
+	if err := svc.chargeTaskCredits(task, input); err != nil {
+		t.Fatalf("预扣失败: %v", err)
+	}
+	if len(ledger.requests) != 1 {
+		t.Fatalf("应只调用一次计费，实际 %d 次", len(ledger.requests))
+	}
+	request := ledger.requests[0]
+	if request.ModelKey != "CHANNEL_000007::seedance-2.5" {
+		t.Fatalf("模型标识应为 渠道::模型，实际 %q", request.ModelKey)
+	}
+	if request.Capability != "video" {
+		t.Fatalf("能力应为 video，实际 %q", request.Capability)
+	}
+	if request.Quantity != 30 {
+		t.Fatalf("用量应为 30 秒，实际 %d", request.Quantity)
+	}
+	if request.UserID != "user-1" || request.TaskID != "task-1" {
+		t.Fatalf("账号与任务标识应原样透传，实际 %#v", request)
+	}
+}
+
+// TestChargeTaskCreditsCountsImagesByOutputCount 覆盖图片按张计费。
+func TestChargeTaskCreditsCountsImagesByOutputCount(t *testing.T) {
+	svc, ledger := newTaskCreditTestService(t)
+	task := &model.Task{ID: "task-2", UserID: "user-1", Type: "canvas_image", Operation: "text_to_image"}
+	input := map[string]any{
+		"mode":              "image",
+		"config":            map[string]any{"channelId": "CHANNEL_000009", "channelModelKey": "gpt-image-2", "model": "gpt-image-2"},
+		"capabilityOptions": map[string]any{"count": 4},
+	}
+
+	if err := svc.chargeTaskCredits(task, input); err != nil {
+		t.Fatalf("预扣失败: %v", err)
+	}
+	if ledger.requests[0].ModelKey != "CHANNEL_000009::gpt-image-2" || ledger.requests[0].Quantity != 4 {
+		t.Fatalf("图片应扣 4 张的价，实际 %#v", ledger.requests[0])
+	}
+}
+
+// TestChargeTaskCreditsIsNoOpWithoutLedger 覆盖本地/桌面装载：没有计费端口就不该报错。
+func TestChargeTaskCreditsIsNoOpWithoutLedger(t *testing.T) {
+	svc, _ := newFeatureAvailabilityTestService(t)
+	task := &model.Task{ID: "task-3", UserID: "user-1", Type: "canvas_image"}
+	if err := svc.chargeTaskCredits(task, map[string]any{"mode": "image"}); err != nil {
+		t.Fatalf("未接计费端口时不该报错: %v", err)
+	}
+}
+
+// TestChargeTaskCreditsPropagatesLedgerError 覆盖余额不足等失败必须挡住任务创建。
+//
+// 吞掉这个错误就等于"余额不足也照样出片"，而这正是计费体系存在的理由。
+func TestChargeTaskCreditsPropagatesLedgerError(t *testing.T) {
+	svc, ledger := newTaskCreditTestService(t)
+	ledger.chargeErr = errors.New("积分不足，请先充值后再试")
+
+	task := &model.Task{ID: "task-4", UserID: "user-1", Type: "canvas_image"}
+	err := svc.chargeTaskCredits(task, map[string]any{"mode": "image"})
+	if err == nil || err.Error() != "积分不足，请先充值后再试" {
+		t.Fatalf("预扣失败应原样上抛，实际 %v", err)
+	}
+}
+
+// TestRefundTaskCreditsSwallowsLedgerFailure 覆盖退回失败不改变任务终态。
+//
+// 退回失败只能留下痕迹：任务已经失败是既成事实，把错误上抛会让 worker 反复重试终态写入。
+func TestRefundTaskCreditsSwallowsLedgerFailure(t *testing.T) {
+	svc, ledger := newTaskCreditTestService(t)
+	ledger.refundErr = errors.New("账号库不可用")
+
+	svc.refundTaskCredits("user-1", "task-5", "任务失败退回预扣")
+	if len(ledger.refunds) != 0 {
+		t.Fatal("退回失败时不该记录成功")
+	}
+
+	// 没有可退的东西（免费任务或已退过）同样不该报错。
+	ledger.refundErr = nil
+	ledger.refunded = false
+	svc.refundTaskCredits("user-1", "task-5", "任务失败退回预扣")
+}
+
+// TestTaskChargeQuantityFallsBackForUnknownQuantity 覆盖用量缺失时交给计费域处理。
+//
+// 这里刻意返回 0 而不是 1：端口对 0 的定义是"用量未知按一个单位计"，回退规则只该
+// 有一处，落在计费域里。
+func TestTaskChargeQuantityFallsBackForUnknownQuantity(t *testing.T) {
+	if got := taskChargeQuantity(ModelRequestIntent{Capability: "video"}); got != 0 {
+		t.Fatalf("用量未知应回 0，实际 %d", got)
+	}
+	if got := taskChargeQuantity(ModelRequestIntent{Capability: "text"}); got != 0 {
+		t.Fatalf("文本无法在提交时得知 token 数，应回 0，实际 %d", got)
+	}
+	if got := taskChargeQuantity(ModelRequestIntent{Capability: "image", Options: map[string]any{"count": "不是数字"}}); got != 0 {
+		t.Fatalf("解析失败应回 0，实际 %d", got)
+	}
+	if got := taskChargeQuantity(ModelRequestIntent{Capability: "video", Options: map[string]any{"videoSeconds": "15"}}); got != 15 {
+		t.Fatalf("字符串秒数应解析成 15，实际 %d", got)
+	}
+}
+
+// TestTaskChargeModelKeyFallsBackToTaskModel 覆盖前台模型模式（没有渠道）。
+func TestTaskChargeModelKeyFallsBackToTaskModel(t *testing.T) {
+	task := &model.Task{Model: "seedance-v25-logical"}
+	got := taskChargeModelKey(map[string]any{"config": map[string]any{}}, task)
+	if got != "seedance-v25-logical" {
+		t.Fatalf("没有渠道时应退回逻辑模型 code，实际 %q", got)
+	}
+}

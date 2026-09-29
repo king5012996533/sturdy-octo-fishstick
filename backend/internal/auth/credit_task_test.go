@@ -169,8 +169,16 @@ func TestChargeTaskDeductsThenRefunds(t *testing.T) {
 		t.Fatalf("试算与实扣应一致，实际 %d / %d", quote.Credits, -entry.Amount)
 	}
 
-	if err := env.service.RefundTaskCharge("user-1", "task-1", quote.Credits, "上游超时"); err != nil {
+	refunded, refundedNow, err := env.service.RefundTaskCharge("user-1", "task-1", "上游超时")
+	if err != nil {
 		t.Fatalf("退回失败: %v", err)
+	}
+	if refunded != quote.Credits || !refundedNow {
+		t.Fatalf("退回金额应等于当初扣款 %d，实际 %d（新建=%v）", quote.Credits, refunded, refundedNow)
+	}
+	// 失败路径会被重放：第二次退必须是空操作而不是再退一笔。
+	if _, again, err := env.service.RefundTaskCharge("user-1", "task-1", "上游超时"); err != nil || again {
+		t.Fatalf("重复退回应为空操作，实际 新建=%v err=%v", again, err)
 	}
 	wallet, err := env.service.CreditWallet("user-1")
 	if err != nil {
