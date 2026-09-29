@@ -115,7 +115,7 @@ func cloudAgentVisionAllowance(repo *repository.Repository, state *cloudAgentRun
 	maxImages := profile.Text.References.MaxImages
 	if maxImages <= 0 {
 		// 纯文本模型收到图片会被上游拒绝，必须在这里拦住并给出可执行的下一步。
-		return BadAuthRequest("当前 Agent 模型不支持图片输入：请在后台为它开启图片理解能力，或把本轮 Agent 切换到支持视觉的模型")
+		return BadAuthRequest("当前 Agent 模型未开启图片理解：请在后台为该模型开启（需上游本身支持视觉），或把本轮 Agent 切换到支持视觉的模型")
 	}
 	if want > maxImages {
 		return &cloudAgentArgumentError{BadAuthRequest(fmt.Sprintf("当前 Agent 模型一次最多查看 %d 张图片，请减少 nodeIds 后重试", maxImages))}
