@@ -29,6 +29,7 @@ import { buildSkillMentionReferences, resolveSkillMentions } from "@/services/sk
 import { AgentChatComposer, AgentChatMessage, AgentPlanBar, AgentQuestionBar, AgentWorkingMessage, type CloudAgentChatMessage, type CloudAgentPlanItem } from "./canvas-cloud-agent-chat-ui";
 import { CanvasAgentSkillLibraryModal } from "./canvas-agent-skill-library-modal";
 import { CanvasCloudAgentSettings, agentPermissionLabel, agentPermissionMenuItems, agentPermissionVisual, type AgentContextKey } from "./canvas-cloud-agent-settings";
+import { resolveAgentContextScope } from "@/lib/canvas/agent-context-scope";
 import { useAgentPanelLayout } from "./use-agent-panel-layout";
 import "./canvas-cloud-agent.css";
 
@@ -120,9 +121,10 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, re
     const [stopping, setStopping] = useState(false);
     const [approval, setApproval] = useState<ApprovalState | null>(null);
     const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>("request_approval");
-    // Plain chat is conversation-scoped. Canvas context is opt-in and is
-    // enabled when the user asks Agent to create or edit workspace content.
-    const [contextScope, setContextScope] = useState<AgentContextKey[]>([]);
+    // 面板挂在画布页面，用户点进来多半就是要动这块画布；默认勾上画布范围，
+    // 否则 Agent 手里没有任何画布工具，只能回答"我取不到画布"，看起来像能力缺失。
+    // 纯聊天仍可手动取消勾选，成本与行为都由用户显式决定。
+    const [contextScope, setContextScope] = useState<AgentContextKey[]>(["canvas"]);
     const [maxGenerationTasks, setMaxGenerationTasks] = useState("0");
     const [maxVideoSeconds, setMaxVideoSeconds] = useState("0");
     const [conversations, setConversations] = useState<CloudAgentConversation[]>([]);
@@ -509,6 +511,9 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, re
         let accepted = false;
         try {
             const pending = pendingSubmission.current;
+            // 引用画布节点的一轮必须带画布范围，否则工具根本不会注册。
+            const scopedContext = resolveAgentContextScope(contextScope, value);
+            if (scopedContext !== contextScope) setContextScope(scopedContext);
             // An ambiguous previous POST owns its body/key until reconciled.
             // Editing model settings or prompt must not silently create a new charge.
             if (pending?.request && pending.request.prompt !== value) throw new Error("上一条请求结果待确认，请先原样重试上一条消息，再发送新要求");
@@ -528,14 +533,14 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, re
                 // mode flag creates a frontend-only canvas that the Agent API
                 // cannot resolve (404). The PUT is idempotent and therefore
                 // safe for both desktop and hosted-compatible flows.
-                if (contextScope.includes("canvas")) await syncLocalCanvasForAgent(canvasId);
+                if (scopedContext.includes("canvas")) await syncLocalCanvasForAgent(canvasId);
                 if (currentScope.current !== scope) return;
                 const agentConfig = { ...config, model: selectedModel };
                 const requestConfig = resolveModelRequestConfig(agentConfig, selectedModel);
                 const logicalModelId = logicalModelIDForConfig(agentConfig);
                 const input: Omit<CreateAgentRunInput, "idempotencyKey"> = {
                     conversationId: activeConversationId,
-                    ...(contextScope.includes("canvas") ? { canvasId } : {}), prompt: value, reasoningMode: reasoningSupported ? reasoningMode : "off",
+                    ...(scopedContext.includes("canvas") ? { canvasId } : {}), prompt: value, reasoningMode: reasoningSupported ? reasoningMode : "off",
                     // Local profiles live in the desktop WebView and are not
                     // the server's persisted profile snapshot. Sending their
                     // `local-*` revision makes every request look stale to
@@ -544,7 +549,7 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, re
                     model: modelOptionName(selectedModel) || undefined,
                     ...(logicalModelId ? { logicalModelId } : requestConfig.channelId ? { channelId: requestConfig.channelId, channelModelKey: modelOptionName(selectedModel) || undefined } : {}),
                     skillIds: [...new Set([...selectedSkillIds, ...resolveSkillMentions(value, installedSkills).map((skill) => skill.skillId)])],
-                    permissionMode, contextScope,
+                    permissionMode, contextScope: scopedContext,
                     budget: { maxGenerationTasks: permissionMode === "read_only" ? 0 : Number(maxGenerationTasks), maxVideoSeconds: permissionMode === "read_only" ? 0 : Number(maxVideoSeconds) },
                 };
                 const fingerprint = JSON.stringify({ scope, parent: run?.id, input });

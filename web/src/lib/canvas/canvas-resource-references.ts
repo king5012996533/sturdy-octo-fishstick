@@ -37,6 +37,13 @@ export function canvasSkillMentionToken(skillId: string) {
     return `@[skill:${skillId}]`;
 }
 
+/**
+ * 序列化后的画布节点引用。token 格式只在这里定义一次，检测方（例如 Agent 上下文范围
+ * 推断）必须复用它，否则格式一改就会出现"引用了节点却拿不到画布工具"的静默降级。
+ * 刻意不加 /g：带 g 的正则用 test() 会保留 lastIndex，跨次调用结果不稳定。
+ */
+export const CANVAS_NODE_MENTION_PATTERN = /@\[node:[^\]]+\]/;
+
 export function canvasNodeMentionToken(nodeId: string) {
     return `@[node:${nodeId}]`;
 }
