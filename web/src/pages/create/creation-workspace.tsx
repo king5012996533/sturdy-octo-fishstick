@@ -47,6 +47,7 @@ import { conversationTimestamp, isImageAttachment, isVideoAttachment } from "./c
 import { conversationTimeFormatter, countOptions, historyDayFormatter, messageTimeFormatter, modeLabels, qualityOptions, ratioOptions, resolutionOptions, shotScriptLabels, type CreationConversation, type CreationMessage, type CreationShotRailEntry, type CreationStatus } from "./creation-types";
 import "./creation-product.css";
 import { creationFeaturedWorks, inspirationSource, type CreationInspiration } from "./creation-inspirations";
+import { loadCreationInspirations } from "./creation-inspirations-source";
 import { creationLibtvInspirations, libtvSampleSource } from "./creation-inspirations-libtv";
 
 const CanvasPromptOptimizerDrawer = lazy(() => import("@/components/canvas/canvas-prompt-optimizer-drawer").then((module) => ({ default: module.CanvasPromptOptimizerDrawer })));
@@ -845,8 +846,20 @@ export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode:
     const [skillSection, setSkillSection] = useState<"recommended" | "mine">("recommended");
     const [mySkills, setMySkills] = useState<Skill[]>([]);
     const [mySkillsLoaded, setMySkillsLoaded] = useState(false);
+    const [remoteInspirations, setRemoteInspirations] = useState<CreationInspiration[] | null>(null);
+    // 平台后台维护的广场目录优先；取不到时回落到仓库内的本地列表（桌面端与离线预览
+    // 没有这份目录），而不是留一个空广场。
+    const creationInspirationPool = remoteInspirations?.length ? remoteInspirations : localCreationInspirationPool;
     const filtered = creationInspirationPool.filter((item) => filter === "all" || item.mode === filter);
     const isSkill = collection === "skill";
+    useEffect(() => {
+        let cancelled = false;
+        void loadCreationInspirations()
+            .then((items) => { if (!cancelled && items.length) setRemoteInspirations(items); })
+            // 失败即保持本地列表：广场是首页的主要内容，接口不可用不该让用户看到空页。
+            .catch(() => {});
+        return () => { cancelled = true; };
+    }, []);
     useEffect(() => {
         if (!isSkill || skillSection !== "mine" || mySkillsLoaded) return;
         let cancelled = false;
@@ -896,8 +909,9 @@ export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode:
     </section>;
 }
 
-// 精选灵感 = LibTV 示例素材（占位）+ 我们自己的原创列表；示例素材单独成文件，删掉即可恢复纯原创。
-const creationInspirationPool = [...creationLibtvInspirations, ...creationFeaturedWorks];
+// 本地兜底列表 = LibTV 示例素材（占位）+ 我们自己的原创列表；示例素材单独成文件，删掉即可恢复纯原创。
+// 后台接口可用时前台用接口数据，这两份常量只在接口拿不到时生效。
+const localCreationInspirationPool = [...creationLibtvInspirations, ...creationFeaturedWorks];
 
 type CreationThinking = { title: string; hint: string; steps: string[]; activity: string };
 

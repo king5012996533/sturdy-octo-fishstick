@@ -23,8 +23,9 @@ func MigrateHostedSharedSchema(db *gorm.DB) error {
 	}
 	// 渠道/模型目录本身在 LocalModels 里（桌面端也自建渠道），因此这里只补平台
 	// 专属的表：审计流水、画布审核状态、素材处置状态、运营维护的画布模板，以及平台
-	// 视角的厂商与厂商凭据。新增表时同样要问一次：桌面端是否可能产生这些行——这六张
-	// 表都只有管理后台能写，桌面端拿不到管理员身份。
+	// 视角的厂商与厂商凭据。新增表时同样要问一次：桌面端是否可能产生这些行——这些
+	// 表都只有管理后台能写，桌面端拿不到管理员身份。精选灵感同理：它是运营维护的
+	// 广场内容，桌面端只读它自己仓库里那份本地列表。
 	//
 	// 厂商凭据刻意只存"指向某条 system channel"的指针与展示用尾号，密钥本体仍留在
 	// model_channels（那里已经有一套加密与脱敏），避免同一条密钥两处各存一份。
@@ -35,6 +36,7 @@ func MigrateHostedSharedSchema(db *gorm.DB) error {
 		&model.CanvasTemplate{},
 		&model.ModelVendor{},
 		&model.VendorCredential{},
+		&model.CreationInspiration{},
 	); err != nil {
 		return fmt.Errorf("迁移托管共享结构: %w", err)
 	}
@@ -57,6 +59,7 @@ func RequireHostedSharedSchema(db *gorm.DB) error {
 		{&model.CanvasTemplate{}, "canvas_templates"},
 		{&model.ModelVendor{}, "model_vendors"},
 		{&model.VendorCredential{}, "vendor_credentials"},
+		{&model.CreationInspiration{}, "creation_inspirations"},
 	} {
 		if !db.Migrator().HasTable(entry.table) {
 			return fmt.Errorf("托管共享结构缺失 %s，请启用自动迁移或先建表", entry.name)

@@ -1,6 +1,34 @@
 import type { CreationMode } from "./creation-types";
+import type { CreationInspirationRecord } from "@/services/api/creation-inspirations";
 
 export type CreationInspiration = { title: string; description: string; image: string; mode: CreationMode; prompt: string; featured?: boolean; source?: string; author?: string; likes?: number; sourceUrl?: string };
+
+const creationModes: CreationMode[] = ["text", "image", "video"];
+
+/**
+ * 把后台目录条目收敛成卡片数据；模式不认识或缺少必要字段时返回 null 由调用方丢弃。
+ *
+ * 这里必须做一次过滤而不是类型断言：后台的 mode 是自由字符串（接口层不锁定枚举，
+ * 免得加一种模式就要同步发一次前端），断言会让一个错值直接落到卡片的渲染分支上，
+ * 表现为点开卡片后什么都没发生。
+ */
+export function inspirationFromRecord(record: CreationInspirationRecord): CreationInspiration | null {
+    const mode = creationModes.find((value) => value === record.mode);
+    if (!mode) return null;
+    if (!record.title || !record.coverUrl || !record.prompt) return null;
+    return {
+        title: record.title,
+        description: record.description,
+        image: record.coverUrl,
+        mode,
+        prompt: record.prompt,
+        featured: record.featured,
+        source: record.source || undefined,
+        author: record.author || undefined,
+        likes: record.likes || undefined,
+        sourceUrl: record.sourceUrl || undefined,
+    };
+}
 
 export const creationFeaturedWorks: CreationInspiration[] = [
     {

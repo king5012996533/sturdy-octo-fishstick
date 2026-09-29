@@ -1,8 +1,32 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { creationFeaturedWorks, inspirationSource } from "../src/pages/create/creation-inspirations";
+import { creationFeaturedWorks, inspirationFromRecord, inspirationSource, type CreationInspiration } from "../src/pages/create/creation-inspirations";
 import { creationLibtvInspirations, libtvSampleSource } from "../src/pages/create/creation-inspirations-libtv";
+import type { CreationInspirationRecord } from "../src/services/api/creation-inspirations";
+
+/** 后台目录条目：只覆盖用例关心的字段，其余给一份合法的缺省值。 */
+function catalogRecord(overrides: Partial<CreationInspirationRecord> = {}): CreationInspirationRecord {
+    return {
+        id: "INSP-1",
+        title: "雨夜霓虹 · 电影感开场",
+        description: "宽银幕构图与环境反光",
+        coverUrl: "https://cdn.example.com/neon.jpg",
+        prompt: "雨夜城市街口，霓虹灯倒映在湿润路面",
+        mode: "video",
+        category: "精选",
+        author: "",
+        likes: 0,
+        sourceUrl: "",
+        source: "",
+        status: "ONLINE",
+        featured: false,
+        sortOrder: 0,
+        createdAt: "2026-09-29T00:00:00Z",
+        updatedAt: "2026-09-29T00:00:00Z",
+        ...overrides,
+    };
+}
 
 describe("curated creation inspirations", () => {
     test("all templates have unique titles, usable prompts and local cover assets", () => {
@@ -45,5 +69,37 @@ describe("LibTV sample inspirations", () => {
         }
         expect(libtvSampleSource.notice).toContain("上线前");
         expect(libtvSampleSource.site).toContain("liblib.tv");
+    });
+});
+
+describe("后台目录映射成广场卡片", () => {
+    test("字段改写与空串收敛：空署名/空链接必须变成 undefined，否则卡片会渲染空标签", () => {
+        const card = inspirationFromRecord(catalogRecord());
+        expect(card).not.toBeNull();
+        expect(card as CreationInspiration).toEqual({
+            title: "雨夜霓虹 · 电影感开场",
+            description: "宽银幕构图与环境反光",
+            image: "https://cdn.example.com/neon.jpg",
+            mode: "video",
+            prompt: "雨夜城市街口，霓虹灯倒映在湿润路面",
+            featured: false,
+            source: undefined,
+            author: undefined,
+            likes: undefined,
+            sourceUrl: undefined,
+        });
+    });
+    test("点赞数与署名原样带上，示例素材保留可追溯的原始链接", () => {
+        const card = inspirationFromRecord(catalogRecord({ likes: 2285, author: "YOUNG", sourceUrl: "https://www.liblib.tv/detail/abc", mode: "image" }));
+        expect(card?.likes).toBe(2285);
+        expect(card?.author).toBe("YOUNG");
+        expect(card?.sourceUrl).toBe("https://www.liblib.tv/detail/abc");
+        expect(card?.mode).toBe("image");
+    });
+    test("模式不认识或缺少封面/提示词/标题时丢弃条目，而不是断言成非法模式", () => {
+        expect(inspirationFromRecord(catalogRecord({ mode: "agent" }))).toBeNull();
+        expect(inspirationFromRecord(catalogRecord({ coverUrl: "" }))).toBeNull();
+        expect(inspirationFromRecord(catalogRecord({ prompt: "" }))).toBeNull();
+        expect(inspirationFromRecord(catalogRecord({ title: "" }))).toBeNull();
     });
 });

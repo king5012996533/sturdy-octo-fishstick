@@ -90,6 +90,11 @@ func Open(_ context.Context, raw Config) (*Runtime, error) {
 		} else {
 			err = database.RequireHostedSharedSchema(db)
 		}
+		if err == nil {
+			// 精选灵感广场要开箱就有内容，否则新装的实例首页是空的，运营也看不到
+			// 该长什么形状。只在表为空时播种，运营接手后不再覆盖。
+			err = database.SeedCreationInspirations(db)
+		}
 	}
 	if err != nil {
 		cleanupDB()

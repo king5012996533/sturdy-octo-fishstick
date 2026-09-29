@@ -76,6 +76,8 @@ func (e *Extension) registerAdminRoutes(api *gin.RouterGroup) {
 	e.registerAdminAssetRoutes(group)
 	// 模板管理：画布模板上下架、分类与推荐位。
 	e.registerAdminTemplateRoutes(group)
+	// 灵感管理：精选灵感广场的上下架、分类、推荐位与排序。
+	e.registerAdminInspirationRoutes(group)
 	// 工单与反馈：用户工单列表、回复与状态流转。
 	e.registerAdminTicketRoutes(group)
 	// 模型定价：计费倍率规则与模型单价（单价可留空占位，售价由倍率算出）。

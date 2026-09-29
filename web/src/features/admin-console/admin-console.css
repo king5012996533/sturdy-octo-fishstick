@@ -588,6 +588,19 @@
     max-width: 150px;
 }
 
+/* 精选灵感：标题列要塞标题 + 说明两行。默认的 admin-user-cell 是横排 flex，
+   长说明会把整张表撑到 1600px 以上，分类这类窄列随即被浏览器按最小内容宽度压成
+   竖排单字。改成竖排并给说明限宽，表格才会回到 1200 附近的正常宽度。 */
+.admin-inspiration-cell {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+}
+
+.admin-inspiration-desc {
+    max-width: 200px;
+}
+
 .admin-canvas-meta {
     display: flex;
     flex-wrap: wrap;
