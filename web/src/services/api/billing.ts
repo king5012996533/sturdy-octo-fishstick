@@ -16,6 +16,10 @@ export type BillingPlan = {
     enabled: boolean;
     priceFen: number;
     periodDays: number;
+    /** 购买后到账的积分（整数分）。periodDays 为 0 且这里大于 0 时是纯积分包。 */
+    credits: number;
+    /** 平台额外赠送的积分，与到账积分分开入账。 */
+    giftCredits: number;
     quotaCalls: number;
     quotaStorageMb: number;
     quotaMembers: number;
@@ -49,6 +53,9 @@ export type BillingOrder = {
     discountFen: number;
     payableFen: number;
     couponCode: string;
+    /** 下单时的积分快照：套餐后来改价改赠送，这笔已付订单仍按当时承诺到账。 */
+    credits: number;
+    giftCredits: number;
     status: BillingOrderStatus;
     provider: string;
     providerOrderNo: string;

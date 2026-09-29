@@ -1,5 +1,5 @@
 import { App, ConfigProvider, theme as antdTheme } from "antd";
-import { ArrowLeft, BadgePercent, Boxes, FileSignature, Gauge, Images, KeyRound, LayoutDashboard, LayoutTemplate, LifeBuoy, Package, RadioTower, Receipt, ScrollText, Send, Settings, ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, TicketPercent, Users, type LucideIcon } from "lucide-react";
+import { ArrowLeft, BadgePercent, Boxes, Coins, FileSignature, Gauge, Images, KeyRound, LayoutDashboard, LayoutTemplate, LifeBuoy, Package, RadioTower, Receipt, ScrollText, Send, Settings, ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, TicketPercent, Users, type LucideIcon } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -13,6 +13,7 @@ import { AuditPane } from "./audit-pane";
 import { CanvasPane } from "./canvas-pane";
 import { ChannelsPane } from "./channels-pane";
 import { CouponsPane } from "./coupons-pane";
+import { CreditsPane } from "./credits-pane";
 import { DashboardPane } from "./dashboard-pane";
 import { FeaturesPane } from "./features-pane";
 import { GatewaysPane } from "./gateways-pane";
@@ -29,7 +30,7 @@ import { TicketsPane } from "./tickets-pane";
 import { UsersPane } from "./users-pane";
 import { VendorsPane } from "./vendors-pane";
 
-type ConsoleSectionKey = "dashboard" | "users" | "roles" | "canvases" | "assets" | "templates" | "inspirations" | "login-methods" | "agreements" | "gateways" | "plans" | "orders" | "coupons" | "tickets" | "settings" | "vendors" | "channels" | "pricing" | "features" | "policy" | "audit";
+type ConsoleSectionKey = "dashboard" | "users" | "roles" | "canvases" | "assets" | "templates" | "inspirations" | "login-methods" | "agreements" | "gateways" | "plans" | "orders" | "credits" | "coupons" | "tickets" | "settings" | "vendors" | "channels" | "pricing" | "features" | "policy" | "audit";
 
 const consoleSections: Array<{ key: ConsoleSectionKey; label: string; description: string; icon: LucideIcon; pane: () => React.JSX.Element }> = [
     { key: "dashboard", label: "仪表盘", description: "用户、调用量与存储读数", icon: LayoutDashboard, pane: () => <DashboardPane /> },
@@ -44,6 +45,7 @@ const consoleSections: Array<{ key: ConsoleSectionKey; label: string; descriptio
     { key: "gateways", label: "验证码网关", description: "邮件与短信投递通道", icon: Send, pane: () => <GatewaysPane /> },
     { key: "plans", label: "订阅套餐", description: "可售套餐与配额", icon: Package, pane: () => <PlansPane /> },
     { key: "orders", label: "订单管理", description: "收款、补单与退款", icon: Receipt, pane: () => <OrdersPane /> },
+    { key: "credits", label: "积分管理", description: "余额、流水与人工调整", icon: Coins, pane: () => <CreditsPane /> },
     { key: "coupons", label: "优惠券", description: "折扣券与核销记录", icon: TicketPercent, pane: () => <CouponsPane /> },
     { key: "tickets", label: "工单与反馈", description: "用户反馈与处理流转", icon: LifeBuoy, pane: () => <TicketsPane /> },
     { key: "settings", label: "站点设置", description: "品牌、Logo 与备案信息", icon: Settings, pane: () => <SettingsPane /> },

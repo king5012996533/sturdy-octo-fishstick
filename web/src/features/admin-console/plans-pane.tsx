@@ -17,6 +17,30 @@ import {
 /** 套餐 code 只能是小写字母、数字与连字符：它同时是订单里的 planCode 与前台路由片段。 */
 const planCodePattern = /^[a-z0-9-]+$/;
 
+/**
+ * 周期为 0 且带积分 = 纯积分包：只加积分、不产生订阅。
+ *
+ * 这是运营卖积分的主要形态，列表里必须一眼能认出来，否则「有效期 0 天」会被读成漏填。
+ */
+function isCreditPack(plan: AdminBillingPlan) {
+    return plan.periodDays === 0 && (plan.credits ?? 0) + (plan.giftCredits ?? 0) > 0;
+}
+
+/**
+ * 周期为 0 就必须带积分，否则这是一件卖出去也没有东西能交付的空商品。
+ *
+ * 服务端同样会拒绝，但在这里拦住能让运营当场看到原因，而不是提交后收到一句 400。
+ * 校验挂在「到账积分」上并声明依赖另外两个字段，改周期或改赠送额时都会重新判一次。
+ */
+function validateCreditPack(credits: unknown, periodDays: unknown, giftCredits: unknown) {
+    const days = Number(periodDays ?? 0);
+    const total = Number(credits ?? 0) + Number(giftCredits ?? 0);
+    if (days === 0 && total <= 0) {
+        return Promise.reject(new Error("周期为 0 时必须是积分包，请填写到账积分或赠送积分"));
+    }
+    return Promise.resolve();
+}
+
 type PlanFormValues = {
     code: string;
     name: string;
@@ -24,6 +48,8 @@ type PlanFormValues = {
     sortOrder?: number;
     priceYuan: number;
     periodDays: number;
+    credits: number;
+    giftCredits: number;
     quotaCalls: number;
     quotaStorageMb: number;
     quotaMembers: number;
@@ -37,6 +63,8 @@ const emptyPlan: PlanFormValues = {
     sortOrder: 0,
     priceYuan: 0,
     periodDays: 30,
+    credits: 0,
+    giftCredits: 0,
     quotaCalls: 0,
     quotaStorageMb: 0,
     quotaMembers: 1,
@@ -52,6 +80,8 @@ function valuesOf(plan: AdminBillingPlan): PlanFormValues {
         // 表单里按「元」编辑，提交前再乘 100 换回分。
         priceYuan: plan.priceFen / 100,
         periodDays: plan.periodDays,
+        credits: plan.credits ?? 0,
+        giftCredits: plan.giftCredits ?? 0,
         quotaCalls: plan.quotaCalls,
         quotaStorageMb: plan.quotaStorageMb,
         quotaMembers: plan.quotaMembers,
@@ -68,6 +98,8 @@ function inputOf(values: PlanFormValues): AdminBillingPlanInput {
         enabled: values.enabled,
         priceFen: Math.round(Number(values.priceYuan ?? 0) * 100),
         periodDays: Number(values.periodDays ?? 0),
+        credits: Math.trunc(Number(values.credits ?? 0)),
+        giftCredits: Math.trunc(Number(values.giftCredits ?? 0)),
         quotaCalls: Number(values.quotaCalls ?? 0),
         quotaStorageMb: Number(values.quotaStorageMb ?? 0),
         quotaMembers: Number(values.quotaMembers ?? 0),
@@ -94,6 +126,8 @@ export function PlansPane() {
     const [deleting, setDeleting] = useState(false);
     const [deleteError, setDeleteError] = useState("");
     const [form] = Form.useForm<PlanFormValues>();
+    // 用于把「周期 0 = 纯积分包」这件事当场说出来，而不是让运营提交后才发现。
+    const periodDays = Form.useWatch("periodDays", form);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -197,7 +231,22 @@ export function PlansPane() {
             dataIndex: "periodDays",
             key: "periodDays",
             width: 100,
-            render: (value: number) => `${formatCount(value)} 天`,
+            render: (value: number, row) => (isCreditPack(row) ? <Tag color="blue">积分包</Tag> : `${formatCount(value)} 天`),
+        },
+        {
+            title: "到账 / 赠送积分",
+            key: "credits",
+            width: 170,
+            render: (_, row) => {
+                const credits = row.credits ?? 0;
+                const gifted = row.giftCredits ?? 0;
+                if (credits + gifted === 0) return <span className="admin-user-sub">—</span>;
+                return (
+                    <span className="admin-user-sub">
+                        <b style={{ color: "var(--admin-ink)", fontWeight: 500 }}>{formatCount(credits)}</b> · 赠 {formatCount(gifted)}
+                    </span>
+                );
+            },
         },
         {
             title: "配额（调用 / 存储 / 成员）",
@@ -285,7 +334,7 @@ export function PlansPane() {
                     loading={loading}
                     dataSource={plans}
                     columns={columns}
-                    scroll={{ x: 1180 }}
+                    scroll={{ x: 1320 }}
                     pagination={false}
                 />
             </div>
@@ -319,8 +368,34 @@ export function PlansPane() {
                     <Form.Item label="价格（元）" name="priceYuan" extra="按「元」填写，保存时自动换算成「分」存储，例如 39.9 元 = 3990 分。" rules={[{ required: true, message: "请填写价格" }]}>
                         <InputNumber min={0} precision={2} step={1} style={{ width: 200 }} />
                     </Form.Item>
-                    <Form.Item label="有效期（天）" name="periodDays" rules={[{ required: true, message: "请填写有效期天数" }]}>
-                        <InputNumber min={1} precision={0} style={{ width: 200 }} />
+                    <Form.Item
+                        label="有效期（天）"
+                        name="periodDays"
+                        extra="允许填 0：0 表示「纯积分包」——只加积分、不产生订阅，此时必须填写积分。1 到 3650 之间为正常订阅周期。"
+                        rules={[{ required: true, message: "请填写有效期天数" }]}
+                    >
+                        <InputNumber min={0} max={3650} precision={0} style={{ width: 200 }} />
+                    </Form.Item>
+                    {Number(periodDays ?? 0) === 0 ? (
+                        <div className="admin-notice" style={{ marginBottom: 16 }}>
+                            <span>这是纯积分包：用户下单后只加积分、不生成订阅，所以下面必须至少填写一项积分。</span>
+                        </div>
+                    ) : null}
+                    <Form.Item
+                        label="到账积分（分）"
+                        name="credits"
+                        dependencies={["periodDays", "giftCredits"]}
+                        extra="单位是「分」，且 1 分 = 1 积分：填 1000 表示购买后到账 1000 积分。这里不做元/分换算，也不与价格联动。"
+                        rules={[
+                            {
+                                validator: (_, value) => validateCreditPack(value, form.getFieldValue("periodDays"), form.getFieldValue("giftCredits")),
+                            },
+                        ]}
+                    >
+                        <InputNumber min={0} precision={0} step={1000} style={{ width: 200 }} />
+                    </Form.Item>
+                    <Form.Item label="赠送积分（分）" name="giftCredits" extra="平台额外赠送的积分（分），到账时与上面那笔分开入账、分开展示；不填按 0 处理。">
+                        <InputNumber min={0} precision={0} step={1000} style={{ width: 200 }} />
                     </Form.Item>
                     <Form.Item label="配额 · 调用次数" name="quotaCalls" extra="0 表示不限制。">
                         <InputNumber min={0} precision={0} style={{ width: 200 }} />

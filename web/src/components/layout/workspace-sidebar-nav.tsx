@@ -1,4 +1,4 @@
-import { Bot, ChevronRight, CreditCard, Home, LifeBuoy, PanelLeftClose, PanelLeftOpen, Plus, Settings2, ShieldCheck, Sun, Moon } from "lucide-react";
+import { Bot, ChevronRight, CircleDollarSign, CreditCard, Home, LifeBuoy, PanelLeftClose, PanelLeftOpen, Plus, Settings2, ShieldCheck, Sun, Moon } from "lucide-react";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
@@ -68,6 +68,7 @@ function buildNav(features: FeatureAvailability, brandName: string, adminConsole
                 { ...toolItem("assets", "/assets"), title: "资产" },
                 // 订阅入口与计时收费同时成立：本地/桌面构建没有计费后端，入口必须一起消失。
                 ...(__BEEFTV_HOSTED_AUTH__ ? [{ id: "billing", title: "订阅与充值", icon: CreditCard, to: "/billing" }] : []),
+                ...(__BEEFTV_HOSTED_AUTH__ ? [{ id: "wallet", title: "积分中心", icon: CircleDollarSign, to: "/wallet" }] : []),
                 ...(__BEEFTV_HOSTED_AUTH__ ? [{ id: "support", title: "帮助与反馈", icon: LifeBuoy, to: "/support" }] : []),
                 // 托管形态的模型与执行凭证都由平台持有，用户端没有任何可配置项：
                 // 保留入口只会把"选模型"包装成"配模型"，把用户引向一个空设置页。

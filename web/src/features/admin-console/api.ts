@@ -1,7 +1,7 @@
 import type { ModelCapabilityConfig } from "@/lib/model-capabilities";
 import type { ModelProtocolDefinition } from "@/lib/model-protocols";
 import type { PublicAppearance } from "@/services/api/appearance";
-import { http } from "@/services/api/request";
+import { ApiError, http } from "@/services/api/request";
 
 /**
  * 平台运营后台接口（/api/admin/*）。
@@ -673,6 +673,10 @@ export type AdminBillingPlan = {
     enabled: boolean;
     priceFen: number;
     periodDays: number;
+    /** 购买后到账的积分（分，不含赠送）。 */
+    credits: number;
+    /** 平台额外赠送的积分（分）。 */
+    giftCredits: number;
     quotaCalls: number;
     quotaStorageMb: number;
     quotaMembers: number;
@@ -688,6 +692,8 @@ export type AdminBillingPlanInput = {
     enabled: boolean;
     priceFen: number;
     periodDays: number;
+    credits: number;
+    giftCredits: number;
     quotaCalls: number;
     quotaStorageMb: number;
     quotaMembers: number;
@@ -863,4 +869,89 @@ export function listAdminPaymentChannels() {
 
 export function updateAdminPaymentChannel(channel: string, input: { enabled: boolean; config: Record<string, string> }) {
     return http.put<AdminPaymentChannels>(`/admin/billing/payment-channels/${encodeURIComponent(channel)}`, input);
+}
+
+// ---------- 积分：账户 / 流水 / 手工调整 ----------
+//
+// 与用户端 credit.ts 同一口径：金额一律是整数「分」，而且这个整数就是积分本身，
+// 展示层只做千分位格式化，不做元/分换算。换算一次就会在对账时丢一次精度，而积分
+// 是本平台的现金等价物，对不上账的代价比少一个好看的小数点大得多。
+
+export type AdminCreditAccount = {
+    userId: string;
+    name: string;
+    username: string;
+    email: string;
+    phone: string;
+    balance: number;
+    /** 累计获得 / 累计消耗：只增不减，用于回答"这个号一共用了多少"。 */
+    lifetimeIn: number;
+    lifetimeOut: number;
+    updatedAt: string;
+};
+
+export type AdminCreditAccountPage = {
+    accounts: AdminCreditAccount[];
+    total: number;
+    page: number;
+    pageSize: number;
+};
+
+export type AdminCreditKind = "TASK_CHARGE" | "TASK_REFUND" | "TOPUP" | "TOPUP_GIFT" | "ADMIN_ADJUST";
+
+export type AdminCreditLedgerEntry = {
+    id: string;
+    kind: AdminCreditKind;
+    /** 带符号：正数入账、负数出账。方向由符号承担，不依赖配色。 */
+    amount: number;
+    balanceAfter: number;
+    /** 业务引用类型（TASK / ORDER），无外部单据时为 SELF。 */
+    refType: string;
+    refId: string;
+    note: string;
+    createdAt: string;
+};
+
+export type AdminCreditLedgerPage = {
+    entries: AdminCreditLedgerEntry[];
+    total: number;
+    page: number;
+    pageSize: number;
+};
+
+export type AdminCreditWallet = {
+    userId: string;
+    balance: number;
+    lifetimeIn: number;
+    lifetimeOut: number;
+    updatedAt: string;
+};
+
+export function listAdminCreditAccounts(options: { keyword?: string; page?: number; pageSize?: number } = {}) {
+    return http.get<AdminCreditAccountPage>("/admin/credits/accounts", {
+        params: { keyword: options.keyword?.trim() || undefined, page: options.page, pageSize: options.pageSize },
+    });
+}
+
+/** 后台流水必须点名账号：不带 userId 服务端会直接 400，所以这里把它设成必填。 */
+export function listAdminCreditLedger(userId: string, options: { kind?: string; page?: number; pageSize?: number } = {}) {
+    return http.get<AdminCreditLedgerPage>("/admin/credits/ledger", {
+        params: { userId, kind: options.kind || undefined, page: options.page, pageSize: options.pageSize },
+    });
+}
+
+/** 手工调整：amount 可正可负，note 即审计依据，服务端强制必填。 */
+export function adjustAdminCredits(input: { userId: string; amount: number; note: string }) {
+    return http.post<{ entry: AdminCreditLedgerEntry; wallet: AdminCreditWallet }>("/admin/credits/adjust", input);
+}
+
+/**
+ * 把余额扣成负数是 402 + reason=insufficient_credits。
+ *
+ * 这个分支必须在调用处单独认出来：否则它会被当成普通失败，运营看到的是"系统处理失败"，
+ * 而真正的原因（"这个人只剩 3 分，扣不掉 100 分"）恰好是唯一需要被看见的信息。
+ */
+export function isInsufficientCreditsError(error: unknown) {
+    if (!(error instanceof ApiError)) return false;
+    return error.reason === "insufficient_credits" || error.code === 40201 || error.status === 402;
 }

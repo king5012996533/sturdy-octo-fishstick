@@ -10,6 +10,7 @@ const PAGE_TITLES: Record<string, string> = {
     home: "创作", create: "创作", projects: "短剧 Agent", canvas: "自由画布",
     assets: "资产", skills: "技能", plugins: "插件", settings: "设置",
     billing: "订阅与充值",
+    wallet: "积分中心",
     support: "帮助与反馈",
 };
 
