@@ -1,6 +1,7 @@
 export const AGENT_TOOL_METADATA: Record<string, { summary: string | ((context: { pending: boolean; detail?: unknown }) => string); failureMessage: string }> = {
     canvas_list_node_types: { summary: "已读取可用节点类型", failureMessage: "获取可用节点类型失败" },
     canvas_get_state: { summary: "已读取当前画布", failureMessage: "获取画布内容失败" },
+    canvas_inspect_images: { summary: "已查看画布图片", failureMessage: "查看画布图片失败" },
     task_get: { summary: "已查询任务状态", failureMessage: "查询任务状态失败" },
     canvas_apply_ops: { summary: ({ pending }) => pending ? "准备更新画布内容" : "画布内容已保存至服务端", failureMessage: "更新画布内容失败" },
     model_list: { summary: "已获取可用模型", failureMessage: "获取可用模型失败" },
@@ -26,7 +27,7 @@ function toolArguments(detail?: unknown) {
  * change or get localized.
  */
 export function agentToolCategory(toolName: string, detail?: unknown): AgentToolCategory {
-    if (["canvas_get_state", "canvas_list_node_types", "model_list", "task_get", "skills_load", "skill_read_file"].includes(toolName)) return "read";
+    if (["canvas_get_state", "canvas_inspect_images", "canvas_list_node_types", "model_list", "task_get", "skills_load", "skill_read_file"].includes(toolName)) return "read";
     if (toolName === "generate_media") return "create";
     if (toolName === "canvas_apply_ops") {
         const actions = record(detail).actions;

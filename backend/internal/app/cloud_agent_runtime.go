@@ -51,6 +51,8 @@ type cloudAgentRuntime struct {
 	Fingerprint          string                    `json:"fingerprint,omitempty"`
 	CreativeAnchor       cloudAgentCreativeAnchor  `json:"creativeAnchor,omitempty"`
 	TextHistory          []providerTextMessage     `json:"textHistory,omitempty"`
+	// InspectImages 保存上一步登记的待看图片，只在下一次模型调用时随消息发出，不写回持久化会话。
+	InspectImages []cloudAgentVisionImage `json:"inspectImages,omitempty"`
 	Skills               []cloudAgentSkill         `json:"skills"`
 	SkillReads           map[string]bool           `json:"skillReads,omitempty"`
 	Profile              cloudAgentProfileSnapshot `json:"profile"`
@@ -612,6 +614,8 @@ func (s *Service) advanceCloudAgent(run *model.CloudAgentExecution) (err error) 
 	cloudAgentDrainInterjections(run.ID, &state)
 	canonical := cloudAgentCanonicalWithPlan(&state)
 	s.attachCloudAgentLessons(&canonical, run.UserID, cloudAgentLessonTaskText(&state))
+	// 上一步登记的待看图片只在这一步随消息发给模型，发送前即清空，避免重复计费。
+	inspectionMedia := cloudAgentAttachInspectionImages(&state, &canonical)
 	config := map[string]any{"channelId": state.Request.ChannelID, "channelModelKey": state.Request.ChannelModelKey, "model": firstNonEmpty(state.Request.ChannelModelKey, state.Request.Model)}
 	if localConfig, ok := s.localAgentProviderConfig(state.Request.Model); ok && (state.Request.ChannelID == "" || state.Request.ChannelID == localAgentManagedChannelID) && state.Request.LogicalModelID == "" {
 		for key, value := range localConfig {
@@ -621,6 +625,10 @@ func (s *Service) advanceCloudAgent(run *model.CloudAgentExecution) (err error) 
 		delete(config, "channelModelKey")
 	}
 	input := map[string]any{"mode": "text", "prompt": state.Request.Prompt, "agentRequests": map[string]any{"canonical": canonical}, "config": config, "textOptions": map[string]any{"stream": true, "thinking": cloudAgentReasoningEnabled(state.Policy.ReasoningMode)}}
+	if len(inspectionMedia) > 0 {
+		// 图片按 resource: 占位符挂在消息里，这里只登记供发送前水合的本地素材。
+		input["referenceImages"] = inspectionMedia
+	}
 	raw, _ := json.Marshal(canonical)
 	if len(raw) > 192<<10 {
 		return s.failCloudAgent(run, &state, "模型上下文超过 192KB 上限")
