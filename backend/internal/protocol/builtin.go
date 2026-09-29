@@ -962,7 +962,9 @@ func normalizeStatus(raw string) Status {
 		return StatusSucceeded
 	case "cancelled", "canceled", "aborted":
 		return StatusCancelled
-	case "failed", "failure", "error", "expired":
+	// timeout 是上游已经判定的终态：任务不会再有结果，继续轮询只会白等。
+	// 声明式插件把未知状态回落成 pending，漏掉这一项会让超时任务一直挂到本地轮询上限。
+	case "failed", "failure", "error", "expired", "timeout", "timed_out":
 		return StatusFailed
 	default:
 		return ""

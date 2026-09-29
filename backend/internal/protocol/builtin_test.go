@@ -632,3 +632,15 @@ func TestAsyncMediaPollRejectsUnsupportedCapability(t *testing.T) {
 		t.Fatal("text capability was accepted by async media parser")
 	}
 }
+
+func TestNormalizeStatusTreatsTimeoutAsTerminalFailure(t *testing.T) {
+	for _, raw := range []string{"timeout", "TIMEOUT", "timed_out"} {
+		if status := normalizeStatus(raw); status != StatusFailed {
+			t.Fatalf("normalizeStatus(%q) = %q, want %q", raw, status, StatusFailed)
+		}
+	}
+	// 未识别的状态仍然回落为空，交给调用方决定默认值，不能在这里臆断成失败。
+	if status := normalizeStatus("waiting_for_gpu"); status != "" {
+		t.Fatalf("normalizeStatus(unknown) = %q, want empty", status)
+	}
+}
