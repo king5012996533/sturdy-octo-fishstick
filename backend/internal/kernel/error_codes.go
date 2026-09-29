@@ -19,24 +19,30 @@ const (
 	CodeQuotaExceeded       = 40301
 	CodeIdempotencyConflict = 40901
 	CodeRateLimited         = 42901
+
+	// CodeInsufficientCredits 复用的是 HTTP 402 的语义：请求本身没毛病，是账户
+	// 余额不够。不并进 CodeQuotaExceeded——套餐配额用尽该引导升级订阅，积分不足
+	// 该引导充值，前端要给出的是两个不同的下一步动作。
+	CodeInsufficientCredits = 40201
 )
 
 // ErrorReason 是稳定机器可读原因，前端应判断 reason 而不是解析 msg。
 type ErrorReason string
 
 const (
-	ReasonInvalidArgument    ErrorReason = "invalid_argument"
-	ReasonUnauthorized       ErrorReason = "unauthorized"
-	ReasonForbidden          ErrorReason = "forbidden"
-	ReasonNotFound           ErrorReason = "not_found"
-	ReasonConflict           ErrorReason = "conflict"
-	ReasonFailedPrecondition ErrorReason = "failed_precondition"
-	ReasonQuotaExceeded      ErrorReason = "quota_exceeded"
-	ReasonRateLimited        ErrorReason = "rate_limited"
-	ReasonUnavailable        ErrorReason = "unavailable"
-	ReasonTimeout            ErrorReason = "timeout"
-	ReasonInternal           ErrorReason = "internal"
-	ReasonBadGateway         ErrorReason = "bad_gateway"
+	ReasonInvalidArgument     ErrorReason = "invalid_argument"
+	ReasonUnauthorized        ErrorReason = "unauthorized"
+	ReasonForbidden           ErrorReason = "forbidden"
+	ReasonNotFound            ErrorReason = "not_found"
+	ReasonConflict            ErrorReason = "conflict"
+	ReasonFailedPrecondition  ErrorReason = "failed_precondition"
+	ReasonQuotaExceeded       ErrorReason = "quota_exceeded"
+	ReasonRateLimited         ErrorReason = "rate_limited"
+	ReasonInsufficientCredits ErrorReason = "insufficient_credits"
+	ReasonUnavailable         ErrorReason = "unavailable"
+	ReasonTimeout             ErrorReason = "timeout"
+	ReasonInternal            ErrorReason = "internal"
+	ReasonBadGateway          ErrorReason = "bad_gateway"
 )
 
 func ReasonForStatus(status int) ErrorReason {

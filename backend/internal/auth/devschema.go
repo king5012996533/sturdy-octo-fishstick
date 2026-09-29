@@ -42,6 +42,8 @@ func EnsureDevSchema(db *gorm.DB) error {
 	// 模型定价与倍率是商业化域的数据：单价占位、倍率规则都归运营配置，生产结构同归
 	// CanvasMind 的 Prisma 迁移。
 	models = append(models, PricingModels()...)
+	// 积分账户与流水同样只在开发库建表：生产结构归 Prisma 迁移，理由与上面几个域一致。
+	models = append(models, CreditModels()...)
 	if err := db.AutoMigrate(models...); err != nil {
 		return err
 	}
@@ -57,6 +59,9 @@ func EnsureDevSchema(db *gorm.DB) error {
 		return err
 	}
 	if err := EnsurePricingSchema(db); err != nil {
+		return err
+	}
+	if err := EnsureCreditSchema(db); err != nil {
 		return err
 	}
 
