@@ -650,12 +650,20 @@ export function modelCapabilityConfigFor(
     const profile = channel?.modelProfiles?.find((item) => item.model === modelName && item.capabilityConfig && !Array.isArray(item.capabilityConfig)) || channel?.modelProfiles?.find((item) => item.model === modelName);
     const protocol = profile?.protocol || channel?.interfaceType;
     const fallback = defaultModelCapabilityConfig(protocol, modelName);
+    const alignMaterialPixels = (video: VideoCapabilityConfig | undefined) => {
+        let host = "";
+        try { host = new URL(channel?.baseUrl || "").hostname.toLowerCase(); } catch { /* no public URL */ }
+        if (video && isSeedance2Family(protocol, modelName) && ["enterprise.beefapi.com", "beefapi.com", "whatstoken.ai", "www.whatstoken.ai"].includes(host) && video.references.minVideoPixels === 409600 && video.references.maxVideoPixels === 8295044) video.references.minVideoPixels = 407696;
+    };
+
     if (!profile?.capabilityConfig) {
+        alignMaterialPixels(fallback.video);
         return { ...fallback, video: applyPluginReferenceCapability(fallback.video!, protocol, modelName) };
     }
     const capabilityConfig = normalizeModelCapabilityConfig(profile.capabilityConfig);
     const text = capabilityConfig.text ? { ...fallback.text!, ...capabilityConfig.text, references: { ...fallback.text!.references, ...capabilityConfig.text.references } } : fallback.text;
     let video = (capabilityConfig.video ? { ...fallback.video!, ...capabilityConfig.video, references: { ...fallback.video!.references, ...capabilityConfig.video.references } } : fallback.video)!;
+    alignMaterialPixels(video);
     // 已存能力里 image_to_video 之外的 reference_to_video 需要现场补，插件通道的存量配置不会自动长出来
     video = applyPluginReferenceCapability(video, protocol, modelName);
     const configuredImage = capabilityConfig.image;
