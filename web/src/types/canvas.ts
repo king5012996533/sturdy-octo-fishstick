@@ -235,6 +235,7 @@ export type CanvasNodeMetadata = {
     locked?: boolean;
     errorDetails?: string;
     generationErrorCode?: string;
+    outputParameterWarning?: string;
     resourceReloadAvailable?: boolean;
     failedPromptFingerprint?: string;
     failedInputFingerprint?: string;

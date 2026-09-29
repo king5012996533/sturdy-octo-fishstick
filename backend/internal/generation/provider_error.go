@@ -787,6 +787,9 @@ func categoryFromProviderCode(values ...string) (FailureCategory, bool) {
 
 func categoryFromProviderMessage(raw string) (FailureCategory, bool) {
 	normalized := strings.ToLower(strings.TrimSpace(promptEchoPattern.ReplaceAllString(raw, "")))
+	if _, ok := taskConstraintCopy(normalized); ok {
+		return CategoryInvalidParams, true
+	}
 	if normalized == "" {
 		return "", false
 	}
