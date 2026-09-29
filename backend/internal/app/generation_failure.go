@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"strings"
 
 	"infinite-canvas/backend/internal/generation"
 	"infinite-canvas/backend/internal/kernel"
@@ -67,8 +68,22 @@ func applyAppFailureWrappers(err error, failure generation.Failure) generation.F
 		if failure.Category == generation.CategoryUnknown || classified.Category != generation.CategoryUnknown {
 			failure = classified
 		}
+		// 平台自己造出来的 AppError，Message 就是最终结论（例如本地预检缺少公网素材
+		// 地址）。这类错误没有上游响应正文可归类，只能用通用文案覆盖，会让用户看到
+		// 「模型不接受当前参数」而真正原因在任务、审计与排查日志里一起消失。
+		if isLocalAppError(appErr) && !failure.Structured {
+			failure.Reason = strings.TrimSpace(appErr.Message)
+			failure.Action = ""
+		}
 	}
 	return failure
+}
+
+// isLocalAppError 判断 AppError 是否由平台自身构造，而不是从上游响应里解析出来的。
+// NewAppError 会把 Code 设成 Status；只有拿到上游错误码时才会写入不同的 Code，
+// 因此两者相等即表示这条错误是本地结论，Message 可以原样展示给用户。
+func isLocalAppError(err *kernel.AppError) bool {
+	return err != nil && err.Code == err.Status && strings.TrimSpace(err.Message) != ""
 }
 
 func persistableTaskFailureMessage(err error) string {
