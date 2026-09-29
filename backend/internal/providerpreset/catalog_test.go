@@ -1,6 +1,9 @@
 package providerpreset
 
-import "testing"
+import (
+	"testing"
+	"testing/fstest"
+)
 
 func TestBeefAPIPresetIsPinnedWithoutFreezingRemoteModelCatalog(t *testing.T) {
 	preset := BeefAPI()
@@ -40,5 +43,22 @@ func TestCatalogValidationRejectsUnsafeOrAmbiguousPresets(t *testing.T) {
 				t.Fatal("invalid preset was accepted")
 			}
 		})
+	}
+}
+
+func TestCatalogSkipsAppleDoubleSidecarFiles(t *testing.T) {
+	catalog := fstest.MapFS{
+		"catalog/beefapi.v1.json": {
+			Data: []byte(`{"id":"beefapi","displayName":"BeefAPI","baseUrl":"https://enterprise.beefapi.com","catalogProtocol":"newapi","presetVersion":1,"pinned":true,"models":[]}`),
+		},
+		"catalog/._beefapi.v1.json": {Data: []byte{0x00, 0x05, 0x16, 0x07}},
+	}
+
+	presets, err := loadCatalog(catalog, "catalog")
+	if err != nil {
+		t.Fatalf("loadCatalog rejected a catalog with AppleDouble sidecars: %v", err)
+	}
+	if len(presets) != 1 || presets[0].ID != "beefapi" {
+		t.Fatalf("unexpected presets: %#v", presets)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 )
 
@@ -100,31 +101,44 @@ func Validate(preset ChannelPreset) error {
 }
 
 func mustLoadCatalog() []ChannelPreset {
-	entries, err := catalogFiles.ReadDir("catalog")
+	presets, err := loadCatalog(catalogFiles, "catalog")
 	if err != nil {
 		panic(err)
+	}
+	return presets
+}
+
+func loadCatalog(files fs.FS, dir string) ([]ChannelPreset, error) {
+	entries, err := fs.ReadDir(files, dir)
+	if err != nil {
+		return nil, err
 	}
 	presets := make([]ChannelPreset, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		body, err := catalogFiles.ReadFile("catalog/" + entry.Name())
+		// 打包/传输过程中混入的 AppleDouble 旁注文件（._name）不是预设，
+		// 一旦被当成 JSON 解码就会让服务在启动前 panic。
+		if strings.HasPrefix(entry.Name(), "._") || strings.HasPrefix(entry.Name(), ".") || strings.HasPrefix(entry.Name(), "_") {
+			continue
+		}
+		body, err := fs.ReadFile(files, dir+"/"+entry.Name())
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		decoder := json.NewDecoder(bytes.NewReader(body))
 		decoder.DisallowUnknownFields()
 		var preset ChannelPreset
 		if err := decoder.Decode(&preset); err != nil {
-			panic(fmt.Errorf("decode provider preset %s: %w", entry.Name(), err))
+			return nil, fmt.Errorf("decode provider preset %s: %w", entry.Name(), err)
 		}
 		if err := Validate(preset); err != nil {
-			panic(fmt.Errorf("validate provider preset %s: %w", entry.Name(), err))
+			return nil, fmt.Errorf("validate provider preset %s: %w", entry.Name(), err)
 		}
 		presets = append(presets, preset)
 	}
-	return presets
+	return presets, nil
 }
 
 func knownProtocol(value string) bool {
