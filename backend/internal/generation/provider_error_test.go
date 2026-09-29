@@ -452,3 +452,25 @@ func TestGatewayVideoPreflightErrorFixture(t *testing.T) {
 		}
 	}
 }
+
+func TestReferencePixelDiagnosticIDIsNotDuplicated(t *testing.T) {
+	input := "第 1 个参考视频像素总量为 331776（432×768）。需要 407696–8295044 像素；请调整尺寸。排查编号：请求 202609290516575609492488268d9d6HqaXq7bq。"
+	failure := generation.ClassifyText(input)
+	if strings.Count(failure.UserMessage(), "202609290516575609492488268d9d6HqaXq7bq") != 1 {
+		t.Fatalf("duplicate ID: %s", failure.UserMessage())
+	}
+}
+
+func TestMediaCopyPreservesAuthenticationAndIgnoresRequestEcho(t *testing.T) {
+	for _, message := range []string{"asset access denied", "unsupported video codec", "Frame rate must be between 24 and 60."} {
+		body, _ := json.Marshal(map[string]any{"error": map[string]string{"code": "invalid_api_key", "message": message}, "request_id": "req_media_auth_123"})
+		failure := generation.ClassifyText(string(body))
+		if failure.Category != generation.CategoryAuth || failure.RequestID != "req_media_auth_123" {
+			t.Fatalf("auth overwritten: %+v", failure)
+		}
+	}
+	failure := generation.ClassifyText(`{"error":{"code":"unknown","message":"Failure"},"prompt":"unsupported video codec"}`)
+	if failure.Category != generation.CategoryUnknown {
+		t.Fatalf("request echo classified: %+v", failure)
+	}
+}

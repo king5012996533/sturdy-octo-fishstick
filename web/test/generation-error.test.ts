@@ -377,3 +377,20 @@ test("gateway video preflight failures preserve actionable details", () => {
         expect(explainGenerationError(`${failure.reason}。${failure.action}`).action).toContain(item.action);
     }
 });
+
+test("reference pixel diagnostic ID is not duplicated", () => {
+    const id = "202609290516575609492488268d9d6HqaXq7bq";
+    const input = `第 1 个参考视频像素总量为 331776（432×768）。需要 407696–8295044 像素；请调整尺寸。排查编号：请求 ${id}。`;
+    const failure = explainGenerationError(input);
+    expect(failure.message.split(id).length - 1).toBe(1);
+    expect(failure.action).not.toContain(id);
+});
+
+test("media details preserve authentication and ignore prompt echoes", () => {
+    for (const message of ["asset access denied", "unsupported video codec", "Frame rate must be between 24 and 60."]) {
+        const failure = explainGenerationError({error: {code: "invalid_api_key", message}, request_id: "req_media_auth_123"});
+        expect(failure.category).toBe("auth");
+        expect(failure.requestId).toBe("req_media_auth_123");
+    }
+    expect(explainGenerationError({error: {code: "unknown", message: "Failure"}, prompt: "unsupported video codec"}).category).toBe("unknown");
+});
