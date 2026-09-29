@@ -21,6 +21,11 @@ BeefTV 是一个本地优先、轻量、AI Native 的视频工作台。本页只
 - [托管登录（SaaS 账号体系）](hosted-auth.md)
 - [KinoTV 服务端部署](hosted-deployment.md)
 
+## 商业化
+
+- [积分与计费](credits-billing.md)
+- [积分中心设计规范](wallet-design-spec.md)
+
 ## 开发参考
 
 - [后端本地开发](content/docs/backend/local-development.mdx)

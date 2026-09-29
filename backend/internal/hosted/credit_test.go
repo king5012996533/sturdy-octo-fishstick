@@ -327,3 +327,17 @@ func readReason(t *testing.T, body []byte) string {
 	}
 	return envelope.Reason
 }
+
+// TestHostedExtensionEnablesTaskBilling 盯住装配期唯一那道注入。
+//
+// 计费端口从未被注入过一次：托管实例照常启动、照常出片，只是从来不扣费——
+// 这类缺失不报错、不进日志，只表现为收入凭空少了一块。所以这里直接断言装配结果，
+// 而不是再走一遍"提交任务"的间接路径（那条路径在模型目录没配好时会先失败在别处）。
+func TestHostedExtensionEnablesTaskBilling(t *testing.T) {
+	extension, _, _, service := newTestExtension(t)
+	defer extension.Close()
+
+	if !service.TaskBillingEnabled() {
+		t.Fatal("托管装配必须把积分域接到任务计费端口上，否则生成从不扣费")
+	}
+}

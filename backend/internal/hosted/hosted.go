@@ -123,6 +123,10 @@ func New(deps bootstrap.HostedDeps, options Options) (bootstrap.HostedExtension,
 		// 任务计费同样只在托管实例注入：本地/桌面没有账号库，也就没有积分账户，
 		// 注入一个空的端口只会让每次生成都去撞一张不存在的表。
 		deps.Service.UseTaskCreditLedger(creditLedgerAdapter{service: service})
+		if deps.Service.TaskBillingEnabled() {
+			// 每次启动都说一遍：一个没接上计费的托管实例不会报错，只会静默白送算力。
+			log.Printf("hosted: 任务计费已启用，生成按后台配置的模型单价扣积分")
+		}
 	}
 	return extension, nil
 }

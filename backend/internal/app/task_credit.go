@@ -48,6 +48,15 @@ func (s *Service) UseTaskCreditLedger(ledger TaskCreditLedger) {
 	s.taskCreditLedger = ledger
 }
 
+// TaskBillingEnabled 报告当前形态是否接了计费端口。
+//
+// 暴露成只读诊断而不是内部字段，是因为"这个实例到底扣不扣费"必须能被外部回答：
+// 一个忘了注入计费端口的托管实例会在无人察觉的情况下白送算力，而这类缺失不会报错，
+// 只会表现为收入凭空少了一块。启动日志与后台读数都靠它。
+func (s *Service) TaskBillingEnabled() bool {
+	return s != nil && s.taskCreditLedger != nil
+}
+
 // chargeTaskCredits 在任务落库之前预扣费用。
 //
 // 预扣发生在持久化之前而不是之后：先建任务再扣费，扣费失败就得把已经入库的任务改成
