@@ -83,3 +83,47 @@ systemctl restart kinotv        # 改完 /etc/kinotv.env 后执行
 tail -f /var/log/kinotv.log
 nginx -t && systemctl reload nginx
 ```
+
+## nginx 站点
+
+`/etc/nginx/conf.d/kinotv.conf`，443 段由 certbot 生成，不要手改带
+`# managed by Certbot` 的行：
+
+```nginx
+server {
+    server_name kinotv.xingtudesign.com;
+    client_max_body_size 512m;
+    root /opt/kinotv/web;
+    index index.html;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8090;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_read_timeout 900s;   # 视频任务轮询长，别用默认 60s
+        proxy_send_timeout 900s;
+    }
+
+    location /static/ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+证书用 `certbot --nginx -d kinotv.xingtudesign.com`，续期走同一条 HTTP-01 路径，
+`/etc/letsencrypt/renewal/kinotv.xingtudesign.com.conf` 里 `authenticator = nginx`。
+
+**`server_name` 只保留正式域名。** 联调期曾经为了不等 DNS 把裸 IP 和
+`8.163.71.55.nip.io` 写进来过：裸 IP 会让这台机器的 80 端口默认站点变成 KinoTV，
+而 `nip.io` 是任何人可解析的第三方域名，都不该长期留在生产配置里。
