@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -22,8 +23,10 @@ type TaskChargeRequest struct {
 	ModelKey string
 	// Capability 取 text / image / video / audio，与路由意图同源。
 	Capability string
-	Quantity   int64
-	Note       string
+	// Tier 是价格档位（见 taskChargeTier）；空表示这次调用不区分档位。
+	Tier     string
+	Quantity int64
+	Note     string
 }
 
 // TaskChargeOutcome 是计费结果。
@@ -72,6 +75,7 @@ func (s *Service) chargeTaskCredits(task *model.Task, normalizedInput map[string
 		TaskID:     task.ID,
 		ModelKey:   taskChargeModelKey(normalizedInput, task),
 		Capability: intent.Capability,
+		Tier:       taskChargeTier(intent),
 		Quantity:   taskChargeQuantity(intent),
 		Note:       taskChargeNoteText(normalizedInput),
 	})
@@ -140,6 +144,35 @@ func taskChargeQuantity(intent ModelRequestIntent) int64 {
 		return optionQuantity(intent.Options, "videoSeconds")
 	default:
 		return 0
+	}
+}
+
+// taskChargeTier 取本次调用落在哪个价格档位。
+//
+// 只有图片在提交时就能确定档位：上游按 quality 的 low / medium / high 分别定价，价差在
+// 十倍量级，不按档取价就必然有一头算错。这里只认上游真实存在的三个档位：
+//
+//   - 面板选 auto（或压根没带 quality）时返回空档，由定价侧去要"不区分质量"那一行；
+//     绝不回落到某个具体档位——那等于用一个自己没验过的成本出货，正是"按最低价卖 4K"
+//     这类资损的来源；
+//   - 认不出的取值同样回空档。模型能力白名单会在更前面挡住这类参数，走到这里说明
+//     渠道配置本身有问题，宁可要一个"未定价"的可见错误，也不要猜一个档位。
+//
+// 文本的 token 档位（缓存命中 / 未命中 / 输出）在提交时还不知道，要等用量回执才能结算，
+// 因此这里不返回档位；视频与音频目前只有一个价。
+func taskChargeTier(intent ModelRequestIntent) string {
+	if normalizeCapability(intent.Capability) != "image" {
+		return ""
+	}
+	raw, ok := intent.Options["quality"]
+	if !ok || raw == nil {
+		return ""
+	}
+	switch tier := strings.ToUpper(strings.TrimSpace(fmt.Sprint(raw))); tier {
+	case "LOW", "MEDIUM", "HIGH":
+		return tier
+	default:
+		return ""
 	}
 }
 

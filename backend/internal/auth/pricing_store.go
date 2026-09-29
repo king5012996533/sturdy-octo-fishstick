@@ -28,6 +28,14 @@ func EnsurePricingSchema(db *gorm.DB) error {
 	if name := db.Dialector.Name(); name != "sqlite" {
 		return fmt.Errorf("auth: 拒绝为 %s 驱动创建定价表；该库的表结构由 Prisma 迁移管理", name)
 	}
+	// 唯一索引先删掉再重建。档位列改名前后索引名是同一个，留着它既会让 AutoMigrate 认为
+	// 索引已存在、也会让下面的 CREATE 撞上"索引名已占用"，而那条索引指向的可能是旧列。
+	if err := db.Exec(`DROP INDEX IF EXISTS uk_billing_model_prices_model_capability_tier`).Error; err != nil {
+		return fmt.Errorf("auth: 重建定价唯一索引前删除旧索引失败: %w", err)
+	}
+	if err := migratePricingTierColumn(db); err != nil {
+		return err
+	}
 	if err := db.AutoMigrate(PricingModels()...); err != nil {
 		return err
 	}
@@ -36,7 +44,7 @@ func EnsurePricingSchema(db *gorm.DB) error {
 	// 读取会直接报 "ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint"。
 	// 索引名与结构体标签保持一致，重复建表时这里是 no-op。
 	statements := []string{
-		`CREATE UNIQUE INDEX IF NOT EXISTS uk_billing_model_prices_model_capability_tier ON billing_model_prices (model_key, capability, token_tier)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS uk_billing_model_prices_model_capability_tier ON billing_model_prices (model_key, capability, price_tier)`,
 		// 旧的两列唯一索引必须显式删掉：留着它，文本就一个模型只能存一档价，
 		// 三档 token 价会直接写不进去，而且报错会表现为"插入冲突"这种查不到根因的形态。
 		`DROP INDEX IF EXISTS uk_billing_model_prices_model_capability`,
@@ -51,6 +59,38 @@ func EnsurePricingSchema(db *gorm.DB) error {
 	return nil
 }
 
+// migratePricingTierColumn 把老库上的 token_tier 列搬到 price_tier。
+//
+// 档位从"只属于文本"泛化成"每个能力一套"时列名跟着改了。不搬的后果有两层：AutoMigrate
+// 只会新加一列空的 price_tier，历史行全部落进空档位，于是同一个模型同一个能力出现多行
+// 空档位，唯一索引在重复值上建不出来，本次启动直接失败；就算建得出来，文本的三档价也会
+// 变成三行同价的空档位。
+//
+// 顺序必须是"先删索引、再改名、后 AutoMigrate"：改名晚一步就会多出一列空值列。
+func migratePricingTierColumn(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&ModelPrice{}) {
+		return nil
+	}
+	hasLegacy := db.Migrator().HasColumn(&ModelPrice{}, "token_tier")
+	hasCurrent := db.Migrator().HasColumn(&ModelPrice{}, "price_tier")
+	switch {
+	case hasLegacy && !hasCurrent:
+		if err := db.Exec(`ALTER TABLE billing_model_prices RENAME COLUMN token_tier TO price_tier`).Error; err != nil {
+			return fmt.Errorf("auth: 重命名定价档位列失败: %w", err)
+		}
+	case hasLegacy && hasCurrent:
+		// 上一次迁移只做了一半（新列已加、旧列还在）：先补值再删旧列，否则同模型同能力
+		// 会出现多行空档位，唯一索引依然建不出来。
+		if err := db.Exec(`UPDATE billing_model_prices SET price_tier = token_tier WHERE (price_tier IS NULL OR price_tier = '') AND token_tier IS NOT NULL AND token_tier <> ''`).Error; err != nil {
+			return fmt.Errorf("auth: 回填定价档位列失败: %w", err)
+		}
+		if err := db.Migrator().DropColumn(&ModelPrice{}, "token_tier"); err != nil {
+			return fmt.Errorf("auth: 删除旧的定价档位列失败: %w", err)
+		}
+	}
+	return nil
+}
+
 // ---------- 单价配置 ----------
 
 // ModelPrices 返回全部单价配置（含停用），按模型标识与能力排序。
@@ -59,7 +99,7 @@ func EnsurePricingSchema(db *gorm.DB) error {
 // JSON 里是 [] 而不是 null。
 func (s *Store) ModelPrices() ([]ModelPrice, error) {
 	var prices []ModelPrice
-	if err := s.db.Order("model_key ASC, capability ASC, token_tier ASC").Find(&prices).Error; err != nil {
+	if err := s.db.Order("model_key ASC, capability ASC, price_tier ASC").Find(&prices).Error; err != nil {
 		return nil, err
 	}
 	if prices == nil {
@@ -81,21 +121,21 @@ func (s *Store) ModelPriceByID(id string) (*ModelPrice, error) {
 	return &price, nil
 }
 
-// ModelPriceByKey 按 (model_key, capability) 读取单价配置。
+// ModelPriceByKey 按 (model_key, capability) 读取"不区分档位"的那一行。
 //
-// 只用于非文本能力：它们不区分 token 档位，一行就是一个价。文本必须用
-// ModelPricesByTier——文本的三档价在库里是三行，随便取一行都会算出一个错的价格。
+// 只用于视频与音频：它们目前只有一档价，一行就是一个价。文本与图片必须用
+// ModelPriceByTier——它们的价在库里是分档的多行，随便取一行都会算出一个错的价格。
 //
 // 能力值先归一大写：库里只存大写，查询侧不归一就会出现"刚存进去却查不到"。
 func (s *Store) ModelPriceByKey(modelKey string, capability string) (*ModelPrice, error) {
-	return s.ModelPriceByTier(modelKey, capability, string(TokenTierNone))
+	return s.ModelPriceByTier(modelKey, capability, string(PriceTierNone))
 }
 
-// ModelPriceByTier 按 (model_key, capability, token_tier) 读取一条单价配置。
+// ModelPriceByTier 按 (model_key, capability, price_tier) 读取一条单价配置。
 func (s *Store) ModelPriceByTier(modelKey string, capability string, tier string) (*ModelPrice, error) {
 	var price ModelPrice
-	err := s.db.Where("model_key = ? AND capability = ? AND token_tier = ?",
-		strings.TrimSpace(modelKey), normalizeModelCapability(capability), string(TokenTier(normalizeTokenTier(tier)))).
+	err := s.db.Where("model_key = ? AND capability = ? AND price_tier = ?",
+		strings.TrimSpace(modelKey), normalizeModelCapability(capability), string(PriceTier(normalizePriceTier(tier)))).
 		First(&price).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
@@ -106,11 +146,11 @@ func (s *Store) ModelPriceByTier(modelKey string, capability string, tier string
 	return &price, nil
 }
 
-// ModelPricesByTier 读取某个文本模型的三档价，缺档位时该键不存在。
+// ModelPricesByCapability 读取某个模型某个能力下的全部档位价，缺档位时该键不存在。
 //
 // 返回 map 而不是切片：结算按档位取价，切片会逼调用方自己按 tier 找一遍，
 // 找漏一档的后果是那份用量被静默按 0 计算。
-func (s *Store) ModelPricesByTier(modelKey string, capability string) (map[string]*ModelPrice, error) {
+func (s *Store) ModelPricesByCapability(modelKey string, capability string) (map[string]*ModelPrice, error) {
 	var prices []ModelPrice
 	err := s.db.Where("model_key = ? AND capability = ?", strings.TrimSpace(modelKey), normalizeModelCapability(capability)).
 		Find(&prices).Error
@@ -119,17 +159,17 @@ func (s *Store) ModelPricesByTier(modelKey string, capability string) (map[strin
 	}
 	found := make(map[string]*ModelPrice, len(prices))
 	for index := range prices {
-		found[prices[index].TokenTier] = &prices[index]
+		found[prices[index].PriceTier] = &prices[index]
 	}
 	return found, nil
 }
 
-// normalizeTokenTier 归一档位：首尾空格与大小写在这里抹平，白名单只认大写形态。
-// 空值保持为空，表示"不区分档位"，那是非文本能力的正常形态。
-func normalizeTokenTier(raw string) string {
+// normalizePriceTier 归一档位：首尾空格与大小写在这里抹平，白名单只认大写形态。
+// 空值保持为空，表示"不区分档位"。
+func normalizePriceTier(raw string) string {
 	trimmed := strings.ToUpper(strings.TrimSpace(raw))
 	if trimmed == "" {
-		return string(TokenTierNone)
+		return string(PriceTierNone)
 	}
 	return trimmed
 }
@@ -150,7 +190,7 @@ func (s *Store) SaveModelPrice(price *ModelPrice) error {
 	return s.db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"model_key", "capability", "token_tier", "unit", "vendor_code", "upstream_unit_price",
+			"model_key", "capability", "price_tier", "unit", "vendor_code", "upstream_unit_price",
 			"sell_unit_price", "multiplier_bp", "currency", "enabled", "note", "updated_at",
 		}),
 	}).Create(price).Error
@@ -285,17 +325,12 @@ func (s *Service) SaveModelPrice(input ModelPriceInput) (*ModelPriceView, error)
 	if !validPriceUnit(unit) {
 		return nil, invalidArgument("计费单位只能是 TOKEN_1M / TOKEN_1K / IMAGE / SECOND / REQUEST")
 	}
-	// 档位只在文本上有意义：图片按张、视频按秒，本来就没有"缓存命中"这种区分。
-	// 非文本能力填了档位就直接拒绝，而不是静默丢弃——丢弃会让运营以为自己配生效了。
-	tier := normalizeTokenTier(input.TokenTier)
-	if capability == string(CapabilityText) {
-		if !validTokenTier(tier) {
-			return nil, invalidArgument("文本单价必须指定 token 档位：CACHE / INPUT / OUTPUT")
-		}
-	} else {
-		if tier != string(TokenTierNone) {
-			return nil, invalidArgument("只有文本单价能指定 token 档位")
-		}
+	// 档位必须与能力匹配：文本三档、图片三档（或留空 = 不区分质量）、视频音频留空。
+	// 配错档位就拒绝，而不是静默丢弃或归到别档——那会让运营以为自己配生效了，
+	// 而实际扣的是一个他没配过的价。
+	tier := normalizePriceTier(input.PriceTier)
+	if !validPriceTier(capability, tier) {
+		return nil, invalidArgument(priceTierRequirementMessage(capability))
 	}
 	if input.UpstreamUnitPrice != nil && *input.UpstreamUnitPrice < 0 {
 		return nil, invalidArgument("上游单价不能为负数")
@@ -341,20 +376,20 @@ func (s *Service) SaveModelPrice(input ModelPriceInput) (*ModelPriceView, error)
 		enabled = *input.Enabled
 	}
 
-	// (model_key, capability, token_tier) 是唯一键，撞车会让"这个模型按哪个价"失去
+	// (model_key, capability, price_tier) 是唯一键，撞车会让"这个模型按哪个价"失去
 	// 唯一答案。先查一次并给出中文冲突提示，而不是把唯一索引的报错译成 500。
 	conflicting, err := s.store.ModelPriceByTier(modelKey, capability, tier)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, internalFailure(err)
 	}
 	if err == nil && conflicting.ID != targetID {
-		return nil, conflict("该模型、该能力、该 token 档位已存在单价配置")
+		return nil, conflict("该模型、该能力、该价格档位已存在单价配置")
 	}
 
 	price.ID = targetID
 	price.ModelKey = modelKey
 	price.Capability = capability
-	price.TokenTier = tier
+	price.PriceTier = tier
 	price.Unit = unit
 	price.VendorCode = strings.TrimSpace(input.VendorCode)
 	price.UpstreamUnitPrice = input.UpstreamUnitPrice
@@ -471,12 +506,12 @@ func (s *Service) PreviewModelPrice(input PricingInput) (*PricingResolution, err
 		return nil, invalidArgument("上游单价不能为负数")
 	}
 
-	// 只有模型标识与能力都给了才去查单价：(model_key, capability, token_tier) 才是唯一键，
-	// 少了能力就无法确定"这个模型按哪个价"；文本还会再多一维档位。
+	// 只有模型标识与能力都给了才去查单价：(model_key, capability, price_tier) 才是唯一键，
+	// 少了能力就无法确定"这个模型按哪个价"；档位是第三个维度，缺它就取不到分档的价。
 	var price *ModelPrice
 	modelKey := strings.TrimSpace(input.ModelKey)
 	if modelKey != "" && capability != "" {
-		found, err := s.store.ModelPriceByTier(modelKey, capability, input.TokenTier)
+		found, err := s.store.ModelPriceByTier(modelKey, capability, input.PriceTier)
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return nil, internalFailure(err)
 		}

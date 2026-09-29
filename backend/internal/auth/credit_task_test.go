@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -194,5 +196,172 @@ func TestQuoteTaskChargeRejectsUnknownCapability(t *testing.T) {
 	env := newCreditTaskEnv(t)
 	if _, err := env.service.QuoteTaskCharge(TaskChargeInput{ModelKey: "m", Capability: "MYSTERY"}); err == nil {
 		t.Fatal("未知能力应报错")
+	}
+}
+
+// TestQuoteTaskChargePricesImageByQualityTier 覆盖图片按上游质量档取价。
+//
+// gpt-image-2 的三档上游成本是 $0.012 / $0.047 / $0.128（差 10.7 倍）。三行价必须各自
+// 独立命中：任何"取不到就退回某个档"的实现都会在 high 上按 low 的成本出货。
+func TestQuoteTaskChargePricesImageByQualityTier(t *testing.T) {
+	env := newCreditTaskEnv(t)
+	rows := []struct {
+		tier     PriceTier
+		upstream int64
+		want     int64
+	}{
+		{PriceTierLow, 9, 18},
+		{PriceTierMedium, 34, 68},
+		{PriceTierHigh, 93, 186},
+		// 空档是"面板没指定质量"时的价（上游按 auto 计费），它不是任何一档的别名。
+		{PriceTierNone, 93, 186},
+	}
+	for _, row := range rows {
+		upstream := row.upstream
+		multiplierBp := 2 * markupBaseBp
+		if err := env.store.SaveModelPrice(&ModelPrice{
+			ModelKey:          "CHANNEL_000003::openai/gpt-image-2",
+			Capability:        string(CapabilityImage),
+			PriceTier:         string(row.tier),
+			Unit:              string(UnitPerImage),
+			UpstreamUnitPrice: &upstream,
+			// 价目只存上游成本 + 倍率，售价由解析引擎算出来——上游调价时改一个数就够了。
+			MultiplierBp: &multiplierBp,
+			Enabled:      true,
+		}); err != nil {
+			t.Fatalf("写入 %s 档单价失败: %v", row.tier, err)
+		}
+	}
+
+	for _, row := range rows {
+		quote, err := env.service.QuoteTaskCharge(TaskChargeInput{
+			ModelKey:   "CHANNEL_000003::openai/gpt-image-2",
+			Capability: "IMAGE",
+			Tier:       string(row.tier),
+			Quantity:   3,
+		})
+		if err != nil {
+			t.Fatalf("%s 档试算失败: %v", row.tier, err)
+		}
+		if !quote.Priced || quote.SellUnitPrice == nil || *quote.SellUnitPrice != row.want {
+			t.Fatalf("%s 档单价应为 %d，实际 %#v", row.tier, row.want, quote)
+		}
+		if quote.Credits != row.want*3 {
+			t.Fatalf("%s 档 3 张应扣 %d，实际 %d", row.tier, row.want*3, quote.Credits)
+		}
+	}
+}
+
+// TestChargeTaskRejectsUnpricedImageTier 覆盖"漏配一档"必须被拒绝，而不是按别档成交。
+func TestChargeTaskRejectsUnpricedImageTier(t *testing.T) {
+	env := newCreditTaskEnv(t)
+	upstream := int64(9)
+	if err := env.store.SaveModelPrice(&ModelPrice{
+		ModelKey:          "CHANNEL_000003::openai/gpt-image-2",
+		Capability:        string(CapabilityImage),
+		PriceTier:         string(PriceTierLow),
+		Unit:              string(UnitPerImage),
+		UpstreamUnitPrice: &upstream,
+		Enabled:           true,
+	}); err != nil {
+		t.Fatalf("写入单价失败: %v", err)
+	}
+
+	_, _, _, err := env.service.ChargeTask(TaskChargeInput{
+		UserID:     "user-1",
+		TaskID:     "task-1",
+		ModelKey:   "CHANNEL_000003::openai/gpt-image-2",
+		Capability: "IMAGE",
+		Tier:       string(PriceTierHigh),
+		Quantity:   1,
+	})
+	var serviceErr *Error
+	if !errors.As(err, &serviceErr) {
+		t.Fatalf("应返回结构化错误，实际 %T：%v", err, err)
+	}
+	if serviceErr.Status != http.StatusConflict {
+		t.Fatalf("漏配的高档应报 409，实际 %d", serviceErr.Status)
+	}
+	// 文案必须点出是哪个档位漏了：只报模型名会让管理员反复确认一个已经配好的模型。
+	if !strings.Contains(serviceErr.Message, "HIGH") {
+		t.Fatalf("错误文案应指明是 HIGH 档，实际 %q", serviceErr.Message)
+	}
+}
+
+// TestQuoteTaskChargeRejectsTierThatDoesNotBelongToCapability 覆盖档位与能力必须匹配。
+//
+// 认错的档位不是"随便挑一档"，而是直接拒绝：视频带着图片的 HIGH 去取价，取到的是另一套
+// 成本口径，而且不会报错。
+func TestQuoteTaskChargeRejectsTierThatDoesNotBelongToCapability(t *testing.T) {
+	env := newCreditTaskEnv(t)
+	for _, test := range []struct{ capability, tier string }{
+		{"VIDEO", "HIGH"},
+		{"AUDIO", "INPUT"},
+		{"IMAGE", "CACHE"},
+		{"TEXT", "LOW"},
+	} {
+		if _, err := env.service.QuoteTaskCharge(TaskChargeInput{
+			ModelKey:   "some-model",
+			Capability: test.capability,
+			Tier:       test.tier,
+			Quantity:   5,
+		}); err == nil {
+			t.Fatalf("%s 带着 %s 档应被拒绝", test.capability, test.tier)
+		}
+	}
+}
+
+// TestChargeTaskPreChargesTextAtStartPrice 覆盖文本在提交阶段按起步价预扣。
+//
+// 文本按 token 结算，而 token 用量要等上游回执，所以提交时既定不了档位也定不了用量：
+// 空档位不该被当成"参数填错"而报 400，那是管理员口径；这里按产品定的下限预扣 1 积分。
+func TestChargeTaskPreChargesTextAtStartPrice(t *testing.T) {
+	env := newCreditTaskEnv(t)
+	upstream := int64(200)
+	if err := env.store.SaveModelPrice(&ModelPrice{
+		ModelKey:          "CHANNEL_000006::deepseek-flash",
+		Capability:        string(CapabilityText),
+		PriceTier:         string(PriceTierInput),
+		Unit:              string(UnitPerMillionTokens),
+		UpstreamUnitPrice: &upstream,
+		Enabled:           true,
+	}); err != nil {
+		t.Fatalf("写入文本单价失败: %v", err)
+	}
+
+	quote, err := env.service.QuoteTaskCharge(TaskChargeInput{
+		ModelKey:   "CHANNEL_000006::deepseek-flash",
+		Capability: "TEXT",
+		Quantity:   0,
+	})
+	if err != nil {
+		t.Fatalf("文本试算不应报错: %v", err)
+	}
+	if !quote.Priced || quote.Credits != textStartPriceCredits {
+		t.Fatalf("文本应按起步价预扣 %d 积分，实际 %#v", textStartPriceCredits, quote)
+	}
+	if quote.Unit != string(UnitPerRequest) || quote.Quantity != 1 {
+		t.Fatalf("起步价应按次计一个单位，实际 %s × %d", quote.Unit, quote.Quantity)
+	}
+}
+
+// TestChargeTaskRejectsUnpricedTextModel 覆盖起步价的那个例外不能吃掉"未定价不给生成"。
+//
+// 起步价只在模型确实配过文本价目时生效：否则一个拼错的模型标识会变成一条永远免费的通道。
+func TestChargeTaskRejectsUnpricedTextModel(t *testing.T) {
+	env := newCreditTaskEnv(t)
+	_, _, _, err := env.service.ChargeTask(TaskChargeInput{
+		UserID:     "user-1",
+		TaskID:     "task-text",
+		ModelKey:   "CHANNEL_000006::没有这个模型",
+		Capability: "TEXT",
+		Quantity:   0,
+	})
+	var serviceErr *Error
+	if !errors.As(err, &serviceErr) {
+		t.Fatalf("应返回结构化错误，实际 %T：%v", err, err)
+	}
+	if serviceErr.Status != http.StatusConflict {
+		t.Fatalf("未配置过文本价目的模型应报 409，实际 %d", serviceErr.Status)
 	}
 }

@@ -15,15 +15,20 @@ import (
 
 // TaskChargeInput 是一次任务计费的入参。
 //
-// Quantity 是本次用量，单位由模型的 Unit 决定：图片按张、视频与音频按秒、文本按千 token。
+// Quantity 是本次用量，单位由模型的 Unit 决定：图片按张、视频与音频按秒、文本按百万 token。
 // 用量未知时传 0，由本层回退成 1 个单位——"按次计费"是这类模型的常态，把 0 当成 0 元
 // 会让一次真实调用白送。
+//
+// Tier 是本次调用落在哪个价格档位（见 PriceTier）：图片取上游 quality 的 low/medium/high，
+// 没有质量维度时留空。它是取价的第三个维度，缺了就只能取到"不区分档位"那一行——
+// 对分档计费的模型，那一行要么不存在（拒绝，正确），要么是运营显式配的兜底价。
 type TaskChargeInput struct {
 	UserID     string
 	TaskID     string
 	ModelKey   string
 	VendorCode string
 	Capability string
+	Tier       string
 	Quantity   int64
 	Note       string
 }
@@ -42,16 +47,23 @@ type TaskChargeQuote struct {
 	Priced           bool   `json:"priced"`
 }
 
-// pricedMissing 是模型还没定价时的对外错误。
+// pricingMissing 是模型还没定价时的对外错误。
 //
 // 用 failed_precondition 而不是"余额不足"：这两件事的下一步动作完全不同——一个要找
 // 管理员配价，一个要去充值。合成同一个错误会让用户在充值页反复付款却依然生成不了。
-func pricingMissing(modelKey string) *Error {
+//
+// 档位必须出现在文案里：分档计费的模型常常是"配了两档、漏了一档"，只报模型名会让
+// 管理员反复确认一个明明已经配好的模型。
+func pricingMissing(modelKey string, tier string) *Error {
+	subject := "模型「" + modelKey + "」"
+	if normalized := normalizePriceTier(tier); normalized != string(PriceTierNone) {
+		subject += "的 " + normalized + " 档"
+	}
 	return &Error{
 		Status:  409,
 		Code:    409,
 		Reason:  "failed_precondition",
-		Message: "模型「" + modelKey + "」尚未定价，暂时无法生成；请联系管理员在后台配置单价",
+		Message: subject + "尚未定价，暂时无法生成；请联系管理员在后台配置单价",
 	}
 }
 
@@ -70,8 +82,20 @@ func (s *Service) QuoteTaskCharge(input TaskChargeInput) (*TaskChargeQuote, erro
 		quantity = 1
 	}
 
+	tier := normalizePriceTier(input.Tier)
+	if !validPriceTier(capability, tier) {
+		// 文本的 token 档位（缓存命中 / 未命中 / 输出）要等上游回执才知道，提交时必然是空档。
+		// 这不是"档位填错了"，而是"这一步定不了价"，所以走起步价预扣而不是报 400——
+		// 400 是给管理员看"你配错了"的口径，拿它去回一个正常提交的用户只会把人引去改配置。
+		if capability == string(CapabilityText) && tier == string(PriceTierNone) {
+			return s.quoteTextStartPrice(modelKey, capability, quantity)
+		}
+		return nil, invalidArgument(priceTierRequirementMessage(capability))
+	}
+	// 取价必须带上档位：分档计费的模型在库里是多行，按"不区分档位"去取只会拿到
+	// 那唯一一行（多半不存在），然后一次真实调用会被当成"尚未定价"拒掉或按错价成交。
 	var price *ModelPrice
-	found, err := s.store.ModelPriceByKey(modelKey, capability)
+	found, err := s.store.ModelPriceByTier(modelKey, capability, tier)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, internalFailure(err)
 	}
@@ -87,6 +111,7 @@ func (s *Service) QuoteTaskCharge(input TaskChargeInput) (*TaskChargeQuote, erro
 		ModelKey:   modelKey,
 		VendorCode: strings.TrimSpace(input.VendorCode),
 		Capability: capability,
+		PriceTier:  tier,
 		// 上游成本取自定价行本身：调用方手上只有"这次要生成什么"，报价属于本域数据。
 		UpstreamUnitPrice: upstreamUnitPriceOf(price),
 	}, price, rules)
@@ -112,6 +137,42 @@ func (s *Service) QuoteTaskCharge(input TaskChargeInput) (*TaskChargeQuote, erro
 	return quote, nil
 }
 
+// textStartPriceCredits 是文本任务在提交阶段的起步预扣（积分）。
+//
+// 1 积分是产品定的下限，不是算出来的价：文本的真实费用要等 token 用量回执才能结算，
+// 详见 quoteTextStartPrice。
+const textStartPriceCredits = 1
+
+// quoteTextStartPrice 给出文本任务在提交阶段的起步价预扣。
+//
+// 文本按 token 结算，而 token 用量要等上游回执，所以提交时既定不了档位也定不了用量——
+// "预扣"在这里只能是一个起步价。产品定的下限是每次 1 积分：它足以表达"这不是一次免费
+// 调用"，又不会在按 token 结算上线之前扣住用户的大额余额。按 token 的真实结算需要任务侧
+// 记录用量之后再做，届时这笔预扣由"结算退差"替换（见 docs/credits-billing.md）。
+//
+// 起步价只在模型确实配过文本价目时生效。否则一个拼错的模型标识会变成一条永远免费的
+// 通道——"未定价不给生成"是这类系统里最该保住的一条规矩，文本不该是它的例外。
+func (s *Service) quoteTextStartPrice(modelKey string, capability string, quantity int64) (*TaskChargeQuote, error) {
+	prices, err := s.store.ModelPricesByCapability(modelKey, capability)
+	if err != nil {
+		return nil, internalFailure(err)
+	}
+	if len(prices) == 0 {
+		// 没有价目：回一个未定价的报价，由 ChargeTask 统一拒成 409。
+		return &TaskChargeQuote{Unit: unitOf(nil, capability), Quantity: quantity}, nil
+	}
+	startPrice := int64(textStartPriceCredits)
+	return &TaskChargeQuote{
+		Credits:          startPrice * quantity,
+		SellUnitPrice:    &startPrice,
+		MultiplierBp:     markupBaseBp,
+		MultiplierSource: markupSourceDefault,
+		Unit:             string(UnitPerRequest),
+		Quantity:         quantity,
+		Priced:           true,
+	}, nil
+}
+
 // ChargeTask 预扣一次任务，返回试算结果、流水与"是否新建"。
 //
 // 未定价直接拒绝，不放行也不免费：静默按 0 元出货，等到对账时才发现某批模型一直在白送，
@@ -123,7 +184,7 @@ func (s *Service) ChargeTask(input TaskChargeInput) (*TaskChargeQuote, *CreditLe
 		return nil, nil, false, err
 	}
 	if !quote.Priced {
-		return nil, nil, false, pricingMissing(strings.TrimSpace(input.ModelKey))
+		return nil, nil, false, pricingMissing(strings.TrimSpace(input.ModelKey), input.Tier)
 	}
 	// 售价为 0 是"免费"，但零额变动本身被积分域拒绝（它不改变余额，只会污染流水），
 	// 因此这里直接返回免费结果，不落流水。

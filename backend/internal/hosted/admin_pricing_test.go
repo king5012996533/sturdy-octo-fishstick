@@ -18,7 +18,7 @@ type pricingPriceRow struct {
 	ID                string `json:"id"`
 	ModelKey          string `json:"modelKey"`
 	Capability        string `json:"capability"`
-	TokenTier         string `json:"tokenTier"`
+	PriceTier         string `json:"priceTier"`
 	Unit              string `json:"unit"`
 	UpstreamUnitPrice *int64 `json:"upstreamUnitPrice"`
 	SellUnitPrice     *int64 `json:"sellUnitPrice"`
@@ -101,7 +101,7 @@ func TestAdminPricingRoutesLifecycle(t *testing.T) {
 
 	// 新建：只填模型、能力与 token 档位、倍率用倍数写法。单价留空 = 还没定价，读出来必须是 null。
 	recorder = perform(router, http.MethodPost, "/api/admin/billing/model-prices",
-		`{"modelKey":"gpt-4o-mini","capability":"TEXT","tokenTier":"INPUT","multiplier":"1.2"}`, adminCookie)
+		`{"modelKey":"gpt-4o-mini","capability":"TEXT","priceTier":"INPUT","multiplier":"1.2"}`, adminCookie)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("新建单价配置失败：%d %s", recorder.Code, recorder.Body.String())
 	}
@@ -126,13 +126,13 @@ func TestAdminPricingRoutesLifecycle(t *testing.T) {
 	if price.Unit != string(auth.UnitPerMillionTokens) || !price.Enabled || price.CreatedAt == "" {
 		t.Fatalf("新建响应缺少默认单位、启用状态或时间：%s", recorder.Body.String())
 	}
-	if price.TokenTier != "INPUT" {
+	if price.PriceTier != "INPUT" {
 		t.Fatalf("新建响应缺少 token 档位：%s", recorder.Body.String())
 	}
 
 	// 更新：补上上游价并把售价直接定为 0（免费）。0 与 null 必须能区分。
 	recorder = perform(router, http.MethodPut, "/api/admin/billing/model-prices/"+price.ID,
-		`{"modelKey":"gpt-4o-mini","capability":"TEXT","tokenTier":"INPUT","vendorCode":"openai","upstreamUnitPrice":1000,"sellUnitPrice":0,"multiplier":"1.2"}`, adminCookie)
+		`{"modelKey":"gpt-4o-mini","capability":"TEXT","priceTier":"INPUT","vendorCode":"openai","upstreamUnitPrice":1000,"sellUnitPrice":0,"multiplier":"1.2"}`, adminCookie)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("更新单价配置失败：%d %s", recorder.Code, recorder.Body.String())
 	}

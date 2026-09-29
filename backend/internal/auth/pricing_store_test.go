@@ -150,7 +150,7 @@ func TestSavePricingModelPriceKeepsUnpricedAndFreeDistinct(t *testing.T) {
 	env := newPricingTestEnv(t)
 
 	// 只填模型、能力与档位：单位、币种、启用状态都走默认，价格保持"未定价"。
-	unpriced, err := env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "text", TokenTier: "input"})
+	unpriced, err := env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "text", PriceTier: "input"})
 	if err != nil {
 		t.Fatalf("保存未定价配置失败: %v", err)
 	}
@@ -165,8 +165,8 @@ func TestSavePricingModelPriceKeepsUnpricedAndFreeDistinct(t *testing.T) {
 	if unpriced.Capability != string(CapabilityText) {
 		t.Fatalf("能力值应归一大写：%q", unpriced.Capability)
 	}
-	if unpriced.TokenTier != string(TokenTierInput) {
-		t.Fatalf("档位应归一大写：%q", unpriced.TokenTier)
+	if unpriced.PriceTier != string(PriceTierInput) {
+		t.Fatalf("档位应归一大写：%q", unpriced.PriceTier)
 	}
 	if unpriced.CreatedAt == "" || unpriced.UpdatedAt == "" {
 		t.Fatalf("视图缺少时间字段：%+v", unpriced)
@@ -199,33 +199,33 @@ func TestSavePricingModelPriceKeepsUnpricedAndFreeDistinct(t *testing.T) {
 	// 同一个模型的另外两档可以并存：文本的三档价本来就是三行，唯一键必须带上档位，
 	// 否则"缓存命中 8 分 / 输出 1600 分"这种真实价目根本存不下来。
 	for _, tier := range []string{"CACHE", "OUTPUT"} {
-		if _, err := env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", TokenTier: tier}); err != nil {
+		if _, err := env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", PriceTier: tier}); err != nil {
 			t.Fatalf("同一模型的 %s 档位应可单独成行: %v", tier, err)
 		}
 	}
 
-	// 冲突：同一个 (model_key, capability, token_tier) 不能有第二条。
-	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", TokenTier: "INPUT"})
+	// 冲突：同一个 (model_key, capability, price_tier) 不能有第二条。
+	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", PriceTier: "INPUT"})
 	assertBillingError(t, err, 409, "")
 
 	// 非法输入一律 400。
-	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "", Capability: "TEXT", TokenTier: "INPUT"})
+	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "", Capability: "TEXT", PriceTier: "INPUT"})
 	assertBillingError(t, err, 400, "")
 	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m1", Capability: "MUSIC"})
 	assertBillingError(t, err, 400, "")
-	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m2", Capability: "TEXT", TokenTier: "INPUT", Multiplier: "abc"})
+	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m2", Capability: "TEXT", PriceTier: "INPUT", Multiplier: "abc"})
 	assertBillingError(t, err, 400, "")
-	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m3", Capability: "TEXT", TokenTier: "INPUT", UpstreamUnitPrice: pricingInt64Ptr(-1)})
+	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m3", Capability: "TEXT", PriceTier: "INPUT", UpstreamUnitPrice: pricingInt64Ptr(-1)})
 	assertBillingError(t, err, 400, "")
-	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m4", Capability: "TEXT", TokenTier: "INPUT", SellUnitPrice: pricingInt64Ptr(-1)})
+	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m4", Capability: "TEXT", PriceTier: "INPUT", SellUnitPrice: pricingInt64Ptr(-1)})
 	assertBillingError(t, err, 400, "")
-	_, err = env.service.SaveModelPrice(ModelPriceInput{ID: "not-exist", ModelKey: "m5", Capability: "TEXT", TokenTier: "INPUT"})
+	_, err = env.service.SaveModelPrice(ModelPriceInput{ID: "not-exist", ModelKey: "m5", Capability: "TEXT", PriceTier: "INPUT"})
 	assertBillingError(t, err, 404, "")
 
 	// 文本缺档位、非文本带档位都必须拒绝：静默丢弃会让运营以为自己配的那条生效了。
 	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m6", Capability: "TEXT"})
 	assertBillingError(t, err, 400, "")
-	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m7", Capability: "IMAGE", TokenTier: "INPUT"})
+	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m7", Capability: "IMAGE", PriceTier: "INPUT"})
 	assertBillingError(t, err, 400, "")
 }
 
@@ -294,11 +294,11 @@ func TestReplaceMarkupRulesValidation(t *testing.T) {
 func TestPreviewPricingModelPriceResolves(t *testing.T) {
 	env := newPricingTestEnv(t)
 
-	if _, err := env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", TokenTier: "INPUT", Multiplier: "1.2"}); err != nil {
+	if _, err := env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", PriceTier: "INPUT", Multiplier: "1.2"}); err != nil {
 		t.Fatalf("准备单价配置失败: %v", err)
 	}
 	// 输出档位单独配一条更贵的倍率：文本三档各自走自己的价与自己的倍率。
-	if _, err := env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", TokenTier: "OUTPUT", Multiplier: "3"}); err != nil {
+	if _, err := env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", PriceTier: "OUTPUT", Multiplier: "3"}); err != nil {
 		t.Fatalf("准备输出档位配置失败: %v", err)
 	}
 	if _, err := env.service.ReplaceMarkupRules(MarkupInput{Rules: []MarkupRuleInput{
@@ -309,7 +309,7 @@ func TestPreviewPricingModelPriceResolves(t *testing.T) {
 	}
 
 	// 命中模型专属倍率：1000 × 1.2 = 1200。
-	resolution, err := env.service.PreviewModelPrice(PricingInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", TokenTier: "INPUT", UpstreamUnitPrice: pricingInt64Ptr(1000)})
+	resolution, err := env.service.PreviewModelPrice(PricingInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", PriceTier: "INPUT", UpstreamUnitPrice: pricingInt64Ptr(1000)})
 	if err != nil {
 		t.Fatalf("试算失败: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestPreviewPricingModelPriceResolves(t *testing.T) {
 	}
 
 	// 同一模型换到输出档位：走的是输出那条配置的倍率，不会串到输入档位上。
-	resolution, err = env.service.PreviewModelPrice(PricingInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", TokenTier: "OUTPUT", UpstreamUnitPrice: pricingInt64Ptr(1000)})
+	resolution, err = env.service.PreviewModelPrice(PricingInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", PriceTier: "OUTPUT", UpstreamUnitPrice: pricingInt64Ptr(1000)})
 	if err != nil {
 		t.Fatalf("试算失败: %v", err)
 	}
@@ -368,4 +368,67 @@ func TestDeletePricingModelPriceMissing(t *testing.T) {
 	env := newPricingTestEnv(t)
 	assertBillingError(t, env.service.DeleteModelPrice("not-exist"), 404, "")
 	assertBillingError(t, env.service.DeleteModelPrice(""), 400, "")
+}
+
+// TestEnsurePricingSchemaMigratesLegacyTokenTierColumn 覆盖档位列改名时老库的搬迁。
+//
+// 档位从"只属于文本"泛化成"每个能力一套"时列名从 token_tier 变成 price_tier。若不搬迁，
+// AutoMigrate 只会新加一列空的 price_tier，历史行全部落进空档位：同一个模型同一个能力
+// 出现三行空档位，唯一索引在重复值上建不出来，后端直接起不来。这个用例就是拿改名之前的
+// 表结构（含建在旧列上的唯一索引）跑一遍，断言三档价原样保留、旧列消失。
+func TestEnsurePricingSchemaMigratesLegacyTokenTierColumn(t *testing.T) {
+	env := newCreditTestEnv(t)
+	db := env.store.db
+	legacy := []string{
+		`DROP TABLE IF EXISTS billing_model_prices`,
+		`CREATE TABLE billing_model_prices (id text primary key, model_key text, capability text, unit text, vendor_code text, upstream_unit_price integer, sell_unit_price integer, multiplier_bp integer, currency text, enabled numeric, note text, created_at datetime, updated_at datetime, token_tier text)`,
+		`CREATE UNIQUE INDEX uk_billing_model_prices_model_capability_tier ON billing_model_prices (model_key, capability, token_tier)`,
+		`INSERT INTO billing_model_prices (id, model_key, capability, token_tier, unit, upstream_unit_price, enabled) VALUES ('p1','deepseek-flash','TEXT','CACHE','TOKEN_1M',4,1)`,
+		`INSERT INTO billing_model_prices (id, model_key, capability, token_tier, unit, upstream_unit_price, enabled) VALUES ('p2','deepseek-flash','TEXT','INPUT','TOKEN_1M',200,1)`,
+		`INSERT INTO billing_model_prices (id, model_key, capability, token_tier, unit, upstream_unit_price, enabled) VALUES ('p3','deepseek-flash','TEXT','OUTPUT','TOKEN_1M',800,1)`,
+	}
+	for _, statement := range legacy {
+		if err := db.Exec(statement).Error; err != nil {
+			t.Fatalf("造旧表失败（%s）: %v", statement, err)
+		}
+	}
+
+	if err := EnsurePricingSchema(db); err != nil {
+		t.Fatalf("迁移旧库失败: %v", err)
+	}
+	if db.Migrator().HasColumn(&ModelPrice{}, "token_tier") {
+		t.Fatal("旧的 token_tier 列应当已被删除，否则库里会留下两份互相矛盾的档位")
+	}
+
+	prices, err := env.store.ModelPrices()
+	if err != nil {
+		t.Fatalf("读取价目失败: %v", err)
+	}
+	if len(prices) != 3 {
+		t.Fatalf("三档价应原样保留，实际 %d 行", len(prices))
+	}
+	seen := map[string]bool{}
+	for _, price := range prices {
+		seen[price.PriceTier] = true
+	}
+	for _, tier := range []string{"CACHE", "INPUT", "OUTPUT"} {
+		if !seen[tier] {
+			t.Fatalf("档位 %s 在迁移后丢失，实际 %v", tier, seen)
+		}
+	}
+
+	// 迁移后唯一索引必须真的在拦重复写入，而不是被改名弄丢了。
+	if _, err := env.service.SaveModelPrice(ModelPriceInput{ModelKey: "deepseek-flash", Capability: "TEXT", PriceTier: "CACHE"}); err == nil {
+		t.Fatal("同一模型同一能力的同一档位不应能存第二行")
+	}
+}
+
+// TestEnsurePricingSchemaIsRepeatable 覆盖迁移幂等：连跑两次不能因索引已存在而失败。
+func TestEnsurePricingSchemaIsRepeatable(t *testing.T) {
+	env := newCreditTaskEnv(t)
+	for round := 0; round < 3; round++ {
+		if err := EnsurePricingSchema(env.store.db); err != nil {
+			t.Fatalf("第 %d 次建表应幂等，实际报错: %v", round+1, err)
+		}
+	}
 }

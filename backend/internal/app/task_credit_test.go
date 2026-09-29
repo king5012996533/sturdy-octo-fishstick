@@ -164,3 +164,55 @@ func TestTaskChargeModelKeyFallsBackToTaskModel(t *testing.T) {
 		t.Fatalf("没有渠道时应退回逻辑模型 code，实际 %q", got)
 	}
 }
+
+// TestTaskChargeTierFollowsUpstreamImageQuality 覆盖图片按质量档取价。
+//
+// 上游对 gpt-image-2 的 low / medium / high 分别定价（差价 10.7 倍），档位是取价的第三
+// 个维度，认错就等于按另一个成本出货。
+func TestTaskChargeTierFollowsUpstreamImageQuality(t *testing.T) {
+	cases := []struct {
+		name   string
+		intent ModelRequestIntent
+		want   string
+	}{
+		{name: "小写档位归一成大写", intent: ModelRequestIntent{Capability: "image", Options: map[string]any{"quality": "low"}}, want: "LOW"},
+		{name: "中档", intent: ModelRequestIntent{Capability: "image", Options: map[string]any{"quality": "medium"}}, want: "MEDIUM"},
+		{name: "高档", intent: ModelRequestIntent{Capability: "image", Options: map[string]any{"quality": "high"}}, want: "HIGH"},
+		// 面板选 auto 时不会带 quality，这时必须是空档而不是某个具体档：回落到低档就等于
+		// 用 low 的成本去卖一次 high 的调用。
+		{name: "面板选 auto 时为空白档", intent: ModelRequestIntent{Capability: "image", Options: map[string]any{"count": "1"}}, want: ""},
+		{name: "认不出的档位不当成低价档", intent: ModelRequestIntent{Capability: "image", Options: map[string]any{"quality": "standard"}}, want: ""},
+		{name: "文本在提交时还不知道 token 档位", intent: ModelRequestIntent{Capability: "text"}, want: ""},
+		{name: "视频只有一档价", intent: ModelRequestIntent{Capability: "video", Options: map[string]any{"quality": "high"}}, want: ""},
+	}
+	for _, test := range cases {
+		if got := taskChargeTier(test.intent); got != test.want {
+			t.Fatalf("%s：档位应为 %q，实际 %q", test.name, test.want, got)
+		}
+	}
+}
+
+// TestChargeTaskCreditsSendsImageQualityTier 覆盖档位真的进了计费端口，而不只是算出来。
+func TestChargeTaskCreditsSendsImageQualityTier(t *testing.T) {
+	svc, ledger := newTaskCreditTestService(t)
+	task := &model.Task{ID: "task-image", UserID: "user-1", Type: "canvas_image"}
+	input := map[string]any{
+		"mode":              "image",
+		"config":            map[string]any{"channelId": "CHANNEL_000003", "channelModelKey": "openai/gpt-image-2", "model": "openai/gpt-image-2"},
+		"capabilityOptions": map[string]any{"quality": "high", "count": "4"},
+	}
+
+	if err := svc.chargeTaskCredits(task, input); err != nil {
+		t.Fatalf("扣费不应失败：%v", err)
+	}
+	if len(ledger.requests) != 1 {
+		t.Fatalf("应只提交一次计费，实际 %d", len(ledger.requests))
+	}
+	request := ledger.requests[0]
+	if request.Capability != "image" || request.Tier != "HIGH" || request.Quantity != 4 {
+		t.Fatalf("计费入参应为 image/HIGH/4，实际 %s/%q/%d", request.Capability, request.Tier, request.Quantity)
+	}
+	if request.ModelKey != "CHANNEL_000003::openai/gpt-image-2" {
+		t.Fatalf("模型标识应为渠道::模型，实际 %q", request.ModelKey)
+	}
+}

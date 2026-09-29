@@ -149,6 +149,38 @@ describe("后台模型定价面板", () => {
         expect(pane).toContain("preview.source");
     });
 
+    test("档位随能力收敛：文本三档 / 图片三档质量 + 空档 / 视频音频只有空档", () => {
+        const pane = read(panePath);
+        // 选项按能力取，不是一份全局写死的列表。
+        expect(pane).toContain("tierOptionsByCapability");
+        expect(pane).toContain('TEXT: (["CACHE", "INPUT", "OUTPUT"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] }))');
+        expect(pane).toContain('IMAGE: (["", "LOW", "MEDIUM", "HIGH"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] }))');
+        expect(pane).toContain('VIDEO: [{ value: "", label: tierLabels[""] }]');
+        // 图片三档质量与文案都要在，否则运营选不到 low / medium / high。
+        expect(pane).toContain('LOW: "低（low）"');
+        expect(pane).toContain('MEDIUM: "中（medium）"');
+        expect(pane).toContain('HIGH: "高（high）"');
+        expect(pane).toContain('TEXT: "INPUT"');
+        expect(pane).toContain('IMAGE: ""');
+        // 表单 label 与提示词随能力给，不再是「token 档位」。
+        expect(pane).toContain('label="价格档位"');
+        expect(pane).not.toContain("token 档位");
+        expect(pane).toContain("tierExtraOf");
+    });
+
+    test("提交图片价目时档位不会被清空（TEXT 与 IMAGE 都保留）", () => {
+        const pane = read(panePath);
+        // 曾经的写法 `capability === "TEXT" ? priceTier : ""` 会把图片选的质量档清空，
+        // 三档质量价于是塌成同一条记录——校验只认能力，看不出这种"合法的静默降级"。
+        expect(pane).not.toContain('capability === "TEXT" ? values.priceTier : ""');
+        expect(pane).toContain('values.capability === "TEXT" || values.capability === "IMAGE" ? values.priceTier : ""');
+        // 保存与试算两处都必须走同一个口径。
+        expect(pane).toContain("priceTier: tierForSubmit(values),");
+        expect(pane.match(/priceTier: tierForSubmit\(values\),/g)?.length).toBe(2);
+        // 列表页的列名同步改名。
+        expect(pane).toContain('dataIndex: "priceTier", key: "priceTier"');
+    });
+
     test("接口路径与动词都拼在 /admin/billing 下", () => {
         const api = read(apiPath);
         expect(api).toContain('http.get<{ rules: MarkupRule[]; defaultMultiplierBp: number }>("/admin/billing/markup")');
@@ -161,8 +193,13 @@ describe("后台模型定价面板", () => {
         expect(api).toContain('http.post<{ resolution: PricingResolution }>("/admin/billing/model-prices/preview", input)');
         // 类型与后端契约字段一致。
         expect(api).toContain('export type ModelPriceUnit = "TOKEN_1M" | "TOKEN_1K" | "IMAGE" | "SECOND" | "REQUEST";');
-        // 三档 token 价必须能表达：文本的三行靠 tokenTier 区分。
-        expect(api).toContain('export type ModelPriceTokenTier = "" | "CACHE" | "INPUT" | "OUTPUT";');
+        // 分档的价格必须能表达：文本的三行靠 priceTier 区分，图片的三档质量价同理。
+        expect(api).toContain(
+            'export type ModelPricePriceTier = "" | "CACHE" | "INPUT" | "OUTPUT" | "LOW" | "MEDIUM" | "HIGH";',
+        );
+        expect(api).toContain("priceTier: ModelPricePriceTier;");
+        // 旧字段名残留会让请求体与服务端契约对不上（服务端读 priceTier）。
+        expect(api).not.toContain("tokenTier");
         expect(api).toContain('export type MarkupScope = "GLOBAL" | "CAPABILITY" | "VENDOR" | "MODEL";');
         expect(api).toContain("upstreamUnitPrice: number | null;");
         expect(api).toContain("sellUnitPrice: number | null;");

@@ -68,43 +68,65 @@ func DefaultUnitFor(capability ModelCapability) PriceUnit {
 	}
 }
 
-// TokenTier 是文本计费的 token 档位。
+// PriceTier 是同一模型、同一能力下的价格档位。
 //
-// 上游对这三档分别定价，差距很大：DeepSeek 官方 deepseek-flash 的高峰价是
-// 缓存命中 0.04 元 / 未命中 2 元 / 输出 8 元（每百万 token），输出是缓存命中的 200 倍。
-// 实测流量里缓存命中能占到输入的七成——把三档揉成一个数字，等于用一个价去卖三种成本，
-// 无论填多少都必然有一头算错。
+// 上游对同一模型的同一个能力常常分档计价，档位之间差到十倍以上，因此档位不是展示用的
+// 标签，而是"这次调用按哪一行价结算"的键。挤进一行只能填一个折中值，而折中值在真实
+// 流量里必定错一头：文本的缓存命中占输入七成，图片的 low 与 high 差 10.7 倍。
 //
-// 非文本能力（图片 / 视频 / 音频）留空，表示不区分档位。
-type TokenTier string
+// 档位的取值集合由能力决定，见 validPriceTier：
+//
+//   - 文本按 token 性质分三档，必须齐备；
+//   - 图片按上游的 quality 参数分三档，另允许留空表示"这个模型不区分质量"；
+//   - 视频与音频目前只有一个价，档位留空。
+type PriceTier string
 
 const (
-	// TokenTierNone 表示该行不区分 token 档位（非文本能力）。
-	TokenTierNone TokenTier = ""
-	// TokenTierCache 是输入里命中提示词缓存的那部分。
-	TokenTierCache TokenTier = "CACHE"
-	// TokenTierInput 是输入里未命中缓存的那部分。
-	TokenTierInput TokenTier = "INPUT"
-	// TokenTierOutput 是模型生成的那部分。
-	TokenTierOutput TokenTier = "OUTPUT"
+	// PriceTierNone 表示该行不区分档位。
+	//
+	// 对文本是非法值（三档必须齐备），对图片表示"不区分质量档位"，对视频/音频是唯一取值。
+	PriceTierNone PriceTier = ""
+
+	// PriceTierCache 是文本输入里命中提示词缓存的那部分。
+	PriceTierCache PriceTier = "CACHE"
+	// PriceTierInput 是文本输入里未命中缓存的那部分。
+	PriceTierInput PriceTier = "INPUT"
+	// PriceTierOutput 是文本模型生成的那部分。
+	PriceTierOutput PriceTier = "OUTPUT"
+
+	// 图片三档与上游的 quality 参数一一对应，大小写按原值保留。
+	PriceTierLow    PriceTier = "LOW"
+	PriceTierMedium PriceTier = "MEDIUM"
+	PriceTierHigh   PriceTier = "HIGH"
 )
 
-// validTokenTier 白名单：档位决定一次调用按哪一行的价结算，拼错的档位会让那份用量
-// 直接找不到价而已，不会报错——所以必须在写入口挡住。
-func validTokenTier(raw string) bool {
-	switch TokenTier(raw) {
-	case TokenTierCache, TokenTierInput, TokenTierOutput:
-		return true
+// TextPriceTiers 是文本能力必须齐备的三个档位，顺序固定，供后台与校验共用。
+//
+// 顺序写死在这里而不是让调用方排：账单上的算式要能按同一顺序复核，
+// 三个入口各排一次就会出现"同一笔钱三种写法"。
+var TextPriceTiers = []PriceTier{PriceTierCache, PriceTierInput, PriceTierOutput}
+
+// ImagePriceTiers 是图片按上游 quality 参数划分的三个档位，顺序为"由便宜到贵"。
+var ImagePriceTiers = []PriceTier{PriceTierLow, PriceTierMedium, PriceTierHigh}
+
+// validPriceTier 判定某个能力的档位取值是否合法。
+//
+// 档位决定一次调用按哪一行的价结算，拼错或漏配的档位不会报错，只会让那份用量找不到价——
+// 所以唯一正确的做法是在写入口与取价口都挡住，而不是让它静默落到别档。
+func validPriceTier(capability string, raw string) bool {
+	tier := PriceTier(raw)
+	switch ModelCapability(normalizeModelCapability(capability)) {
+	case CapabilityText:
+		return tier == PriceTierCache || tier == PriceTierInput || tier == PriceTierOutput
+	case CapabilityImage:
+		// 图片允许留空：上游不是每个图片模型都有 quality 维度，没有维度时一档价就是全部。
+		return tier == PriceTierNone || tier == PriceTierLow || tier == PriceTierMedium || tier == PriceTierHigh
+	case CapabilityVideo, CapabilityAudio:
+		return tier == PriceTierNone
 	default:
 		return false
 	}
 }
-
-// TextTokenTiers 是文本能力必须齐备的三个档位，顺序固定，供后台与校验共用。
-//
-// 顺序写死在这里而不是让调用方排：账单上的算式要能按同一顺序复核，
-// 三个入口各排一次就会出现"同一笔钱三种写法"。
-var TextTokenTiers = []TokenTier{TokenTierCache, TokenTierInput, TokenTierOutput}
 
 // 倍率基准与可填范围。
 const (
@@ -133,17 +155,18 @@ const pricingDefaultCurrency = "CNY"
 // 而不是 0。SellUnitPrice 非空时它就是最终售价，MultiplierBp 只用于展示"相对成本加了
 // 多少"；两者都空时由倍率乘上游成本算出售价。
 //
-// (model_key, capability, token_tier) 唯一：同一个模型在同一类能力同一个 token 档位上
-// 只能有一条单价，否则同一笔调用会随读取顺序出现两个价格。
+// (model_key, capability, price_tier) 唯一：同一个模型在同一类能力同一个档位上只能有
+// 一条单价，否则同一笔调用会随读取顺序出现两个价格。
 //
-// 文本按三个档位分行存价（见 TokenTier）：上游对缓存命中 / 未命中 / 输出的收费相差
-// 几倍到几十倍，挤进一行就只能填一个折中值，而折中值在长上下文场景里必定错一头。
+// 档位由能力决定（见 PriceTier）：文本按缓存命中 / 未命中 / 输出分三行，图片按上游
+// quality 的 low / medium / high 分三行。上游这些档位之间的差价都在十倍量级，挤进一行
+// 就必然有一头算错。
 type ModelPrice struct {
 	ID         string `gorm:"column:id;primaryKey;size:36"`
 	ModelKey   string `gorm:"column:model_key;size:120;uniqueIndex:uk_billing_model_prices_model_capability_tier,priority:1"`
 	Capability string `gorm:"column:capability;size:16;uniqueIndex:uk_billing_model_prices_model_capability_tier,priority:2"`
-	// TokenTier 只在文本能力下有值；图片/视频/音频留空表示不区分档位。
-	TokenTier string `gorm:"column:token_tier;size:16;uniqueIndex:uk_billing_model_prices_model_capability_tier,priority:3"`
+	// PriceTier 是这一行的档位；取值集合随能力而定（见 PriceTier）。
+	PriceTier string `gorm:"column:price_tier;size:16;uniqueIndex:uk_billing_model_prices_model_capability_tier,priority:3"`
 	Unit      string `gorm:"column:unit;size:24"`
 	// VendorCode 可空，标注这条价来自哪家厂商，供 VENDOR 作用域的倍率规则匹配。
 	VendorCode        string `gorm:"column:vendor_code;size:64"`
@@ -237,6 +260,23 @@ func markupRuleKey(scope string, target string) string {
 
 // ---------- 对外视图 ----------
 
+// priceTierRequirementMessage 给出"这个能力该配哪个档位"的中文提示。
+//
+// 档位的合法集合随能力变化，把规则写成一句话共用一处：后台保存与试算入口各写一遍，
+// 运营就会看到两种说法，进而以为自己填错的是两件不同的事。
+func priceTierRequirementMessage(capability string) string {
+	switch ModelCapability(normalizeModelCapability(capability)) {
+	case CapabilityText:
+		return "文本单价必须指定档位：CACHE / INPUT / OUTPUT"
+	case CapabilityImage:
+		return "图片单价档位只能是 LOW / MEDIUM / HIGH，或留空表示不区分质量档位"
+	case CapabilityVideo, CapabilityAudio:
+		return "视频与音频目前只有一档价，档位必须留空"
+	default:
+		return "模型能力只能是 TEXT / IMAGE / VIDEO / AUDIO"
+	}
+}
+
 // ModelPriceView 是后台的单价配置视图。
 //
 // 金额与倍率都是指针，且都不加 omitempty：null 表示"还没定价"，0 表示真的免费。
@@ -245,7 +285,7 @@ type ModelPriceView struct {
 	ID                string `json:"id"`
 	ModelKey          string `json:"modelKey"`
 	Capability        string `json:"capability"`
-	TokenTier         string `json:"tokenTier"`
+	PriceTier         string `json:"priceTier"`
 	Unit              string `json:"unit"`
 	VendorCode        string `json:"vendorCode"`
 	UpstreamUnitPrice *int64 `json:"upstreamUnitPrice"`
@@ -287,7 +327,7 @@ type ModelPriceInput struct {
 	ID                string `json:"id"`
 	ModelKey          string `json:"modelKey"`
 	Capability        string `json:"capability"`
-	TokenTier         string `json:"tokenTier"`
+	PriceTier         string `json:"priceTier"`
 	Unit              string `json:"unit"`
 	VendorCode        string `json:"vendorCode"`
 	UpstreamUnitPrice *int64 `json:"upstreamUnitPrice"`
@@ -317,7 +357,7 @@ func ModelPriceViewOf(price ModelPrice) ModelPriceView {
 		ID:                price.ID,
 		ModelKey:          price.ModelKey,
 		Capability:        price.Capability,
-		TokenTier:         price.TokenTier,
+		PriceTier:         price.PriceTier,
 		Unit:              price.Unit,
 		VendorCode:        price.VendorCode,
 		UpstreamUnitPrice: price.UpstreamUnitPrice,

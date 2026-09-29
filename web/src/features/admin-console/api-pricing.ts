@@ -24,17 +24,22 @@ export type ModelPriceCapability = "TEXT" | "IMAGE" | "VIDEO" | "AUDIO";
 export type ModelPriceUnit = "TOKEN_1M" | "TOKEN_1K" | "IMAGE" | "SECOND" | "REQUEST";
 
 /**
- * 文本计费的 token 档位：上游对缓存命中 / 未命中 / 输出分别定价，差距可达两个数量级。
+ * 价格档位：同一模型、同一能力下"这次调用按哪一行价结算"的键。
  *
- * 非文本能力留空字符串，表示不区分档位。
+ * 取值集合由能力决定，服务端会严格校验，配错直接 400：
+ * - TEXT 按 token 性质分三档（缓存命中 / 未命中 / 输出），差距可达两个数量级，必须齐备；
+ * - IMAGE 按上游 quality 分低 / 中 / 高三档，另允许留空表示"这个模型不区分质量"；
+ * - VIDEO / AUDIO 只有一个价，档位留空。
+ *
+ * 图片的空档不是任何一档的别名：它代表"面板没有指定质量"时的价（上游按 auto 计费）。
  */
-export type ModelPriceTokenTier = "" | "CACHE" | "INPUT" | "OUTPUT";
+export type ModelPricePriceTier = "" | "CACHE" | "INPUT" | "OUTPUT" | "LOW" | "MEDIUM" | "HIGH";
 
 export type ModelPrice = {
     id: string;
     modelKey: string;
     capability: ModelPriceCapability;
-    tokenTier: ModelPriceTokenTier;
+    priceTier: ModelPricePriceTier;
     unit: ModelPriceUnit;
     vendorCode: string;
     /** null = 还没定价（不是 0）：上游价格没回填时不能当成免费。 */
@@ -83,8 +88,8 @@ export type PricingResolution = {
 export type ModelPriceInput = {
     modelKey: string;
     capability: ModelPriceCapability;
-    /** 文本必填（CACHE / INPUT / OUTPUT），其余能力必须为空。 */
-    tokenTier: ModelPriceTokenTier;
+    /** TEXT 与 IMAGE 都保留用户选的档位；VIDEO / AUDIO 必须为空。 */
+    priceTier: ModelPricePriceTier;
     unit: ModelPriceUnit;
     vendorCode: string;
     /** 空值用 null 提交：0 与「未定价」在计费上是两件事。 */
@@ -100,8 +105,8 @@ export type PricingPreviewInput = {
     modelKey: string;
     vendorCode: string;
     capability: ModelPriceCapability;
-    /** 文本必须带上档位：三档价在库里是三行，不带档位查不到任何一条。 */
-    tokenTier: ModelPriceTokenTier;
+    /** 必须带上档位：分档的价格在库里是每档一行，不带档位查不到任何一条。 */
+    priceTier: ModelPricePriceTier;
     /** null 表示还没填上游单价，服务端会直接判为未定价。 */
     upstreamUnitPrice: number | null;
 };

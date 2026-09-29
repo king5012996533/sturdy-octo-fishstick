@@ -1,6 +1,8 @@
 package hosted
 
 import (
+	"errors"
+
 	"infinite-canvas/backend/internal/app"
 	"infinite-canvas/backend/internal/auth"
 
@@ -76,13 +78,36 @@ func (a creditLedgerAdapter) ChargeTask(request app.TaskChargeRequest) (app.Task
 		TaskID:     request.TaskID,
 		ModelKey:   request.ModelKey,
 		Capability: request.Capability,
+		Tier:       request.Tier,
 		Quantity:   request.Quantity,
 		Note:       request.Note,
 	})
 	if err != nil {
-		return app.TaskChargeOutcome{}, err
+		return app.TaskChargeOutcome{}, creditLedgerError(err)
 	}
 	return app.TaskChargeOutcome{Credits: quote.Credits}, nil
+}
+
+// creditLedgerError 把账号域错误翻译成任务域能识别的错误。
+//
+// 必须在这里翻译，因为 app 与 handler 都不认识 *auth.Error：让它原样穿过端口，
+// 提交任务时"尚未定价"（409）会在 HTTP 层掉进兜底分支变成 500「系统处理失败」，
+// 而"余额不足"（402）会变成 400。用户看到的文案与真正的原因无关，
+// 前端也就永远命中不了它按状态码写的分支。翻译只搬运状态、码与原因，不改文案。
+func creditLedgerError(err error) error {
+	var authErr *auth.Error
+	if !errors.As(err, &authErr) {
+		return err
+	}
+	bridged := app.NewAppError(authErr.Status, authErr.Message)
+	if authErr.Code != 0 {
+		bridged.Code = authErr.Code
+	}
+	if authErr.Reason != "" {
+		bridged.Reason = authErr.Reason
+	}
+	bridged.Cause = authErr
+	return bridged
 }
 
 // RefundTask 退回一次预扣，金额由流水决定，调用方只说"这个任务没跑成"。

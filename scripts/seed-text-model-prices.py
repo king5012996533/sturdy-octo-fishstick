@@ -32,6 +32,9 @@ Agent 的一次运行横跨 9:00 边界时就没有干净的口径可解释。
 上游单价 + 模型专属倍率（20000）两条一起写，售价由服务端按倍率算出来。
 上游调价时只要改上游价一个数，售价自动跟随；直接把售价写死会在下一次调价时
 留下一个没人记得住的偏差。
+
+价目行里的档位字段叫 priceTier（该字段曾专指 token 档位，现已泛化成"同一模型同一能力
+下的价格档位"）。文本用它区分缓存 / 输入 / 输出，图片则用它区分上游的 quality 档位。
 """
 
 from __future__ import annotations
@@ -98,7 +101,7 @@ def desired_rows() -> list[dict]:
                 {
                     "modelKey": model_key,
                     "capability": CAPABILITY,
-                    "tokenTier": tier,
+                    "priceTier": tier,
                     "unit": UNIT,
                     "vendorCode": VENDOR_CODE,
                     # 直接用售价 = null + 倍率：售价由服务端算出（上游价 × 2），
@@ -137,13 +140,13 @@ def main() -> int:
 
     existing_rows = request("GET", args.base_url, "/admin/billing/model-prices", cookie).get("prices") or []
     index = {
-        (row.get("modelKey"), row.get("capability"), row.get("tokenTier") or ""): row
+        (row.get("modelKey"), row.get("capability"), row.get("priceTier") or ""): row
         for row in existing_rows
     }
 
     plan: list[tuple[str, dict, dict | None]] = []
     for row in desired_rows():
-        existing = index.get((row["modelKey"], row["capability"], row["tokenTier"]))
+        existing = index.get((row["modelKey"], row["capability"], row["priceTier"]))
         if existing is not None and same_as_existing(row, existing):
             continue
         plan.append(("update" if existing else "create", row, existing))
@@ -153,7 +156,7 @@ def main() -> int:
         return 0
 
     for action, row, existing in plan:
-        target = f"{row['modelKey']} · {row['tokenTier']}（{TIER_NOTE[row['tokenTier']]}）"
+        target = f"{row['modelKey']} · {row['priceTier']}（{TIER_NOTE[row['priceTier']]}）"
         if action == "create":
             print(f"新建 {target}：上游 {row['upstreamUnitPrice']} 分/百万 token，倍率 ×{MULTIPLIER}")
         else:

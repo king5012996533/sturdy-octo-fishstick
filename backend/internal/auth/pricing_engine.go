@@ -31,9 +31,10 @@ type PricingInput struct {
 	ModelKey   string `json:"modelKey"`
 	VendorCode string `json:"vendorCode"`
 	Capability string `json:"capability"`
-	// TokenTier 只在文本能力下有值：文本的三档价在库里是三行，不指定档位就查不到价，
-	// 试算会显示"未定价"——那是对的，文本本来就没有"一个价"这回事。
-	TokenTier string `json:"tokenTier"`
+	// PriceTier 是这次调用落在哪个档位：文本是 CACHE / INPUT / OUTPUT，图片是上游的
+	// low / medium / high。分档的价在库里是多行，不指定档位就查不到价，试算会显示
+	// "未定价"——那是对的，分档计费的模型本来就没有"一个价"这回事。
+	PriceTier string `json:"priceTier"`
 	// UpstreamUnitPrice 是上游成本，单位随配置的 Unit；可空。
 	UpstreamUnitPrice *int64 `json:"upstreamUnitPrice"`
 }

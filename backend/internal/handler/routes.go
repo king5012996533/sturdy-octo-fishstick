@@ -35,7 +35,10 @@ func RegisterTaskRoutes(r *gin.RouterGroup, svc *app.Service, hostedProfile ...b
 		req.RequestID = RequestID(c)
 		task, err := requestGenerationPort(c, svc).CreateTask(user.ID, req)
 		if err != nil {
-			fail(c, http.StatusBadRequest, err)
+			// 必须走 failService：创建任务会穿过计费端口，那里会返回 402 余额不足与
+			// 409 尚未定价。写死 400 会把这些状态压成"请求参数不对"，前端按状态码写的
+			// 充值/提示分支永远命中不了，用户只会看到一句与真实原因无关的报错。
+			failService(c, err)
 			return
 		}
 		ok(c, task)

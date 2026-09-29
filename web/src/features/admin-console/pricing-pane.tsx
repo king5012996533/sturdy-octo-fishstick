@@ -18,7 +18,7 @@ import {
     type ModelPrice,
     type ModelPriceCapability,
     type ModelPriceInput,
-    type ModelPriceTokenTier,
+    type ModelPricePriceTier,
     type ModelPriceUnit,
     type PricingResolution,
 } from "./api-pricing";
@@ -35,18 +35,68 @@ const capabilityLabels: Record<ModelPriceCapability, string> = { TEXT: "文本",
 const unitLabels: Record<ModelPriceUnit, string> = { TOKEN_1M: "百万 token", TOKEN_1K: "千 token（旧）", IMAGE: "张", SECOND: "秒", REQUEST: "次" };
 
 /**
- * 文本的 token 档位。上游对这三档分别定价，差到两个数量级（DeepSeek 输出价是缓存命中
- * 价的 200 倍），所以必须分开配；图片/视频/音频没有这个概念。
+ * 价格档位：同一模型同一能力下"这次调用按哪一行价结算"的键。
+ *
+ * 文本三档差到两个数量级（DeepSeek 输出价是缓存命中价的 200 倍）；图片三档对应上游的
+ * quality 参数，low $0.012 / medium $0.047 / high $0.128，相差 10.7 倍。挤进一行只能填
+ * 折中值，而折中值在真实流量里必定错一头。
  */
-const tierLabels: Record<ModelPriceTokenTier, string> = { "": "不区分", CACHE: "缓存命中", INPUT: "缓存未命中", OUTPUT: "输出" };
+const tierLabels: Record<ModelPricePriceTier, string> = {
+    "": "不区分",
+    CACHE: "缓存命中",
+    INPUT: "缓存未命中",
+    OUTPUT: "输出",
+    LOW: "低（low）",
+    MEDIUM: "中（medium）",
+    HIGH: "高（high）",
+};
 
-const tierOptions = [
-    { value: "" as ModelPriceTokenTier, label: "不区分（图片 / 视频 / 音频）" },
-    ...(["CACHE", "INPUT", "OUTPUT"] as ModelPriceTokenTier[]).map((value) => ({ value, label: tierLabels[value] })),
-];
+/**
+ * 档位可选项由能力决定：选到不该选的那一档服务端会直接 400，这里先收窄可选范围。
+ *
+ * 图片的「不区分」不是任何一档的别名——它代表面板没有指定质量时的价（上游按 auto 计费），
+ * 所以虽然标签同为「不区分」，含义与视频/音频那一档并不相同。
+ */
+const tierOptionsByCapability: Record<ModelPriceCapability, { value: ModelPricePriceTier; label: string }[]> = {
+    TEXT: (["CACHE", "INPUT", "OUTPUT"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] })),
+    IMAGE: (["", "LOW", "MEDIUM", "HIGH"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] })),
+    VIDEO: [{ value: "", label: tierLabels[""] }],
+    AUDIO: [{ value: "", label: tierLabels[""] }],
+};
+
+/** 切能力时档位要重置成该能力的默认值：图片档位（LOW/HIGH）对文本非法，反之亦然。 */
+const defaultTierByCapability: Record<ModelPriceCapability, ModelPricePriceTier> = {
+    TEXT: "INPUT",
+    IMAGE: "",
+    VIDEO: "",
+    AUDIO: "",
+};
+
+const tierExtraByCapability: Record<ModelPriceCapability, string> = {
+    TEXT: "文本三档必填：缓存命中 / 缓存未命中 / 输出各配一行，缺一档这条模型就用不了。",
+    IMAGE: "图片可按质量档配价（low / medium / high）；留空表示不区分，上游按 auto 计费。",
+    VIDEO: "视频只有一档：选「不区分」。",
+    AUDIO: "音频只有一档：选「不区分」。",
+};
+
+function tierOptionsOf(capability: ModelPriceCapability | undefined) {
+    return tierOptionsByCapability[capability ?? "TEXT"] ?? tierOptionsByCapability.TEXT;
+}
+
+function tierExtraOf(capability: ModelPriceCapability | undefined) {
+    return tierExtraByCapability[capability ?? "TEXT"] ?? tierExtraByCapability.TEXT;
+}
 
 function tierLabel(value: string) {
-    return tierLabels[value as ModelPriceTokenTier] ?? (value ? value : "不区分");
+    return tierLabels[value as ModelPricePriceTier] ?? (value ? value : "不区分");
+}
+
+/**
+ * 提交时的档位口径：TEXT 与 IMAGE 都保留用户选的档位（图片靠它区分三档质量价），
+ * VIDEO / AUDIO 服务端只接受空串。把图片档位清空会让三档质量价塌成同一条记录。
+ */
+function tierForSubmit(values: { capability: ModelPriceCapability; priceTier: ModelPricePriceTier }) {
+    return values.capability === "TEXT" || values.capability === "IMAGE" ? values.priceTier : "";
 }
 
 const capabilityOptions = (Object.keys(capabilityLabels) as ModelPriceCapability[]).map((value) => ({ value, label: capabilityLabels[value] }));
@@ -107,7 +157,7 @@ type PriceFormValues = {
     modelKey: string;
     vendorCode: string;
     capability: ModelPriceCapability;
-    tokenTier: ModelPriceTokenTier;
+    priceTier: ModelPricePriceTier;
     unit: ModelPriceUnit;
     upstreamUnitPrice: number | null;
     sellUnitPrice: number | null;
@@ -120,7 +170,7 @@ type PreviewFormValues = {
     modelKey: string;
     vendorCode: string;
     capability: ModelPriceCapability;
-    tokenTier: ModelPriceTokenTier;
+    priceTier: ModelPricePriceTier;
     upstreamUnitPrice: number | null;
 };
 
@@ -129,7 +179,7 @@ const emptyPrice: PriceFormValues = {
     vendorCode: "",
     capability: "TEXT",
     // 默认落在文本最常见的档位：输入未命中缓存。默认空档位会让首次保存直接被拒。
-    tokenTier: "INPUT",
+    priceTier: "INPUT",
     unit: "TOKEN_1M",
     upstreamUnitPrice: null,
     sellUnitPrice: null,
@@ -138,7 +188,7 @@ const emptyPrice: PriceFormValues = {
     note: "",
 };
 
-const emptyPreview: PreviewFormValues = { modelKey: "", vendorCode: "", capability: "TEXT", tokenTier: "INPUT", upstreamUnitPrice: null };
+const emptyPreview: PreviewFormValues = { modelKey: "", vendorCode: "", capability: "TEXT", priceTier: "INPUT", upstreamUnitPrice: null };
 
 function markupDraftOf(rule: MarkupRule): MarkupRuleDraft {
     const parsed = Number(rule.multiplier);
@@ -165,7 +215,7 @@ function priceFormValuesOf(price: ModelPrice): PriceFormValues {
         modelKey: price.modelKey,
         vendorCode: price.vendorCode,
         capability: price.capability,
-        tokenTier: price.tokenTier,
+        priceTier: price.priceTier,
         unit: price.unit,
         upstreamUnitPrice: price.upstreamUnitPrice,
         sellUnitPrice: price.sellUnitPrice,
@@ -180,9 +230,7 @@ function priceInputOf(values: PriceFormValues): ModelPriceInput {
         modelKey: values.modelKey.trim(),
         vendorCode: (values.vendorCode ?? "").trim(),
         capability: values.capability,
-        // 非文本能力必须提交空档位：服务端会拒绝"图片带 token 档位"这种配置，
-        // 与其让用户填完再报错，不如在这里就按能力抹平。
-        tokenTier: values.capability === "TEXT" ? values.tokenTier : "",
+        priceTier: tierForSubmit(values),
         unit: values.unit,
         // 空 = null（未定价），不是 0：0 会被当成真实售价写进计费。
         upstreamUnitPrice: numberOrNull(values.upstreamUnitPrice),
@@ -231,9 +279,10 @@ export function PricingPane() {
     const [previewing, setPreviewing] = useState(false);
 
     const [priceForm] = Form.useForm<PriceFormValues>();
-    // 档位与单位都由能力决定，表单里要跟着能力变灰/变化，所以这里订阅它。
+    // 档位与单位都由能力决定，表单里要跟着能力换选项，所以这里订阅它。
     const priceFormCapability = Form.useWatch("capability", priceForm);
     const [previewForm] = Form.useForm<PreviewFormValues>();
+    const previewFormCapability = Form.useWatch("capability", previewForm);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -374,7 +423,7 @@ export function PricingPane() {
                 modelKey: values.modelKey.trim(),
                 vendorCode: (values.vendorCode ?? "").trim(),
                 capability: values.capability,
-                tokenTier: values.capability === "TEXT" ? values.tokenTier : "",
+                priceTier: tierForSubmit(values),
                 upstreamUnitPrice: numberOrNull(values.upstreamUnitPrice),
             });
             setPreview(payload.resolution);
@@ -399,7 +448,7 @@ export function PricingPane() {
             ),
         },
         { title: "能力", dataIndex: "capability", key: "capability", width: 80, render: (value: string) => <Tag>{priceCapabilityLabel(value)}</Tag> },
-        { title: "档位", dataIndex: "tokenTier", key: "tokenTier", width: 108, render: (value: string) => <span className="admin-user-sub">{tierLabel(value)}</span> },
+        { title: "档位", dataIndex: "priceTier", key: "priceTier", width: 108, render: (value: string) => <span className="admin-user-sub">{tierLabel(value)}</span> },
         { title: "单位", dataIndex: "unit", key: "unit", width: 108, render: (value: string) => <span className="admin-user-sub">{unitLabel(value)}</span> },
         {
             title: "上游单价（分/单位）",
@@ -661,7 +710,18 @@ export function PricingPane() {
                                 </div>
                             ) : null}
                             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                                <Form form={previewForm} layout="vertical" initialValues={emptyPreview} onFinish={(values) => void submitPreview(values)}>
+                                <Form
+                                    form={previewForm}
+                                    layout="vertical"
+                                    initialValues={emptyPreview}
+                                    // 试算也要按能力换档位：拿着文本的 INPUT 去试算图片会被服务端判非法。
+                                    onValuesChange={(changed) => {
+                                        if (!("capability" in changed)) return;
+                                        const next = changed.capability as ModelPriceCapability;
+                                        previewForm.setFieldsValue({ priceTier: defaultTierByCapability[next] ?? "" });
+                                    }}
+                                    onFinish={(values) => void submitPreview(values)}
+                                >
                                     <div className="admin-meta-grid">
                                         <Form.Item label="模型标识" name="modelKey" rules={[{ required: true, message: "请填写模型标识" }]}>
                                             <Input placeholder="gpt-4o" />
@@ -672,8 +732,8 @@ export function PricingPane() {
                                         <Form.Item label="能力" name="capability">
                                             <Select options={capabilityOptions} />
                                         </Form.Item>
-                                        <Form.Item label="token 档位" name="tokenTier" extra="文本必填；其余能力选「不区分」。">
-                                            <Select options={tierOptions} />
+                                        <Form.Item label="价格档位" name="priceTier" extra={tierExtraOf(previewFormCapability)}>
+                                            <Select options={tierOptionsOf(previewFormCapability)} />
                                         </Form.Item>
                                         <Form.Item label="上游单价（分/单位）" name="upstreamUnitPrice" extra="留空 = 未定价：不出售价，也不会按 0 计算。">
                                             <InputNumber min={0} precision={0} style={{ width: "100%" }} placeholder="未定价" />
@@ -734,7 +794,7 @@ export function PricingPane() {
                         layout="vertical"
                         initialValues={emptyPrice}
                         className="admin-form-narrow"
-                        // 切能力时同步口径：单价单位与 token 档位都由能力决定，让用户先改能力
+                        // 切能力时同步口径：单价单位与价格档位都由能力决定，让用户先改能力
                         // 再自己想起来改另外两格，漏改的那次会被服务端拒掉，而拒的原因看起来
                         // 跟"我只是换个能力"毫不相关。
                         onValuesChange={(changed) => {
@@ -742,7 +802,7 @@ export function PricingPane() {
                             const next = changed.capability as ModelPriceCapability;
                             priceForm.setFieldsValue({
                                 unit: next === "TEXT" ? "TOKEN_1M" : next === "IMAGE" ? "IMAGE" : "SECOND",
-                                tokenTier: next === "TEXT" ? "INPUT" : "",
+                                priceTier: defaultTierByCapability[next] ?? "",
                             });
                         }}
                         onFinish={(values) => void submitPrice(values)}
@@ -757,8 +817,8 @@ export function PricingPane() {
                             <Form.Item label="能力" name="capability">
                                 <Select options={capabilityOptions} />
                             </Form.Item>
-                            <Form.Item label="token 档位" name="tokenTier" extra="文本必填；其余能力必须选「不区分」。">
-                                <Select options={tierOptions} disabled={priceFormCapability !== "TEXT"} />
+                            <Form.Item label="价格档位" name="priceTier" extra={tierExtraOf(priceFormCapability)}>
+                                <Select options={tierOptionsOf(priceFormCapability)} />
                             </Form.Item>
                             <Form.Item label="计价单位" name="unit" extra="决定这个单价代表多少量。">
                                 <Select options={unitOptions} />
