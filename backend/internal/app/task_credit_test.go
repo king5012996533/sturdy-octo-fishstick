@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"errors"
+	"strconv"
 	"testing"
 
 	"infinite-canvas/backend/internal/model"
@@ -38,10 +40,20 @@ func (f *fakeCreditLedger) RefundTask(userID string, taskID string, note string)
 // 这些用例只覆盖端口编排，不碰存储。
 func newTaskCreditTestService(t *testing.T) (*Service, *fakeCreditLedger) {
 	t.Helper()
-	svc, _ := newFeatureAvailabilityTestService(t)
+	svc, db := newFeatureAvailabilityTestService(t)
+	// 退款判据要读提交记录才能证明"上游没受理"，用例库必须建出这张表；
+	// 否则读取失败会按偏向平台的方式拒绝退款，用例就测不到真正想测的分支。
+	if err := db.AutoMigrate(&model.RouteAttempt{}); err != nil {
+		t.Fatal(err)
+	}
 	ledger := &fakeCreditLedger{charges: 450}
 	svc.UseTaskCreditLedger(ledger)
 	return svc, ledger
+}
+
+// newTaskCreditTestTask 造一条可以直接进入退款判据的任务行。
+func newTaskCreditTestTask(id string) *model.Task {
+	return &model.Task{ID: id, UserID: "user-1"}
 }
 
 // TestChargeTaskCreditsDerivesModelKeyCapabilityAndQuantity 覆盖交给计费域的三个关键字段。
@@ -126,7 +138,7 @@ func TestRefundTaskCreditsSwallowsLedgerFailure(t *testing.T) {
 	svc, ledger := newTaskCreditTestService(t)
 	ledger.refundErr = errors.New("账号库不可用")
 
-	svc.refundTaskCredits("user-1", "task-5", "任务失败退回预扣")
+	svc.refundTaskCredits(newTaskCreditTestTask("task-5"), nil, "任务失败退回预扣")
 	if len(ledger.refunds) != 0 {
 		t.Fatal("退回失败时不该记录成功")
 	}
@@ -134,7 +146,7 @@ func TestRefundTaskCreditsSwallowsLedgerFailure(t *testing.T) {
 	// 没有可退的东西（免费任务或已退过）同样不该报错。
 	ledger.refundErr = nil
 	ledger.refunded = false
-	svc.refundTaskCredits("user-1", "task-5", "任务失败退回预扣")
+	svc.refundTaskCredits(newTaskCreditTestTask("task-5"), nil, "任务失败退回预扣")
 }
 
 // TestTaskChargeQuantityFallsBackForUnknownQuantity 覆盖用量缺失时交给计费域处理。
@@ -214,5 +226,129 @@ func TestChargeTaskCreditsSendsImageQualityTier(t *testing.T) {
 	}
 	if request.ModelKey != "CHANNEL_000003::openai/gpt-image-2" {
 		t.Fatalf("模型标识应为渠道::模型，实际 %q", request.ModelKey)
+	}
+}
+
+// TestTaskRefundVerdictFollowsUpstreamSubmissionEvidence 覆盖退款判据。
+//
+// 这是计费里最贵的一条判断：判成"该退"就是平台替上游买单，判成"不该退"就是用户白付。
+// 判据因此不看任务成没成，只看能不能证明上游没有受理这次请求。
+func TestTaskRefundVerdictFollowsUpstreamSubmissionEvidence(t *testing.T) {
+	cases := []struct {
+		name       string
+		task       *model.Task
+		attempts   []model.RouteAttempt
+		taskErr    error
+		wantRefund bool
+	}{
+		{
+			name:       "没有提交记录表示请求从未离开平台",
+			task:       &model.Task{ID: "task-a", UserID: "user-1"},
+			wantRefund: true,
+		},
+		{
+			name:       "提交记录停在未发出",
+			task:       &model.Task{ID: "task-b", UserID: "user-1"},
+			attempts:   []model.RouteAttempt{{DispatchState: "not_sent"}},
+			wantRefund: true,
+		},
+		{
+			name:       "上游明确拒绝且没有建任务",
+			task:       &model.Task{ID: "task-c", UserID: "user-1"},
+			attempts:   []model.RouteAttempt{{DispatchState: "rejected_no_job"}},
+			wantRefund: true,
+		},
+		{
+			name:       "提交结果不明：上游可能已经受理并计费",
+			task:       &model.Task{ID: "task-d", UserID: "user-1"},
+			attempts:   []model.RouteAttempt{{DispatchState: "submission_unknown"}},
+			wantRefund: false,
+		},
+		{
+			name:       "已经拿到上游任务 ID",
+			task:       &model.Task{ID: "task-e", UserID: "user-1", ProviderRequestID: "pred-1"},
+			wantRefund: false,
+		},
+		{
+			name:       "提交记录里带着上游任务 ID",
+			task:       &model.Task{ID: "task-f", UserID: "user-1"},
+			attempts:   []model.RouteAttempt{{DispatchState: "not_sent", ProviderRequestID: "pred-2"}},
+			wantRefund: false,
+		},
+		{
+			name:       "上游明确回执审核驳回，没有产出也不计费",
+			task:       &model.Task{ID: "task-g", UserID: "user-1", ProviderRequestID: "pred-3"},
+			taskErr:    errors.New("blocked_reason_safety"),
+			wantRefund: true,
+		},
+		{
+			name:       "上游已受理后超时：钱已经花出去了",
+			task:       &model.Task{ID: "task-h", UserID: "user-1", ProviderRequestID: "pred-4"},
+			taskErr:    context.DeadlineExceeded,
+			wantRefund: false,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			svc, _ := newTaskCreditTestService(t)
+			for index := range testCase.attempts {
+				attempt := testCase.attempts[index]
+				attempt.ID = "ATTEMPT" + strconv.Itoa(index+1)
+				attempt.TaskID = testCase.task.ID
+				attempt.AttemptNumber = index + 1
+				if err := svc.repo.CreateRouteAttempt(&attempt); err != nil {
+					t.Fatalf("写入提交记录失败: %v", err)
+				}
+			}
+			refundable, reason := svc.taskRefundVerdict(testCase.task, testCase.taskErr)
+			if refundable != testCase.wantRefund {
+				t.Fatalf("退款判定 = %v（%s），期望 %v", refundable, reason, testCase.wantRefund)
+			}
+			if !refundable && reason == "" {
+				t.Fatal("拒绝退款必须给出可查的原因")
+			}
+		})
+	}
+}
+
+// TestTaskRefundVerdictRefusesWhenSubmissionEvidenceUnreadable 覆盖读不到提交记录时的取向。
+//
+// 读不到证据就无法证明上游没受理。这里必须偏向平台并留下可查原因：悄悄按"该退"处理会
+// 变成净资损，而多留一笔可以通过申诉和后台手工补退纠正。
+func TestTaskRefundVerdictRefusesWhenSubmissionEvidenceUnreadable(t *testing.T) {
+	svc, _ := newTaskCreditTestService(t)
+	svc.repo = nil
+	refundable, reason := svc.taskRefundVerdict(&model.Task{ID: "task-1", UserID: "user-1", ProviderRequestID: "pred-9"}, nil)
+	if refundable {
+		t.Fatal("读不到提交记录时不应退款")
+	}
+	if reason == "" {
+		t.Fatal("拒绝退款必须给出可查的原因")
+	}
+}
+
+// TestRefundTaskCreditsSkipsLedgerWhenUpstreamAccepted 覆盖"上游已受理就不动账"。
+//
+// 端到端口径：任务取消或失败时，只要请求确实发出去过，计费端口一次都不该被调用。
+func TestRefundTaskCreditsSkipsLedgerWhenUpstreamAccepted(t *testing.T) {
+	svc, ledger := newTaskCreditTestService(t)
+	ledger.refunds = nil
+	if err := svc.repo.CreateRouteAttempt(&model.RouteAttempt{ID: "ATTEMPT1", TaskID: "task-9", AttemptNumber: 1, DispatchState: "dispatching"}); err != nil {
+		t.Fatalf("写入提交记录失败: %v", err)
+	}
+	svc.refundTaskCredits(&model.Task{ID: "task-9", UserID: "user-1"}, nil, "任务取消退回预扣")
+	if len(ledger.refunds) != 0 {
+		t.Fatalf("上游已受理时不该动账，实际 %v", ledger.refunds)
+	}
+}
+
+// TestRefundTaskCreditsRefundsBeforeAnyDispatch 覆盖"请求没发出去就该退"。
+func TestRefundTaskCreditsRefundsBeforeAnyDispatch(t *testing.T) {
+	svc, ledger := newTaskCreditTestService(t)
+	ledger.refundCredits, ledger.refunded = 450, true
+	svc.refundTaskCredits(&model.Task{ID: "task-10", UserID: "user-1"}, nil, "任务取消退回预扣")
+	if len(ledger.refunds) != 1 || ledger.refunds[0] != "task-10|任务取消退回预扣" {
+		t.Fatalf("请求未发出时应退回预扣，实际 %v", ledger.refunds)
 	}
 }

@@ -106,7 +106,8 @@ func (w *taskWorkerCoordinator) failTimelineTask(task *model.Task, stage string,
 	if !done {
 		return fmt.Errorf("时间线任务状态或租约已变化：%w", repository.ErrTaskStateConflict)
 	}
-	s.refundTaskCredits(task.UserID, task.ID, "转写失败退回预扣")
+	// 转写在本地执行，不存在上游计费，提交证据为空即全额退回。
+	s.refundTaskCredits(task, nil, "转写失败退回预扣")
 	s.logInfo(task.UserID, task.ID, fmt.Sprintf("时间线转写失败: %s", message), "")
 	return nil
 }

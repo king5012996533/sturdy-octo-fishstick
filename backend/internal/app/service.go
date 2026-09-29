@@ -212,6 +212,9 @@ func (s *Service) hydrateTaskProviderRequestID(task *model.Task) {
 	if task == nil || task.ProviderRequestID != "" {
 		return
 	}
+	if s.repo == nil {
+		return
+	}
 	if task.ProviderRequestID == "" {
 		if providerRequestID, err := s.repo.LatestProviderRequestIDForTask(task.ID); err == nil {
 			task.ProviderRequestID = providerRequestID

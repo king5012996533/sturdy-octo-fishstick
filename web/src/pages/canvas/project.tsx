@@ -908,7 +908,9 @@ function InfiniteCanvasPage() {
         (task: import("@/services/api/task-center").GenerationTask) => {
             modal.confirm({
                 title: "取消生成任务？",
-                content: localOnly ? "任务会立即停止本地执行。" : "任务会立即停止本地执行；如果已经提交到上游，系统会继续核对取消结果和积分状态。",
+                content: localOnly
+                    ? "任务会立即停止本地执行。"
+                    : "取消只停止等待。任务一旦提交到上游，上游立即开始计费，预扣积分不退还；只有请求还没发出（仍在排队）时才会退回。",
                 okText: "取消任务",
                 okButtonProps: { danger: true },
                 cancelText: "继续等待",

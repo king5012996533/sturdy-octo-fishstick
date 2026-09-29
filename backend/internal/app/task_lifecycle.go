@@ -141,8 +141,10 @@ func (w *taskLifecycleCoordinator) cancelTask(_ context.Context, userID string, 
 	task.Error = "任务已取消"
 	task.CompletedAt = &now
 	s.cancelActiveTask(task.ID)
-	// 取消发生在出片之前，上游没有交付任何东西，预扣必须退回。
-	s.refundTaskCredits(task.UserID, task.ID, "任务取消退回预扣")
+	// 取消只停止等待，不代表上游没干活。任务一旦提交成功，上游按创建即计费，那笔钱
+	// 已经花出去了，退回预扣就是把成本挪给平台；"退不退"交给退款判据按提交证据判断，
+	// 只有请求确实没发出时才退回。
+	s.refundTaskCredits(task, nil, "任务取消退回预扣")
 
 	// 这些收尾操作必须幂等；任何单项失败都记录日志，但不能让已经落库的
 	// cancelled 状态重新对用户表现为“取消失败”。

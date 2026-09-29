@@ -139,7 +139,7 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 	err = s.createTaskWithinStorageQuota(&task, policy)
 	if err != nil {
 		// 扣了费却没落库：这条任务不存在，没有任何后续路径会替它退款，必须当场退。
-		s.refundTaskCredits(task.UserID, task.ID, "任务创建失败退回预扣")
+		s.refundTaskCredits(&task, err, "任务创建失败退回预扣")
 	}
 	if errors.Is(err, repository.ErrActiveTaskLimit) {
 		return nil, BadAuthRequest(fmt.Sprintf("同时排队或运行的任务最多 %d 个，请等待已有任务完成", policy.Task.ActiveTaskLimit))

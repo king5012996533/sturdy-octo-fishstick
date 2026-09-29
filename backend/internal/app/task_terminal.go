@@ -46,14 +46,14 @@ type taskOutputLifecycle interface {
 // 单独一个接口而不是并进 taskLifecycleLogger：写日志是纯观测，退回是资金动作，
 // 让两者的实现被迫同时存在，会让"只想记日志"的测试替身不得不假装能退钱。
 type taskRefundLifecycle interface {
-	refundTaskCredits(userID string, taskID string, note string)
+	refundTaskCredits(task *model.Task, taskErr error, note string)
 }
 
 type taskTerminalServiceAdapter struct {
 	finalizeReplay func(string, model.TaskStatus) error
 	writeLog       func(string, string, string, string, string) error
 	registerOutput func(model.Task) error
-	refundCredits  func(string, string, string)
+	refundCredits  func(*model.Task, error, string)
 }
 
 func (a taskTerminalServiceAdapter) finalizeTaskTextReplay(taskID string, status model.TaskStatus) error {
@@ -71,11 +71,11 @@ func (a taskTerminalServiceAdapter) RegisterTaskOutputFromTask(task model.Task) 
 // refundTaskCredits 是 taskRefundLifecycle 的适配入口。
 //
 // 函数为 nil 时直接返回：桌面与本地装载没有计费端口，那里不该为"退不了钱"报错。
-func (a taskTerminalServiceAdapter) refundTaskCredits(userID string, taskID string, note string) {
+func (a taskTerminalServiceAdapter) refundTaskCredits(task *model.Task, taskErr error, note string) {
 	if a.refundCredits == nil {
 		return
 	}
-	a.refundCredits(userID, taskID, note)
+	a.refundCredits(task, taskErr, note)
 }
 
 func newTaskTerminalCoordinator(s *Service) *taskTerminalCoordinator {
@@ -109,7 +109,7 @@ func (c *taskTerminalCoordinator) markPreparationFailure(task *model.Task, stage
 	task.Status = model.TaskStatusFailed
 	task.Stage = stage
 	task.Error = c.userFacingMessage(err)
-	if terminalErr := c.markTerminalState(task); terminalErr != nil {
+	if terminalErr := c.markTerminalState(task, err); terminalErr != nil {
 		return errors.Join(err, terminalErr)
 	}
 	return err
@@ -127,7 +127,7 @@ func (c *taskTerminalCoordinator) handleExecutionFailure(task *model.Task, err e
 		task.Status = model.TaskStatusCancelled
 		task.Stage = "任务已取消"
 		task.Error = "任务已取消"
-		if terminalErr := c.markTerminalState(task); terminalErr != nil {
+		if terminalErr := c.markTerminalState(task, err); terminalErr != nil {
 			return terminalErr
 		}
 		c.finalizeReplay(task, model.TaskStatusCancelled, "文本回放草稿归并失败")
@@ -139,7 +139,7 @@ func (c *taskTerminalCoordinator) handleExecutionFailure(task *model.Task, err e
 	c.ensureFailedAttemptLogged(task, err)
 	task.Stage = "任务失败"
 	task.Error = c.userFacingMessage(err)
-	if terminalErr := c.markTerminalState(task); terminalErr != nil {
+	if terminalErr := c.markTerminalState(task, err); terminalErr != nil {
 		return errors.Join(err, terminalErr)
 	}
 	c.finalizeReplay(task, model.TaskStatusFailed, "文本回放草稿归并失败")
@@ -175,7 +175,7 @@ func (c *taskTerminalCoordinator) handleResultPersistenceFailure(task *model.Tas
 	task.Status = model.TaskStatusFailed
 	task.Stage = "任务结果保存失败"
 	task.Error = c.userFacingMessage(saveErr)
-	if terminalErr := c.markTerminalState(task); terminalErr != nil {
+	if terminalErr := c.markTerminalState(task, saveErr); terminalErr != nil {
 		return false, errors.Join(saveErr, terminalErr)
 	}
 	c.finalizeReplay(task, model.TaskStatusFailed, "文本回放草稿归并失败")
@@ -208,7 +208,7 @@ func (c *taskTerminalCoordinator) handleSuccess(task *model.Task) error {
 	return completionErr
 }
 
-func (c *taskTerminalCoordinator) markTerminalState(task *model.Task) error {
+func (c *taskTerminalCoordinator) markTerminalState(task *model.Task, taskErr error) error {
 	completedAt := time.Now()
 	task.CompletedAt = &completedAt
 	updated, err := c.repo.UpdateTaskTerminalState(task.ID, task.LeaseOwner, model.TaskStatusRunning, task.Status, task.Stage, task.Error, completedAt)
@@ -218,10 +218,12 @@ func (c *taskTerminalCoordinator) markTerminalState(task *model.Task) error {
 	if !updated {
 		return repository.ErrTaskStateConflict
 	}
-	// 终态是失败才退钱：成功意味着上游确实出了东西，那笔预扣就是它的价格。
+	// 终态是失败才谈退钱：成功意味着上游确实出了东西，那笔预扣就是它的价格。
+	// 失败也不等于该退——请求已经提交到上游时钱照样花出去了，退不退由退款判据按
+	// 提交证据判定，所以这里把原始错误一并传下去。
 	// refund 为 nil 表示当前形态不计费（桌面 / 本地装载），不是"该退但退不了"。
 	if c.refund != nil && task.Status == model.TaskStatusFailed {
-		c.refund.refundTaskCredits(task.UserID, task.ID, "任务失败退回预扣")
+		c.refund.refundTaskCredits(task, taskErr, "任务失败退回预扣")
 	}
 	return nil
 }
