@@ -62,7 +62,9 @@ const emptyPlan: PlanFormValues = {
     description: "",
     sortOrder: 0,
     priceYuan: 0,
-    periodDays: 30,
+    // 新建默认是积分包：平台对外只卖积分，周期留空（0）才是常规形态，
+    // 默认 30 天会让人建出一个前台根本买不到的套餐。
+    periodDays: 0,
     credits: 0,
     giftCredits: 0,
     quotaCalls: 0,
@@ -294,9 +296,9 @@ export function PlansPane() {
         <div className="flex flex-col gap-4">
             <div className="admin-section-head">
                 <div>
-                    <h2 className="admin-section-title">套餐管理</h2>
+                    <h2 className="admin-section-title">充值套餐</h2>
                     <p className="admin-section-desc">
-                        这里的套餐就是前台下单时可选的价格与配额。已经产生过订单的套餐建议「停用」而不是「删除」，停用后前台不再可售，但历史订单与已购权益不受影响。
+                        前台只卖「纯积分包」：周期填 0、积分填正数，下单后只加积分、不开订阅。已经产生过订单的套餐建议「停用」而不是「删除」，停用后前台不再可售，但历史订单不受影响。
                     </p>
                 </div>
                 <div className="admin-settings-inline">

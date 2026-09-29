@@ -65,17 +65,21 @@ function creditField(value: unknown) {
 }
 
 /**
- * 充值货架 = 在售套餐里带了积分的那一批，按后端给的顺序排。
+ * 充值货架 = 在售的「纯积分包」，按后端给的顺序排。
+ *
+ * 平台只卖积分：下单只加余额、不开订阅，所以这里必须要求 periodDays 为 0。
+ * 带周期的套餐（periodDays > 0）是订阅商品，一旦出现在这个货架上，用户会买到一件
+ * 界面上看不见的东西——订阅态在积分中心里没有任何展示位，等于静默扣一笔账。
  *
  * 积分字段仍过一遍 creditField：服务端版本落后时字段会是 undefined，直接参与
  * `credits + giftCredits > 0` 会得到 NaN 而被静默过滤掉——那正是我们要的结果
- * （劣化为"暂无可购买套餐"），但保留这次归一化能让意图显式，而不是靠 NaN 的巧合。
+ * （劣化为"暂无可购买的积分包"），但保留这次归一化能让意图显式，而不是靠 NaN 的巧合。
  */
 export async function getCreditTopUpPlans(): Promise<CreditTopUpPlan[]> {
     const plans = await getBillingPlans();
     return plans
         .map((plan) => ({ ...plan, credits: creditField(plan.credits), giftCredits: creditField(plan.giftCredits) }))
-        .filter((plan) => plan.credits + plan.giftCredits > 0)
+        .filter((plan) => plan.periodDays === 0 && plan.credits + plan.giftCredits > 0)
         .sort((left, right) => left.sortOrder - right.sortOrder || left.priceFen - right.priceFen);
 }
 

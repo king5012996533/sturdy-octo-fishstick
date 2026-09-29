@@ -43,7 +43,7 @@ const consoleSections: Array<{ key: ConsoleSectionKey; label: string; descriptio
     { key: "login-methods", label: "登录方式", description: "验证码、密码与第三方通道", icon: KeyRound, pane: () => <LoginMethodsPane /> },
     { key: "agreements", label: "协议管理", description: "条款版本与签署留痕", icon: FileSignature, pane: () => <AgreementsPane /> },
     { key: "gateways", label: "验证码网关", description: "邮件与短信投递通道", icon: Send, pane: () => <GatewaysPane /> },
-    { key: "plans", label: "订阅套餐", description: "可售套餐与配额", icon: Package, pane: () => <PlansPane /> },
+    { key: "plans", label: "充值套餐", description: "积分包与订阅配置", icon: Package, pane: () => <PlansPane /> },
     { key: "orders", label: "订单管理", description: "收款、补单与退款", icon: Receipt, pane: () => <OrdersPane /> },
     { key: "credits", label: "积分管理", description: "余额、流水与人工调整", icon: Coins, pane: () => <CreditsPane /> },
     { key: "coupons", label: "优惠券", description: "折扣券与核销记录", icon: TicketPercent, pane: () => <CouponsPane /> },

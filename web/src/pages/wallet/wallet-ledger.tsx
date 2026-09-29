@@ -11,7 +11,7 @@ import { getCreditLedger, type CreditLedgerEntry, type CreditLedgerKind } from "
 import { WalletPanel, errorMessage, formatCreditDelta, useDelayedLoading } from "./wallet-kit";
 
 /**
- * Zone C —— 流水区。
+ * Zone D —— 流水区。
  *
  * 台账要能被逐行比对，所以桌面用真表格（列头与数据通过 th/scope 关联）、金额列右对齐
  * 等宽；窄屏不做横向滚动，改为把「时间 · 变动后余额」压进类型列的第二行。

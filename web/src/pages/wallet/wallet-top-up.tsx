@@ -118,7 +118,7 @@ export function CreditTopUpSection({ revision, onNotice, onSettled }: { revision
         }
         onNotice({
             tone: "warning",
-            text: launch.provider === "MANUAL" ? "订单已创建，本渠道由运营人工确认到账，确认后积分自动入账。" : "订单已创建，但暂未获取到收银台地址，可在「订阅与充值」页的订单列表里继续支付。",
+            text: launch.provider === "MANUAL" ? "订单已创建，本渠道由运营人工确认到账，确认后积分自动入账。" : "订单已创建，但暂未获取到收银台地址，可在下方「充值订单」里继续支付。",
         });
     };
 
@@ -162,7 +162,7 @@ export function CreditTopUpSection({ revision, onNotice, onSettled }: { revision
             {/* 加载结束且没有错误就不能留白：一档都没有时给出说明与支持入口。 */}
             {!loading && !error && !plans.length ? (
                 <WalletPanel className="mt-4">
-                    <h3 className="font-[family-name:var(--font-display)] text-[var(--fs-heading)] font-semibold text-foreground">暂无可购买的套餐</h3>
+                    <h3 className="font-[family-name:var(--font-display)] text-[var(--fs-heading)] font-semibold text-foreground">暂无可购买的积分包</h3>
                     <p className="mt-1 max-w-[42ch] text-[var(--fs-caption)] leading-relaxed text-foreground/58">
                         当前账号看不到在售的积分包。如果你希望先开通或批量采购，可以通过帮助与反馈联系运营开通。
                     </p>

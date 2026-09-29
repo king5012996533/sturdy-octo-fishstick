@@ -12,14 +12,15 @@ import { getCreditWallet, type CreditWallet } from "@/services/api/credit";
 import { useUserStore } from "@/stores/use-user-store";
 
 import { CreditLedgerSection } from "./wallet-ledger";
+import { CreditOrdersSection } from "./wallet-orders";
 import { CreditTopUpSection } from "./wallet-top-up";
 import { WalletPanel, errorMessage, useDelayedLoading } from "./wallet-kit";
 
 /**
- * 用户端积分中心（/wallet）：余额 → 充值 → 流水，三级信息层级。
+ * 用户端积分中心（/wallet）：余额 → 充值 → 订单 → 流水，四级信息层级。
  *
- * 余额是唯一主角，充值是它的下一步动作，流水是账目凭据。三个 Zone 各自加载、各自失败、
- * 各自重试：账目接口抖动不能让用户看不到余额，反之亦然。
+ * 余额是唯一主角，充值是它的下一步动作，订单是付款凭据，流水是账目明细。四个 Zone 各自
+ * 加载、各自失败、各自重试：账目接口抖动不能让用户看不到余额，反之亦然。
  */
 
 /** 余额刷新时的一次性 count-up（≤600ms）；reduced-motion 下直接落到终值。 */
@@ -180,6 +181,8 @@ export function WalletPage() {
             <div ref={topUpRef} className="scroll-mt-16">
                 <CreditTopUpSection revision={revision} onNotice={setNotice} onSettled={reloadAll} />
             </div>
+
+            <CreditOrdersSection revision={revision} onNotice={setNotice} />
 
             <CreditLedgerSection revision={revision} onTopUp={scrollToTopUp} />
         </WorkspacePage>

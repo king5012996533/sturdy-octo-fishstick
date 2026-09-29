@@ -8,7 +8,6 @@ import RouteErrorPage from "@/pages/route-error";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 
 const AssetsPage = lazy(loadAssetsPage);
-const BillingPage = lazy(() => import("@/pages/billing").then((module) => ({ default: module.BillingPage })));
 const WalletPage = lazy(() => import("@/pages/wallet").then((module) => ({ default: module.WalletPage })));
 const CanvasPage = lazy(loadCanvasPage);
 const CanvasProjectPage = lazy(loadCanvasProjectPage);
@@ -108,12 +107,12 @@ export const router = createBrowserRouter([
                 element: <Navigate to="/" replace />,
             },
             { path: "/assets", element: deferred(<AssetsPage />) },
-            // 订阅与充值只在托管形态下有后端（/api/finance/* 注册在 hosted 路由组），
-            // 本地/桌面构建保留路由但入口被摇树删除，避免出现必然 404 的页面。
-            ...(__BEEFTV_HOSTED_AUTH__ ? [{ path: "/billing", element: deferred(<BillingPage />) }] : []),
-            // 积分中心同订阅页：余额、流水与充值档位都来自托管路由组里的 /api/finance/*。
+            // 积分中心是唯一的充值入口（余额、充值档位、订单、流水都来自托管路由组里的
+            // /api/finance/*）：本地/桌面构建没有这些接口，入口被摇树删除，避免必然 404。
             ...(__BEEFTV_HOSTED_AUTH__ ? [{ path: "/wallet", element: deferred(<WalletPage />) }] : []),
-            // 帮助与反馈同订阅页：工单接口只注册在托管路由组里，本地/桌面构建没有后端。
+            // 旧的订阅与充值页已下线，历史书签与外部跳转统一落到积分中心，不再 404。
+            ...(__BEEFTV_HOSTED_AUTH__ ? [{ path: "/billing", element: <Navigate to="/wallet" replace /> }] : []),
+            // 帮助与反馈同积分中心：工单接口只注册在托管路由组里，本地/桌面构建没有后端。
             ...(__BEEFTV_HOSTED_AUTH__ ? [{ path: "/support", element: deferred(<SupportPage />) }] : []),
             { path: "/skills", element: <Navigate to="/" replace /> },
             { path: "/skill", element: <Navigate to="/" replace /> },
