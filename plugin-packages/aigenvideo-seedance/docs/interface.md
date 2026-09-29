@@ -10,7 +10,7 @@
 - 创建：`POST /videos/generations`。
 - 查询：`GET /tasks/{{taskId}}`。
 
-两档共用同一 Base URL、鉴权与查询端点，唯一差别是上游 `mode` 与时长取值：2.0 档把画布选中的时长原样发到 `durationSeconds`（5 / 10 / 15），2.5 档固定发送 `mode=2.5`、`durationSeconds=30`。上游没有 `model` 字段，模型档位由 `mode` 决定。
+两档共用同一 Base URL、鉴权与查询端点，唯一差别是上游 `mode` 与时长取值：2.0 档把画布选中的时长原样发到 `durationSeconds`（5 / 10 / 15），2.5 档固定发送 `mode=2.5`、`durationSeconds=30`。上游没有 `model` 字段，模型档位由 `mode` 决定，因此本插件不映射 `request.model`。
 
 ## 配置字段
 
@@ -24,7 +24,7 @@
 | --- | --- | --- | --- | --- |
 | `prompt` | string | 是 | `prompt` | 视频描述提示词，可用 `@图N` 引用第 N 张参考图。 |
 | `aspectRatio` | string | 是 | `ratio` | 画幅比例。 |
-| `images` | media[] | 否 | `images[].url` | 参考图片，最多 10 张。 |
+| `images` | media[] | 否 | `images[].url` | 参考图片，最多 10 张；必须是上游可访问的 http(s) 地址。 |
 | `duration` | integer | 是 | `durationSeconds` | 2.0 档取 5 / 10 / 15；2.5 档固定 30。 |
 | `providerOptions` | object | 否 | `provider-specific fields` | 插件命名空间内的厂商扩展字段。 |
 
@@ -64,11 +64,22 @@
 | `timeout` | `failed` | 上游 2 小时未完成即判超时并全额退还积分；平台按终态失败处理，不再继续轮询。 |
 | `cancelled` | `cancelled` | 已取消，上游全额退还积分。 |
 
+## 参考素材要求
+
+上游 `images[].url` 只接受真实可下载的 http(s) 地址，且长度必须在 1-2000 字符之间：把图片内嵌成 `data:` 地址会被拒绝，实测报错为 `INVALID_TASK_PARAMETERS / 素材 URL 不合法:URL 长度必须在 1-2000 字符之间`。
+
+因此本插件声明 `requiresPublicMediaUrls: true`。图生视频要跑通，部署侧必须满足其一：
+
+- 配置对象存储，资源带非 `local` 的 provider，平台会生成带签名的对象地址；
+- 或者设置 `CANVAS_PUBLIC_BASE_URL` 指向公网可达域名，让本地资源也能被上游拉取。
+
+两者都缺失时，平台会在发出请求前给出「本地资源尚未配置上游可访问地址，请设置 CANVAS_PUBLIC_BASE_URL」之类的本地提示，不会把注定失败的内嵌素材发给上游。纯文生视频不受影响。
+
 ## 轮询与计费约定
 
 - 上游首次查询建议在创建后 5 分钟发起，之后按 10-30 秒间隔轮询；过早轮询只会命中 `pending / processing` 并消耗限流配额（120 次/分钟）。
 - 上游按任务固定扣 5 积分，创建时预扣，失败或取消时全额退还；平台侧积分按渠道模型的规格档位单独定价，不直接沿用上游积分。
-- 奖励接口 `GET /balance` 与产物刷新接口 `GET /tasks/output-url/{id}` 未接入协议层：前者属于运营侧对账，后者只在 CDN 地址过期时才有意义，平台在任务成功后立即转存产物，不依赖刷新。
+- 上游 `GET /v1/balance`（积分余额）与 `GET /v1/tasks/output-url/{id}`（产物地址刷新）未接入协议层：前者属于运营侧对账，后者只在 CDN 地址过期时才有意义，平台在任务成功后立即转存产物，不依赖刷新。
 
 ## 校验规则
 
@@ -79,8 +90,8 @@
 
 ## 已知限制
 
-- 上游不接受内嵌 `data:` 参考图之外的本地路径；本插件声明 `requiresPublicMediaUrls: false`，本地工作区的资源会以内嵌数据发送，若上游拒绝内嵌数据需改走对象存储并改为 `true`。
-- 2.5 档分辨率固定 720P，上游请求体没有分辨率字段，画布上的分辨率选择不参与上游请求。
+- 2.5 档分辨率固定 720P，上游请求体没有分辨率字段，画布上的分辨率选择不参与上游请求；2.0 档的实际输出分辨率上游文档未说明。
+- 上游不接受 `data:` 内嵌参考图，图生视频依赖部署侧具备公网可达的素材地址。
 
 <!-- BEEFTV_PLUGIN_MANIFEST_START -->
 ## Manifest 完整接口定义
@@ -125,7 +136,7 @@
           "agent"
         ],
         "baseUrl": "https://ai-genvideo.com/v1",
-        "requiresPublicMediaUrls": false,
+        "requiresPublicMediaUrls": true,
         "auth": {
           "type": "bearer",
           "field": "apiKey"
@@ -304,7 +315,7 @@
           "agent"
         ],
         "baseUrl": "https://ai-genvideo.com/v1",
-        "requiresPublicMediaUrls": false,
+        "requiresPublicMediaUrls": true,
         "auth": {
           "type": "bearer",
           "field": "apiKey"
