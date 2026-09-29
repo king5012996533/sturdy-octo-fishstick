@@ -143,7 +143,7 @@ def desired_rows() -> list[dict]:
                 "priceTier": tier,
                 "unit": UNIT,
                 "vendorCode": VENDOR_CODE,
-                # 售价 = null + 倍率：售价由服务端算出（上游价 × 2），
+                # 售价 = null + 倍率：售价由服务端按 MULTIPLIER 算出，
                 # 上游调价只改上游价一个数。
                 "upstreamUnitPrice": upstream_fen(usd),
                 "sellUnitPrice": None,
