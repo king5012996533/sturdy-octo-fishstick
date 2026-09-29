@@ -33,11 +33,20 @@ const (
 
 // PriceUnit 是计费单位标签。
 //
-// 它只说明"这个价按什么计量"，不参与金额计算：TEXT 按千 token、IMAGE 按张、
+// 它只说明"这个价按什么计量"，不参与金额计算：TEXT 按百万 token、IMAGE 按张、
 // VIDEO/AUDIO 按秒。上游换计量口径时先改标签，价格本身仍然只是数据。
 type PriceUnit string
 
 const (
+	// UnitPerMillionTokens 是文本的计价单位：分 / 百万 token。
+	//
+	// 用"百万"而不是"千"作为分母，是因为金额列是整数分（1 元 = 100 分）。
+	// 官方价里最便宜的一档是 0.02 元/百万 token，换算成"分/千 token"是 0.02 分——
+	// 整数存不下，只能被迫向上取整到 1 分，等于把 ¥0.02 按 ¥10 卖。
+	// 换成"分/百万 token"后，0.02 元 = 2 分，DeepSeek 全部档位都能原样落库。
+	UnitPerMillionTokens PriceUnit = "TOKEN_1M"
+	// UnitPerThousandTokens 是遗留的千 token 单位，只为兼容已存在的配置保留。
+	// 新配置一律用 UnitPerMillionTokens。
 	UnitPerThousandTokens PriceUnit = "TOKEN_1K"
 	UnitPerImage          PriceUnit = "IMAGE"
 	UnitPerSecond         PriceUnit = "SECOND"
@@ -48,7 +57,7 @@ const (
 func DefaultUnitFor(capability ModelCapability) PriceUnit {
 	switch capability {
 	case CapabilityText:
-		return UnitPerThousandTokens
+		return UnitPerMillionTokens
 	case CapabilityImage:
 		return UnitPerImage
 	case CapabilityVideo, CapabilityAudio:
@@ -58,6 +67,44 @@ func DefaultUnitFor(capability ModelCapability) PriceUnit {
 		return UnitPerRequest
 	}
 }
+
+// TokenTier 是文本计费的 token 档位。
+//
+// 上游对这三档分别定价，差距很大：DeepSeek 官方 deepseek-flash 的高峰价是
+// 缓存命中 0.04 元 / 未命中 2 元 / 输出 8 元（每百万 token），输出是缓存命中的 200 倍。
+// 实测流量里缓存命中能占到输入的七成——把三档揉成一个数字，等于用一个价去卖三种成本，
+// 无论填多少都必然有一头算错。
+//
+// 非文本能力（图片 / 视频 / 音频）留空，表示不区分档位。
+type TokenTier string
+
+const (
+	// TokenTierNone 表示该行不区分 token 档位（非文本能力）。
+	TokenTierNone TokenTier = ""
+	// TokenTierCache 是输入里命中提示词缓存的那部分。
+	TokenTierCache TokenTier = "CACHE"
+	// TokenTierInput 是输入里未命中缓存的那部分。
+	TokenTierInput TokenTier = "INPUT"
+	// TokenTierOutput 是模型生成的那部分。
+	TokenTierOutput TokenTier = "OUTPUT"
+)
+
+// validTokenTier 白名单：档位决定一次调用按哪一行的价结算，拼错的档位会让那份用量
+// 直接找不到价而已，不会报错——所以必须在写入口挡住。
+func validTokenTier(raw string) bool {
+	switch TokenTier(raw) {
+	case TokenTierCache, TokenTierInput, TokenTierOutput:
+		return true
+	default:
+		return false
+	}
+}
+
+// TextTokenTiers 是文本能力必须齐备的三个档位，顺序固定，供后台与校验共用。
+//
+// 顺序写死在这里而不是让调用方排：账单上的算式要能按同一顺序复核，
+// 三个入口各排一次就会出现"同一笔钱三种写法"。
+var TextTokenTiers = []TokenTier{TokenTierCache, TokenTierInput, TokenTierOutput}
 
 // 倍率基准与可填范围。
 const (
@@ -86,13 +133,18 @@ const pricingDefaultCurrency = "CNY"
 // 而不是 0。SellUnitPrice 非空时它就是最终售价，MultiplierBp 只用于展示"相对成本加了
 // 多少"；两者都空时由倍率乘上游成本算出售价。
 //
-// (model_key, capability) 唯一：同一个模型在同一类能力下只能有一条单价，否则同一笔
-// 调用会随读取顺序出现两个价格。
+// (model_key, capability, token_tier) 唯一：同一个模型在同一类能力同一个 token 档位上
+// 只能有一条单价，否则同一笔调用会随读取顺序出现两个价格。
+//
+// 文本按三个档位分行存价（见 TokenTier）：上游对缓存命中 / 未命中 / 输出的收费相差
+// 几倍到几十倍，挤进一行就只能填一个折中值，而折中值在长上下文场景里必定错一头。
 type ModelPrice struct {
 	ID         string `gorm:"column:id;primaryKey;size:36"`
-	ModelKey   string `gorm:"column:model_key;size:120;uniqueIndex:uk_billing_model_prices_model_capability,priority:1"`
-	Capability string `gorm:"column:capability;size:16;uniqueIndex:uk_billing_model_prices_model_capability,priority:2"`
-	Unit       string `gorm:"column:unit;size:24"`
+	ModelKey   string `gorm:"column:model_key;size:120;uniqueIndex:uk_billing_model_prices_model_capability_tier,priority:1"`
+	Capability string `gorm:"column:capability;size:16;uniqueIndex:uk_billing_model_prices_model_capability_tier,priority:2"`
+	// TokenTier 只在文本能力下有值；图片/视频/音频留空表示不区分档位。
+	TokenTier string `gorm:"column:token_tier;size:16;uniqueIndex:uk_billing_model_prices_model_capability_tier,priority:3"`
+	Unit      string `gorm:"column:unit;size:24"`
 	// VendorCode 可空，标注这条价来自哪家厂商，供 VENDOR 作用域的倍率规则匹配。
 	VendorCode        string `gorm:"column:vendor_code;size:64"`
 	UpstreamUnitPrice *int64 `gorm:"column:upstream_unit_price"`
@@ -154,7 +206,7 @@ func normalizePriceUnit(raw string) string {
 
 func validPriceUnit(raw string) bool {
 	switch PriceUnit(raw) {
-	case UnitPerThousandTokens, UnitPerImage, UnitPerSecond, UnitPerRequest:
+	case UnitPerMillionTokens, UnitPerThousandTokens, UnitPerImage, UnitPerSecond, UnitPerRequest:
 		return true
 	default:
 		return false
@@ -193,6 +245,7 @@ type ModelPriceView struct {
 	ID                string `json:"id"`
 	ModelKey          string `json:"modelKey"`
 	Capability        string `json:"capability"`
+	TokenTier         string `json:"tokenTier"`
 	Unit              string `json:"unit"`
 	VendorCode        string `json:"vendorCode"`
 	UpstreamUnitPrice *int64 `json:"upstreamUnitPrice"`
@@ -234,6 +287,7 @@ type ModelPriceInput struct {
 	ID                string `json:"id"`
 	ModelKey          string `json:"modelKey"`
 	Capability        string `json:"capability"`
+	TokenTier         string `json:"tokenTier"`
 	Unit              string `json:"unit"`
 	VendorCode        string `json:"vendorCode"`
 	UpstreamUnitPrice *int64 `json:"upstreamUnitPrice"`
@@ -263,6 +317,7 @@ func ModelPriceViewOf(price ModelPrice) ModelPriceView {
 		ID:                price.ID,
 		ModelKey:          price.ModelKey,
 		Capability:        price.Capability,
+		TokenTier:         price.TokenTier,
 		Unit:              price.Unit,
 		VendorCode:        price.VendorCode,
 		UpstreamUnitPrice: price.UpstreamUnitPrice,

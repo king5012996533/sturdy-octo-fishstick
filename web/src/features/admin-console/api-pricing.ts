@@ -14,13 +14,27 @@ import { http } from "@/services/api/request";
 /** 模型能力：与前台模型目录用的是同一套枚举。 */
 export type ModelPriceCapability = "TEXT" | "IMAGE" | "VIDEO" | "AUDIO";
 
-/** 计价单位：文本按千 token，图片按张，视频按秒，其余按次。 */
-export type ModelPriceUnit = "TOKEN_1K" | "IMAGE" | "SECOND" | "REQUEST";
+/**
+ * 计价单位：文本按百万 token，图片按张，视频按秒，其余按次。
+ *
+ * 文本用「分/百万 token」而不是「分/千 token」，是因为金额列是整数分：官方最便宜的档位
+ * 是 0.02 元/百万 token，折算成"分/千 token"是 0.02，整数存不下，只能被迫向上取整到
+ * 1 分——那等于把 ¥0.02 按 ¥10 卖。TOKEN_1K 只为兼容旧配置保留。
+ */
+export type ModelPriceUnit = "TOKEN_1M" | "TOKEN_1K" | "IMAGE" | "SECOND" | "REQUEST";
+
+/**
+ * 文本计费的 token 档位：上游对缓存命中 / 未命中 / 输出分别定价，差距可达两个数量级。
+ *
+ * 非文本能力留空字符串，表示不区分档位。
+ */
+export type ModelPriceTokenTier = "" | "CACHE" | "INPUT" | "OUTPUT";
 
 export type ModelPrice = {
     id: string;
     modelKey: string;
     capability: ModelPriceCapability;
+    tokenTier: ModelPriceTokenTier;
     unit: ModelPriceUnit;
     vendorCode: string;
     /** null = 还没定价（不是 0）：上游价格没回填时不能当成免费。 */
@@ -69,6 +83,8 @@ export type PricingResolution = {
 export type ModelPriceInput = {
     modelKey: string;
     capability: ModelPriceCapability;
+    /** 文本必填（CACHE / INPUT / OUTPUT），其余能力必须为空。 */
+    tokenTier: ModelPriceTokenTier;
     unit: ModelPriceUnit;
     vendorCode: string;
     /** 空值用 null 提交：0 与「未定价」在计费上是两件事。 */
@@ -84,6 +100,8 @@ export type PricingPreviewInput = {
     modelKey: string;
     vendorCode: string;
     capability: ModelPriceCapability;
+    /** 文本必须带上档位：三档价在库里是三行，不带档位查不到任何一条。 */
+    tokenTier: ModelPriceTokenTier;
     /** null 表示还没填上游单价，服务端会直接判为未定价。 */
     upstreamUnitPrice: number | null;
 };

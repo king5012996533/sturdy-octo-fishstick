@@ -100,10 +100,12 @@ describe("后台模型定价面板", () => {
         expect(pane).not.toContain("* 100");
         expect(pane).not.toContain("/ 100");
         // 表头/卡片说明必须写清单位，否则不知道 0.5 是每张还是每秒。
-        expect(pane).toContain("分/千token");
+        // 文本是"分/百万 token"：0.02 元/百万 token 换成"分/千 token"是 0.02 分，
+        // 整数存不下只能向上取整成 1 分，等于按 ¥10 卖。
+        expect(pane).toContain("分/百万token");
         expect(pane).toContain("上游单价（分/单位）");
         expect(pane).toContain("售价（分/单位）");
-        expect(pane).toContain('{ TOKEN_1K: "千 token", IMAGE: "张", SECOND: "秒", REQUEST: "次" }');
+        expect(pane).toContain('TOKEN_1M: "百万 token"');
     });
 
     test("倍率区：默认倍率只读展示 + 规则表可增删 + 整表保存", () => {
@@ -158,7 +160,9 @@ describe("后台模型定价面板", () => {
         // 试算单独一条路径，不写库。
         expect(api).toContain('http.post<{ resolution: PricingResolution }>("/admin/billing/model-prices/preview", input)');
         // 类型与后端契约字段一致。
-        expect(api).toContain('export type ModelPriceUnit = "TOKEN_1K" | "IMAGE" | "SECOND" | "REQUEST";');
+        expect(api).toContain('export type ModelPriceUnit = "TOKEN_1M" | "TOKEN_1K" | "IMAGE" | "SECOND" | "REQUEST";');
+        // 三档 token 价必须能表达：文本的三行靠 tokenTier 区分。
+        expect(api).toContain('export type ModelPriceTokenTier = "" | "CACHE" | "INPUT" | "OUTPUT";');
         expect(api).toContain('export type MarkupScope = "GLOBAL" | "CAPABILITY" | "VENDOR" | "MODEL";');
         expect(api).toContain("upstreamUnitPrice: number | null;");
         expect(api).toContain("sellUnitPrice: number | null;");

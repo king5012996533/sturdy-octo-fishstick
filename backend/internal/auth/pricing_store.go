@@ -36,7 +36,11 @@ func EnsurePricingSchema(db *gorm.DB) error {
 	// 读取会直接报 "ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint"。
 	// 索引名与结构体标签保持一致，重复建表时这里是 no-op。
 	statements := []string{
-		`CREATE UNIQUE INDEX IF NOT EXISTS uk_billing_model_prices_model_capability ON billing_model_prices (model_key, capability)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS uk_billing_model_prices_model_capability_tier ON billing_model_prices (model_key, capability, token_tier)`,
+		// 旧的两列唯一索引必须显式删掉：留着它，文本就一个模型只能存一档价，
+		// 三档 token 价会直接写不进去，而且报错会表现为"插入冲突"这种查不到根因的形态。
+		`DROP INDEX IF EXISTS uk_billing_model_prices_model_capability`,
+		`CREATE INDEX IF NOT EXISTS idx_billing_model_prices_model_capability ON billing_model_prices (model_key, capability)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS uk_billing_markup_rules_scope_target ON billing_markup_rules (scope, target)`,
 	}
 	for _, statement := range statements {
@@ -55,7 +59,7 @@ func EnsurePricingSchema(db *gorm.DB) error {
 // JSON 里是 [] 而不是 null。
 func (s *Store) ModelPrices() ([]ModelPrice, error) {
 	var prices []ModelPrice
-	if err := s.db.Order("model_key ASC, capability ASC").Find(&prices).Error; err != nil {
+	if err := s.db.Order("model_key ASC, capability ASC, token_tier ASC").Find(&prices).Error; err != nil {
 		return nil, err
 	}
 	if prices == nil {
@@ -79,10 +83,19 @@ func (s *Store) ModelPriceByID(id string) (*ModelPrice, error) {
 
 // ModelPriceByKey 按 (model_key, capability) 读取单价配置。
 //
+// 只用于非文本能力：它们不区分 token 档位，一行就是一个价。文本必须用
+// ModelPricesByTier——文本的三档价在库里是三行，随便取一行都会算出一个错的价格。
+//
 // 能力值先归一大写：库里只存大写，查询侧不归一就会出现"刚存进去却查不到"。
 func (s *Store) ModelPriceByKey(modelKey string, capability string) (*ModelPrice, error) {
+	return s.ModelPriceByTier(modelKey, capability, string(TokenTierNone))
+}
+
+// ModelPriceByTier 按 (model_key, capability, token_tier) 读取一条单价配置。
+func (s *Store) ModelPriceByTier(modelKey string, capability string, tier string) (*ModelPrice, error) {
 	var price ModelPrice
-	err := s.db.Where("model_key = ? AND capability = ?", strings.TrimSpace(modelKey), normalizeModelCapability(capability)).
+	err := s.db.Where("model_key = ? AND capability = ? AND token_tier = ?",
+		strings.TrimSpace(modelKey), normalizeModelCapability(capability), string(TokenTier(normalizeTokenTier(tier)))).
 		First(&price).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound
@@ -91,6 +104,34 @@ func (s *Store) ModelPriceByKey(modelKey string, capability string) (*ModelPrice
 		return nil, err
 	}
 	return &price, nil
+}
+
+// ModelPricesByTier 读取某个文本模型的三档价，缺档位时该键不存在。
+//
+// 返回 map 而不是切片：结算按档位取价，切片会逼调用方自己按 tier 找一遍，
+// 找漏一档的后果是那份用量被静默按 0 计算。
+func (s *Store) ModelPricesByTier(modelKey string, capability string) (map[string]*ModelPrice, error) {
+	var prices []ModelPrice
+	err := s.db.Where("model_key = ? AND capability = ?", strings.TrimSpace(modelKey), normalizeModelCapability(capability)).
+		Find(&prices).Error
+	if err != nil {
+		return nil, err
+	}
+	found := make(map[string]*ModelPrice, len(prices))
+	for index := range prices {
+		found[prices[index].TokenTier] = &prices[index]
+	}
+	return found, nil
+}
+
+// normalizeTokenTier 归一档位：首尾空格与大小写在这里抹平，白名单只认大写形态。
+// 空值保持为空，表示"不区分档位"，那是非文本能力的正常形态。
+func normalizeTokenTier(raw string) string {
+	trimmed := strings.ToUpper(strings.TrimSpace(raw))
+	if trimmed == "" {
+		return string(TokenTierNone)
+	}
+	return trimmed
 }
 
 // SaveModelPrice 按主键写入或更新单价配置。
@@ -109,7 +150,7 @@ func (s *Store) SaveModelPrice(price *ModelPrice) error {
 	return s.db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"model_key", "capability", "unit", "vendor_code", "upstream_unit_price",
+			"model_key", "capability", "token_tier", "unit", "vendor_code", "upstream_unit_price",
 			"sell_unit_price", "multiplier_bp", "currency", "enabled", "note", "updated_at",
 		}),
 	}).Create(price).Error
@@ -242,7 +283,19 @@ func (s *Service) SaveModelPrice(input ModelPriceInput) (*ModelPriceView, error)
 		unit = string(DefaultUnitFor(ModelCapability(capability)))
 	}
 	if !validPriceUnit(unit) {
-		return nil, invalidArgument("计费单位只能是 TOKEN_1K / IMAGE / SECOND / REQUEST")
+		return nil, invalidArgument("计费单位只能是 TOKEN_1M / TOKEN_1K / IMAGE / SECOND / REQUEST")
+	}
+	// 档位只在文本上有意义：图片按张、视频按秒，本来就没有"缓存命中"这种区分。
+	// 非文本能力填了档位就直接拒绝，而不是静默丢弃——丢弃会让运营以为自己配生效了。
+	tier := normalizeTokenTier(input.TokenTier)
+	if capability == string(CapabilityText) {
+		if !validTokenTier(tier) {
+			return nil, invalidArgument("文本单价必须指定 token 档位：CACHE / INPUT / OUTPUT")
+		}
+	} else {
+		if tier != string(TokenTierNone) {
+			return nil, invalidArgument("只有文本单价能指定 token 档位")
+		}
 	}
 	if input.UpstreamUnitPrice != nil && *input.UpstreamUnitPrice < 0 {
 		return nil, invalidArgument("上游单价不能为负数")
@@ -288,19 +341,20 @@ func (s *Service) SaveModelPrice(input ModelPriceInput) (*ModelPriceView, error)
 		enabled = *input.Enabled
 	}
 
-	// (model_key, capability) 是唯一键，撞车会让"这个模型按哪个价"失去唯一答案。
-	// 先查一次并给出中文冲突提示，而不是把唯一索引的报错译成 500。
-	conflicting, err := s.store.ModelPriceByKey(modelKey, capability)
+	// (model_key, capability, token_tier) 是唯一键，撞车会让"这个模型按哪个价"失去
+	// 唯一答案。先查一次并给出中文冲突提示，而不是把唯一索引的报错译成 500。
+	conflicting, err := s.store.ModelPriceByTier(modelKey, capability, tier)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, internalFailure(err)
 	}
 	if err == nil && conflicting.ID != targetID {
-		return nil, conflict("该模型与该能力组合已存在单价配置")
+		return nil, conflict("该模型、该能力、该 token 档位已存在单价配置")
 	}
 
 	price.ID = targetID
 	price.ModelKey = modelKey
 	price.Capability = capability
+	price.TokenTier = tier
 	price.Unit = unit
 	price.VendorCode = strings.TrimSpace(input.VendorCode)
 	price.UpstreamUnitPrice = input.UpstreamUnitPrice
@@ -417,12 +471,12 @@ func (s *Service) PreviewModelPrice(input PricingInput) (*PricingResolution, err
 		return nil, invalidArgument("上游单价不能为负数")
 	}
 
-	// 只有模型标识与能力都给了才去查单价：(model_key, capability) 才是唯一键，
-	// 少了能力就无法确定"这个模型按哪个价"。
+	// 只有模型标识与能力都给了才去查单价：(model_key, capability, token_tier) 才是唯一键，
+	// 少了能力就无法确定"这个模型按哪个价"；文本还会再多一维档位。
 	var price *ModelPrice
 	modelKey := strings.TrimSpace(input.ModelKey)
 	if modelKey != "" && capability != "" {
-		found, err := s.store.ModelPriceByKey(modelKey, capability)
+		found, err := s.store.ModelPriceByTier(modelKey, capability, input.TokenTier)
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return nil, internalFailure(err)
 		}

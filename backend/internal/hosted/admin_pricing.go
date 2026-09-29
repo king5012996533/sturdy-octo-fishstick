@@ -47,6 +47,7 @@ func modelPriceAuditMetadata(view *auth.ModelPriceView) gin.H {
 	return gin.H{
 		"modelKey":          view.ModelKey,
 		"capability":        view.Capability,
+		"tokenTier":         view.TokenTier,
 		"unit":              view.Unit,
 		"multiplierBp":      view.MultiplierBp,
 		"upstreamUnitPrice": view.UpstreamUnitPrice,

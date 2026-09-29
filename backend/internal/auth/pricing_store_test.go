@@ -149,19 +149,24 @@ func TestReplaceMarkupRulesReplacesAll(t *testing.T) {
 func TestSavePricingModelPriceKeepsUnpricedAndFreeDistinct(t *testing.T) {
 	env := newPricingTestEnv(t)
 
-	// 只填模型与能力：单位、币种、启用状态都走默认，价格保持"未定价"。
-	unpriced, err := env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "text"})
+	// 只填模型、能力与档位：单位、币种、启用状态都走默认，价格保持"未定价"。
+	unpriced, err := env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "text", TokenTier: "input"})
 	if err != nil {
 		t.Fatalf("保存未定价配置失败: %v", err)
 	}
 	if unpriced.UpstreamUnitPrice != nil || unpriced.SellUnitPrice != nil || unpriced.MultiplierBp != nil {
 		t.Fatalf("未定价配置不应被填成 0：%+v", unpriced)
 	}
-	if unpriced.Unit != string(UnitPerThousandTokens) || unpriced.Currency != "CNY" || !unpriced.Enabled {
+	// 文本默认按「分/百万 token」：官方最便宜的一档是 0.02 元/百万 token，换成
+	// 分/千 token 是 0.02 分，整数存不下，只能被迫向上取整成 1 分（等于按 ¥10 卖）。
+	if unpriced.Unit != string(UnitPerMillionTokens) || unpriced.Currency != "CNY" || !unpriced.Enabled {
 		t.Fatalf("默认单位、币种与启用状态不正确：%+v", unpriced)
 	}
 	if unpriced.Capability != string(CapabilityText) {
 		t.Fatalf("能力值应归一大写：%q", unpriced.Capability)
+	}
+	if unpriced.TokenTier != string(TokenTierInput) {
+		t.Fatalf("档位应归一大写：%q", unpriced.TokenTier)
 	}
 	if unpriced.CreatedAt == "" || unpriced.UpdatedAt == "" {
 		t.Fatalf("视图缺少时间字段：%+v", unpriced)
@@ -191,23 +196,37 @@ func TestSavePricingModelPriceKeepsUnpricedAndFreeDistinct(t *testing.T) {
 		t.Fatalf("AUDIO 的默认单位应为按秒：%q", multiplied.Unit)
 	}
 
-	// 冲突：同一个 (model_key, capability) 不能有第二条。
-	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "TEXT"})
+	// 同一个模型的另外两档可以并存：文本的三档价本来就是三行，唯一键必须带上档位，
+	// 否则"缓存命中 8 分 / 输出 1600 分"这种真实价目根本存不下来。
+	for _, tier := range []string{"CACHE", "OUTPUT"} {
+		if _, err := env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", TokenTier: tier}); err != nil {
+			t.Fatalf("同一模型的 %s 档位应可单独成行: %v", tier, err)
+		}
+	}
+
+	// 冲突：同一个 (model_key, capability, token_tier) 不能有第二条。
+	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", TokenTier: "INPUT"})
 	assertBillingError(t, err, 409, "")
 
 	// 非法输入一律 400。
-	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "", Capability: "TEXT"})
+	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "", Capability: "TEXT", TokenTier: "INPUT"})
 	assertBillingError(t, err, 400, "")
 	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m1", Capability: "MUSIC"})
 	assertBillingError(t, err, 400, "")
-	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m2", Capability: "TEXT", Multiplier: "abc"})
+	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m2", Capability: "TEXT", TokenTier: "INPUT", Multiplier: "abc"})
 	assertBillingError(t, err, 400, "")
-	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m3", Capability: "TEXT", UpstreamUnitPrice: pricingInt64Ptr(-1)})
+	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m3", Capability: "TEXT", TokenTier: "INPUT", UpstreamUnitPrice: pricingInt64Ptr(-1)})
 	assertBillingError(t, err, 400, "")
-	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m4", Capability: "TEXT", SellUnitPrice: pricingInt64Ptr(-1)})
+	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m4", Capability: "TEXT", TokenTier: "INPUT", SellUnitPrice: pricingInt64Ptr(-1)})
 	assertBillingError(t, err, 400, "")
-	_, err = env.service.SaveModelPrice(ModelPriceInput{ID: "not-exist", ModelKey: "m5", Capability: "TEXT"})
+	_, err = env.service.SaveModelPrice(ModelPriceInput{ID: "not-exist", ModelKey: "m5", Capability: "TEXT", TokenTier: "INPUT"})
 	assertBillingError(t, err, 404, "")
+
+	// 文本缺档位、非文本带档位都必须拒绝：静默丢弃会让运营以为自己配的那条生效了。
+	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m6", Capability: "TEXT"})
+	assertBillingError(t, err, 400, "")
+	_, err = env.service.SaveModelPrice(ModelPriceInput{ModelKey: "m7", Capability: "IMAGE", TokenTier: "INPUT"})
+	assertBillingError(t, err, 400, "")
 }
 
 // TestReplaceMarkupRulesValidation 覆盖规则集的服务层校验与归一化。
@@ -275,8 +294,12 @@ func TestReplaceMarkupRulesValidation(t *testing.T) {
 func TestPreviewPricingModelPriceResolves(t *testing.T) {
 	env := newPricingTestEnv(t)
 
-	if _, err := env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", Multiplier: "1.2"}); err != nil {
+	if _, err := env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", TokenTier: "INPUT", Multiplier: "1.2"}); err != nil {
 		t.Fatalf("准备单价配置失败: %v", err)
+	}
+	// 输出档位单独配一条更贵的倍率：文本三档各自走自己的价与自己的倍率。
+	if _, err := env.service.SaveModelPrice(ModelPriceInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", TokenTier: "OUTPUT", Multiplier: "3"}); err != nil {
+		t.Fatalf("准备输出档位配置失败: %v", err)
 	}
 	if _, err := env.service.ReplaceMarkupRules(MarkupInput{Rules: []MarkupRuleInput{
 		{Scope: MarkupScopeGlobal, MultiplierBp: 15000},
@@ -286,7 +309,7 @@ func TestPreviewPricingModelPriceResolves(t *testing.T) {
 	}
 
 	// 命中模型专属倍率：1000 × 1.2 = 1200。
-	resolution, err := env.service.PreviewModelPrice(PricingInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", UpstreamUnitPrice: pricingInt64Ptr(1000)})
+	resolution, err := env.service.PreviewModelPrice(PricingInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", TokenTier: "INPUT", UpstreamUnitPrice: pricingInt64Ptr(1000)})
 	if err != nil {
 		t.Fatalf("试算失败: %v", err)
 	}
@@ -295,6 +318,24 @@ func TestPreviewPricingModelPriceResolves(t *testing.T) {
 	}
 	if resolution.SellUnitPrice == nil || *resolution.SellUnitPrice != 1200 {
 		t.Fatalf("售价应为 1200，实际 %v", resolution.SellUnitPrice)
+	}
+
+	// 同一模型换到输出档位：走的是输出那条配置的倍率，不会串到输入档位上。
+	resolution, err = env.service.PreviewModelPrice(PricingInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", TokenTier: "OUTPUT", UpstreamUnitPrice: pricingInt64Ptr(1000)})
+	if err != nil {
+		t.Fatalf("试算失败: %v", err)
+	}
+	if resolution.MultiplierBp != 30000 || resolution.SellUnitPrice == nil || *resolution.SellUnitPrice != 3000 {
+		t.Fatalf("输出档位应走自己的倍率：%+v", resolution)
+	}
+
+	// 文本不给档位就等于没定价：三档价在库里是三行，随便取一行都会算出一个错的价格。
+	resolution, err = env.service.PreviewModelPrice(PricingInput{ModelKey: "gpt-4o-mini", Capability: "TEXT", UpstreamUnitPrice: pricingInt64Ptr(1000)})
+	if err != nil {
+		t.Fatalf("试算失败: %v", err)
+	}
+	if resolution.Source != MarkupScopeGlobal {
+		t.Fatalf("不带档位的文本试算不应命中任何单价配置：%+v", resolution)
 	}
 
 	// 没有单价配置的模型回落到能力规则：800 × 1.25 = 1000。
