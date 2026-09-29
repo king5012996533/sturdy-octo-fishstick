@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"infinite-canvas/backend/internal/kernel"
 )
@@ -194,6 +195,70 @@ func (s *Service) AdjustCredits(userID string, amount int64, note string) (*Cred
 }
 
 // creditEntryFrom 校验并补全一条变动，产出可直接落库的流水。
+
+// authOptionalText 解引用可空文本列，nil 与空串一视同仁。
+//
+// 账号表把资料列建成可空（第三方登录可能只有其中一项），越界读取会 panic，
+// 而"这一列没有值"与"这一列是空串"在展示上没有区别，统一压成空串。
+func authOptionalText(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+// AdminCreditAccounts 是后台的积分账户列表，按余额降序。
+//
+// 账号资料与账户读数在这里合并，而不是让调用方拿着 userId 再去查一遍账号：
+// 一次列表 20 行就是 20 次额外查询，而"这个人叫什么"恰恰是这一页最需要的字段。
+func (s *Service) AdminCreditAccounts(filter CreditAccountFilter) ([]CreditAccountRowView, int64, error) {
+	if filter.Page <= 0 {
+		filter.Page = 1
+	}
+	if filter.Limit <= 0 || filter.Limit > 200 {
+		filter.Limit = 20
+	}
+	accounts, total, err := s.store.CreditAccountPage(filter)
+	if err != nil {
+		return nil, 0, internalFailure(err)
+	}
+	views := make([]CreditAccountRowView, 0, len(accounts))
+	if len(accounts) == 0 {
+		return views, total, nil
+	}
+	ids := make([]string, 0, len(accounts))
+	for _, account := range accounts {
+		ids = append(ids, account.UserID)
+	}
+	users, err := s.store.UsersByIDs(ids)
+	if err != nil {
+		return nil, 0, internalFailure(err)
+	}
+	directory := make(map[string]User, len(users))
+	for _, user := range users {
+		directory[user.ID] = user
+	}
+	for _, account := range accounts {
+		view := CreditAccountRowView{
+			UserID:      account.UserID,
+			Balance:     account.Balance,
+			LifetimeIn:  account.LifetimeIn,
+			LifetimeOut: account.LifetimeOut,
+		}
+		if !account.UpdatedAt.IsZero() {
+			view.UpdatedAt = account.UpdatedAt.Format(time.RFC3339)
+		}
+		if user, ok := directory[account.UserID]; ok {
+			view.Name = user.DisplayName()
+			view.Username = authOptionalText(user.Username)
+			view.Email = authOptionalText(user.Email)
+			view.Phone = authOptionalText(user.Phone)
+		}
+		views = append(views, view)
+	}
+	return views, total, nil
+}
+
 func creditEntryFrom(mutation CreditMutation) (CreditLedgerEntry, error) {
 	userID := strings.TrimSpace(mutation.UserID)
 	if userID == "" {

@@ -61,6 +61,11 @@ type BillingPlan struct {
 	Enabled     bool   `gorm:"column:enabled"`
 	PriceFen    int64  `gorm:"column:price_fen"`
 	PeriodDays  int    `gorm:"column:period_days"`
+	// Credits / GiftCredits 是"买这个套餐到账多少积分（分）"与"平台另送多少积分"。
+	// 两者分开存，是为了让账单上"我买了多少"和"平台送我多少"能分别统计：合成一个数
+	// 之后，退款只退本金时就没有任何依据知道该退多少。
+	Credits     int64 `gorm:"column:credits"`
+	GiftCredits int64 `gorm:"column:gift_credits"`
 	// 配额：0 表示不限量。后台开通的套餐默认不限制调用次数，按量计费由渠道侧承担。
 	QuotaCalls     int64 `gorm:"column:quota_calls"`
 	QuotaStorageMB int64 `gorm:"column:quota_storage_mb"`
@@ -95,17 +100,21 @@ func (BillingSubscription) TableName() string { return "billing_subscriptions" }
 // PlanName/CouponCode 都是下单时的快照：套餐改名、优惠券下架之后，历史订单必须还能
 // 原样展示，否则财务对不上账。
 type BillingOrder struct {
-	ID              string     `gorm:"column:id;primaryKey;size:36"`
-	OrderNo         string     `gorm:"column:order_no;size:40"`
-	UserID          string     `gorm:"column:user_id;size:36"`
-	PlanID          string     `gorm:"column:plan_id;size:36"`
-	PlanCode        string     `gorm:"column:plan_code;size:32"`
-	PlanName        string     `gorm:"column:plan_name;size:64"`
-	AmountFen       int64      `gorm:"column:amount_fen"`
-	DiscountFen     int64      `gorm:"column:discount_fen"`
-	PayableFen      int64      `gorm:"column:payable_fen"`
-	CouponID        string     `gorm:"column:coupon_id;size:36"`
-	CouponCode      string     `gorm:"column:coupon_code;size:32"`
+	ID          string `gorm:"column:id;primaryKey;size:36"`
+	OrderNo     string `gorm:"column:order_no;size:40"`
+	UserID      string `gorm:"column:user_id;size:36"`
+	PlanID      string `gorm:"column:plan_id;size:36"`
+	PlanCode    string `gorm:"column:plan_code;size:32"`
+	PlanName    string `gorm:"column:plan_name;size:64"`
+	AmountFen   int64  `gorm:"column:amount_fen"`
+	DiscountFen int64  `gorm:"column:discount_fen"`
+	PayableFen  int64  `gorm:"column:payable_fen"`
+	CouponID    string `gorm:"column:coupon_id;size:36"`
+	CouponCode  string `gorm:"column:coupon_code;size:32"`
+	// Credits / GiftCredits 是下单时的快照：套餐改价、改赠送之后，已经付过款的这笔
+	// 订单必须还按当时承诺的量到账，否则用户付了钱却少拿积分。
+	Credits         int64      `gorm:"column:credits"`
+	GiftCredits     int64      `gorm:"column:gift_credits"`
 	Status          string     `gorm:"column:status;size:16"`
 	Provider        string     `gorm:"column:provider;size:16"`
 	ProviderOrderNo string     `gorm:"column:provider_order_no;size:64"`
@@ -224,6 +233,8 @@ type BillingPlanView struct {
 	Enabled        bool      `json:"enabled"`
 	PriceFen       int64     `json:"priceFen"`
 	PeriodDays     int       `json:"periodDays"`
+	Credits        int64     `json:"credits"`
+	GiftCredits    int64     `json:"giftCredits"`
 	QuotaCalls     int64     `json:"quotaCalls"`
 	QuotaStorageMB int64     `json:"quotaStorageMb"`
 	QuotaMembers   int       `json:"quotaMembers"`
@@ -241,6 +252,8 @@ func BillingPlanViewOf(plan BillingPlan) BillingPlanView {
 		Enabled:        plan.Enabled,
 		PriceFen:       plan.PriceFen,
 		PeriodDays:     plan.PeriodDays,
+		Credits:        plan.Credits,
+		GiftCredits:    plan.GiftCredits,
 		QuotaCalls:     plan.QuotaCalls,
 		QuotaStorageMB: plan.QuotaStorageMB,
 		QuotaMembers:   plan.QuotaMembers,
@@ -277,6 +290,8 @@ type BillingOrderView struct {
 	DiscountFen     int64      `json:"discountFen"`
 	PayableFen      int64      `json:"payableFen"`
 	CouponCode      string     `json:"couponCode"`
+	Credits         int64      `json:"credits"`
+	GiftCredits     int64      `json:"giftCredits"`
 	Status          string     `json:"status"`
 	Provider        string     `json:"provider"`
 	ProviderOrderNo string     `json:"providerOrderNo"`
@@ -300,6 +315,8 @@ func BillingOrderViewOfUser(order BillingOrder, user *User) BillingOrderView {
 		DiscountFen:     order.DiscountFen,
 		PayableFen:      order.PayableFen,
 		CouponCode:      order.CouponCode,
+		Credits:         order.Credits,
+		GiftCredits:     order.GiftCredits,
 		Status:          order.Status,
 		Provider:        order.Provider,
 		ProviderOrderNo: order.ProviderOrderNo,
@@ -383,17 +400,21 @@ type BillingRevenue struct {
 
 // BillingPlanInput 是后台保存套餐的入参。ID 为空表示新建。
 type BillingPlanInput struct {
-	ID             string `json:"id"`
-	Code           string `json:"code"`
-	Name           string `json:"name"`
-	Description    string `json:"description"`
-	SortOrder      int    `json:"sortOrder"`
-	Enabled        bool   `json:"enabled"`
-	PriceFen       int64  `json:"priceFen"`
-	PeriodDays     int    `json:"periodDays"`
-	QuotaCalls     int64  `json:"quotaCalls"`
-	QuotaStorageMB int64  `json:"quotaStorageMb"`
-	QuotaMembers   int    `json:"quotaMembers"`
+	ID          string `json:"id"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	SortOrder   int    `json:"sortOrder"`
+	Enabled     bool   `json:"enabled"`
+	PriceFen    int64  `json:"priceFen"`
+	PeriodDays  int    `json:"periodDays"`
+	// Credits / GiftCredits 为该套餐的到账积分与赠送积分（分）。PeriodDays 为 0 且
+	// Credits > 0 时是纯积分包：只加积分、不产生订阅。
+	Credits        int64 `json:"credits"`
+	GiftCredits    int64 `json:"giftCredits"`
+	QuotaCalls     int64 `json:"quotaCalls"`
+	QuotaStorageMB int64 `json:"quotaStorageMb"`
+	QuotaMembers   int   `json:"quotaMembers"`
 }
 
 // BillingCouponInput 是后台保存优惠券的入参。ID 为空表示新建。

@@ -120,6 +120,9 @@ func New(deps bootstrap.HostedDeps, options Options) (bootstrap.HostedExtension,
 		// 内容审核是托管专属能力：本地/桌面形态的库结构里没有 canvas_moderation，
 		// 开着它只会让每次读写画布都撞上一张不存在的表。
 		deps.Service.EnableCanvasModeration(true)
+		// 任务计费同样只在托管实例注入：本地/桌面没有账号库，也就没有积分账户，
+		// 注入一个空的端口只会让每次生成都去撞一张不存在的表。
+		deps.Service.UseTaskCreditLedger(creditLedgerAdapter{service: service})
 	}
 	return extension, nil
 }
@@ -230,6 +233,8 @@ func (e *Extension) RegisterRoutes(api *gin.RouterGroup) {
 	e.registerOwnCanvasModerationRoutes(api)
 	// 计费：套餐货架、结算试算、下单与支付（用户端，主体恒为会话账号）。
 	e.registerBillingRoutes(api)
+	// 积分：余额与流水（用户端，同样以会话账号为主体）。
+	e.registerCreditRoutes(api)
 	// 工单与反馈：用户提交工单、查看自己的工单与回复。
 	e.registerSupportRoutes(api)
 	// 模板目录：前台可套用的画布模板（只读，仅返回已上架）。

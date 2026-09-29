@@ -137,6 +137,9 @@ func (s *Service) CreateBillingOrder(userID string, input BillingOrderInput) (*B
 		AmountFen:   quote.amountFen,
 		DiscountFen: quote.discountFen,
 		PayableFen:  quote.payableFen,
+		// 积分按快照落单：套餐改价、改赠送之后，这笔已付的订单仍按当时承诺的量到账。
+		Credits:     quote.plan.Credits,
+		GiftCredits: quote.plan.GiftCredits,
 		Status:      OrderStatusPending,
 		// Provider 是下单时"当前启用的渠道"的快照：下单之后运营换了渠道，
 		// 这笔单子仍然应该走当时选定的渠道，否则会付错地方。
@@ -314,8 +317,22 @@ func (s *Service) markBillingOrderPaid(order *BillingOrder, remark string) (*Bil
 	// 续期失败）会留下"已付款但没生效"、且因幂等再也补不上的死局；先续期最坏是落
 	// 状态失败留下 PENDING 订单，重试可能多续一期，属于可人工对账的偏差，
 	// 比"用户付了钱拿不到服务"轻得多。
-	if _, err := s.store.ActivateSubscription(order.UserID, *plan, order.ID); err != nil {
-		return nil, internalFailure(err)
+	//
+	// 周期为 0 的是纯积分包：只加积分、不产生订阅，否则用户买一包积分会顺带得到
+	// 一份"永久有效"的订阅，权益页上就再也说不清他到底买过什么。
+	if plan.PeriodDays > 0 {
+		if _, err := s.store.ActivateSubscription(order.UserID, *plan, order.ID); err != nil {
+			return nil, internalFailure(err)
+		}
+	}
+
+	// 积分到账同样放在落状态之前，理由与续期一致。到账按订单 ID 幂等（见积分域的
+	// 唯一索引），因此回调重放与客服重复补单都只会到账一次。
+	// 金额取订单上的快照而不是当前套餐：用户付的是当时那一版承诺。
+	if order.Credits > 0 || order.GiftCredits > 0 {
+		if _, _, err := s.GrantTopUpCredits(order.UserID, order.ID, order.Credits, order.GiftCredits, "订单 "+order.OrderNo+" 充值到账"); err != nil {
+			return nil, internalFailure(err)
+		}
 	}
 
 	now := s.now()

@@ -140,6 +140,23 @@ type CreditLedgerFilter struct {
 	PageSize int
 }
 
+// CreditAccountRowView 是后台积分列表的一行：账户读数 + 账号资料。
+//
+// 资料字段与余额同处一行，是因为后台看这张表只有一个问题——"这个人还有多少钱"；
+// 只回 userId 会让列表变成一串看不懂的字符串，运营还得逐个去账号页对照。
+// 账号被删除后账户仍在（资金记录不能因为账号消失就消失），此时资料留空而不是报错。
+type CreditAccountRowView struct {
+	UserID      string `json:"userId"`
+	Name        string `json:"name"`
+	Username    string `json:"username"`
+	Email       string `json:"email"`
+	Phone       string `json:"phone"`
+	Balance     int64  `json:"balance"`
+	LifetimeIn  int64  `json:"lifetimeIn"`
+	LifetimeOut int64  `json:"lifetimeOut"`
+	UpdatedAt   string `json:"updatedAt"`
+}
+
 // CreditWalletViewOf 把账户投影成视图。账户不存在时给出零余额而不是报错：
 // "没充过钱的用户"是正常状态，不该让积分卡片显示成加载失败。
 func CreditWalletViewOf(account *CreditAccount, userID string) CreditWalletView {

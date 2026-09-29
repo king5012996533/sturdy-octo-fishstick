@@ -218,3 +218,50 @@ func normalizeCreditPage(page int, pageSize int) (int, int) {
 	}
 	return page, pageSize
 }
+
+// CreditAccountFilter 是后台积分账户列表的筛选条件。
+//
+// 只有关键字一个维度：后台这张表的用途是"找到某个人、看清他的余额"，再叠状态、
+// 角色之类的筛选项，运营要回答的仍然是同一个问题，却要多点两次下拉框。
+// 默认排序是余额降序（见 CreditAccountPage），所以"关键字留空"本身就是一份消耗排行。
+type CreditAccountFilter struct {
+	Keyword string
+	Page    int
+	Limit   int
+}
+
+// creditAccountQuery 构造带筛选的账户查询。
+//
+// 关键字走 adminUserQuery 的同一段 where：两边对"关键字能匹配到什么"给出不同答案时，
+// 后台账号列表能搜到的人，在积分列表里搜不到，运维会以为是两套账号体系。
+func (s *Store) creditAccountQuery(filter CreditAccountFilter) *gorm.DB {
+	query := s.db.Model(&CreditAccount{})
+	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+		query = query.Where("user_id IN (?)", s.adminUserQuery(AdminUserFilter{Keyword: keyword}).Select("id"))
+	}
+	return query
+}
+
+// CreditAccountPage 返回分页后的积分账户与总数，按余额降序排列。
+//
+// 排序必须稳定：余额相同的账号不在第二排序键上定序时，翻页会重复或漏掉记录，
+// 而后台对账正是按行核对，漏一行就要重新翻一遍。因此补 user_id 兜底。
+func (s *Store) CreditAccountPage(filter CreditAccountFilter) ([]CreditAccount, int64, error) {
+	var total int64
+	if err := s.creditAccountQuery(filter).Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("auth: 统计积分账户失败: %w", err)
+	}
+	var accounts []CreditAccount
+	query := s.creditAccountQuery(filter).Order("balance DESC, user_id ASC")
+	if filter.Limit > 0 {
+		page := filter.Page
+		if page <= 0 {
+			page = 1
+		}
+		query = query.Limit(filter.Limit).Offset((page - 1) * filter.Limit)
+	}
+	if err := query.Find(&accounts).Error; err != nil {
+		return nil, 0, fmt.Errorf("auth: 读取积分账户失败: %w", err)
+	}
+	return accounts, total, nil
+}

@@ -70,6 +70,8 @@ func (e *Extension) registerAdminRoutes(api *gin.RouterGroup) {
 	e.registerCanvasModerationRoutes(group)
 	// 计费管理：套餐、订单（补单/退款）、优惠券与支付渠道配置。
 	e.registerAdminBillingRoutes(group)
+	// 积分管理：账户余额排行、单人流水与手工调整（调整必须留审计）。
+	e.registerAdminCreditRoutes(group)
 	// 角色与权限：RBAC 角色定义、权限点与账号角色分配。
 	e.registerAdminRbacRoutes(group)
 	// 素材管理：素材列表、处置状态与占用读数。
@@ -325,18 +327,31 @@ func respondFailure(c *gin.Context, status int, message string) {
 	c.JSON(status, gin.H{"code": status, "data": nil, "msg": message})
 }
 
+// respondFailureWithReason 在失败信封里补上机器可读的原因码。
+//
+// 只给「前端要据此决定下一步动作」的错误加 reason（典型是积分不足要引导充值）：
+// 让前端去匹配中文文案来选弹窗，改一次文案就会静默失效，而这种失效没人会主动发现。
+// reason 为空时退化成普通失败响应，前端拿到的信封形状保持不变。
+func respondFailureWithReason(c *gin.Context, status int, message string, reason string) {
+	if reason == "" {
+		respondFailure(c, status, message)
+		return
+	}
+	c.JSON(status, gin.H{"code": status, "data": nil, "msg": message, "reason": reason})
+}
+
 // respondServiceError 把 auth/app 两个模块的结构化错误投影成 HTTP。
 //
 // 未分类错误一律 500 且不回显原文：上游响应体与凭据不允许进入响应。
 func respondServiceError(c *gin.Context, err error) {
 	var authErr *auth.Error
 	if errors.As(err, &authErr) && authErr.Status >= 400 {
-		respondFailure(c, authErr.Status, authErr.Message)
+		respondFailureWithReason(c, authErr.Status, authErr.Message, string(authErr.Reason))
 		return
 	}
 	var appErr *app.AppError
 	if errors.As(err, &appErr) && appErr.Status >= 400 {
-		respondFailure(c, appErr.Status, appErr.Message)
+		respondFailureWithReason(c, appErr.Status, appErr.Message, string(appErr.Reason))
 		return
 	}
 	log.Printf("hosted admin request failed: error_type=%T", err)

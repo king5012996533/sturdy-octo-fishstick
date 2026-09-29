@@ -68,8 +68,16 @@ func (s *Service) SaveBillingPlan(input BillingPlanInput) (*BillingPlanView, err
 	if input.PriceFen < 0 {
 		return nil, invalidArgument("套餐价格不能为负数")
 	}
-	if input.PeriodDays < 1 || input.PeriodDays > 3650 {
-		return nil, invalidArgument("套餐周期需在 1 到 3650 天之间")
+	if input.Credits < 0 || input.GiftCredits < 0 {
+		return nil, invalidArgument("套餐积分与赠送积分不能为负数")
+	}
+	// 周期为 0 只在"这是个纯积分包"时成立：既不带时长、也不带积分的东西卖了也没有
+	// 任何东西能交付，那多半是运营漏填了字段，而不是真想做一件空商品。
+	if input.PeriodDays < 0 || input.PeriodDays > 3650 {
+		return nil, invalidArgument("套餐周期需在 0 到 3650 天之间")
+	}
+	if input.PeriodDays == 0 && input.Credits+input.GiftCredits == 0 {
+		return nil, invalidArgument("套餐周期为 0 时必须是积分包，请填写到账积分或赠送积分")
 	}
 	if input.QuotaCalls < 0 || input.QuotaStorageMB < 0 || input.QuotaMembers < 0 {
 		return nil, invalidArgument("套餐配额不能为负数")
@@ -109,6 +117,8 @@ func (s *Service) SaveBillingPlan(input BillingPlanInput) (*BillingPlanView, err
 	plan.Enabled = input.Enabled
 	plan.PriceFen = input.PriceFen
 	plan.PeriodDays = input.PeriodDays
+	plan.Credits = input.Credits
+	plan.GiftCredits = input.GiftCredits
 	plan.QuotaCalls = input.QuotaCalls
 	plan.QuotaStorageMB = input.QuotaStorageMB
 	plan.QuotaMembers = input.QuotaMembers
