@@ -64,7 +64,12 @@ export type AdminChannelModel = {
     enabled: boolean;
     capabilityVersion: number;
     capabilityConfig?: ModelCapabilityConfig;
-    variants?: Array<{ id: string; selector?: Record<string, string>; providerModelKey: string; enabled: boolean }>;
+    /**
+     * 分档上游 SKU。resolution 与 videoSeconds 必须一起读回来并原样提交：
+     * 服务端在收到空档位时会把它们重置成一条「任意分辨率 / 任意时长」的默认记录，
+     * 而档位正是"这个模型卖哪几档"的定义，丢了不会报错，只会让模型少几档。
+     */
+    variants?: Array<{ id: string; selector?: Record<string, string>; resolution?: string; videoSeconds?: number; providerModelKey: string; enabled: boolean }>;
     createdAt: string;
     updatedAt: string;
 };
@@ -88,6 +93,23 @@ export type AdminChannelModelInput = {
     capabilityConfig?: ModelCapabilityConfig;
     variants?: AdminChannelModelVariantInput[];
 };
+
+/**
+ * 把读回来的档位换成提交用的形状。
+ *
+ * 更新已有模型走的是全量覆盖语义（PUT），所以每个调用方都必须把自己没编辑过的档位
+ * 原样带回去——只提交被改动的字段会把其余字段清空。这里收敛成一个函数，避免两处
+ * 调用点各自记得"要带上 variants"，而漏掉的那一处只会表现为档位悄悄消失。
+ */
+export function toChannelModelVariantInputs(model: AdminChannelModel): AdminChannelModelVariantInput[] {
+    return (model.variants ?? []).map((variant) => ({
+        selector: variant.selector,
+        resolution: variant.resolution,
+        videoSeconds: variant.videoSeconds,
+        providerModelKey: variant.providerModelKey,
+        enabled: variant.enabled,
+    }));
+}
 
 export type AdminChannelInput = {
     name: string;

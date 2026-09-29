@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { formatCount, formatDateTime } from "@/lib/format-usage";
 
+import { toChannelModelVariantInputs, updateAdminChannelModel } from "./api";
 import {
     addAdminVendorCredentialModels,
     createAdminVendor,
@@ -249,6 +250,41 @@ export function VendorsPane() {
         }
         void loadModels(detail.id, activeCredentialId);
     }, [detail?.id, activeCredentialId, loadModels]);
+
+    /**
+     * 单个模型的上架 / 下架。
+     *
+     * 这是货架上最常动的开关：平台的运营决策就是"卖哪几个模型"，而模型列表就在这一页，
+     * 之前这里只有状态读数、没有开关，运营要下架一个模型得绕到渠道管理里去找。
+     *
+     * 提交的是读回来的完整模型（含档位与能力配置）：更新接口是全量覆盖语义，
+     * 只回传 enabled 会把没编辑过的字段一起清空。
+     */
+    const toggleModel = useCallback(
+        async (model: VendorModel, enabled: boolean) => {
+            const previous = model.enabled;
+            setModels((current) => current.map((item) => (item.id === model.id ? { ...item, enabled } : item)));
+            try {
+                const updated = await updateAdminChannelModel(model.channelId, model.id, {
+                    modelKey: model.modelKey,
+                    providerModelKey: model.providerModelKey,
+                    displayName: model.displayName,
+                    icon: model.icon,
+                    capability: model.capability,
+                    protocol: model.protocol,
+                    enabled,
+                    capabilityConfig: model.capabilityConfig,
+                    variants: toChannelModelVariantInputs(model),
+                });
+                setModels((current) => current.map((item) => (item.id === model.id ? updated : item)));
+                setDetailNotice(`模型「${model.modelKey}」已${enabled ? "上架" : "下架"}。`);
+            } catch (toggleError) {
+                setModels((current) => current.map((item) => (item.id === model.id ? { ...item, enabled: previous } : item)));
+                setDetailError(`模型「${model.modelKey}」${enabled ? "上架" : "下架"}失败：${reasonOf(toggleError, "请稍后重试")}`);
+            }
+        },
+        [],
+    );
 
     const openDetail = useCallback(
         (vendor: Vendor) => {
@@ -561,12 +597,14 @@ export function VendorsPane() {
             title: "状态",
             dataIndex: "enabled",
             key: "enabled",
-            width: 90,
-            render: (value: boolean) => (
-                <span className="flex items-center gap-2" style={{ fontSize: "var(--fs-caption)" }}>
-                    <i className={`admin-dot ${value === false ? "is-off" : "is-on"}`} aria-hidden />
-                    {value === false ? "停用" : "启用"}
-                </span>
+            width: 130,
+            render: (value: boolean, row: VendorModel) => (
+                <Switch
+                    size="small"
+                    checked={value !== false}
+                    aria-label={value === false ? "上架该模型" : "下架该模型"}
+                    onChange={(checked) => void toggleModel(row, checked)}
+                />
             ),
         },
     ];

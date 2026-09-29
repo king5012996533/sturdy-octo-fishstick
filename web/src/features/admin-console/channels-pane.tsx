@@ -21,6 +21,7 @@ import {
     previewAdminChannelUpstreamModels,
     saveAdminChannelOrder,
     testAdminChannelModel,
+    toChannelModelVariantInputs,
     toProtocolDefinition,
     updateAdminChannel,
     updateAdminChannelModel,
@@ -237,6 +238,9 @@ export function ChannelsPane() {
             // 能力/协议没变时保留原有能力配置（可能被上游目录拉取改过），变了就必须重建，
             // 否则会把旧协议的上限（例如尺寸档位）带进新协议。
             capabilityConfig: existing && !capabilityChanged ? existing.capabilityConfig : defaultModelCapabilityConfig(values.protocol, values.modelKey.trim()),
+            // 档位同理，而且更要紧：它是"这个模型卖哪几档"的定义，漏传会被服务端重置成
+            // 一条默认记录。能力/协议变了才交给服务端重建。
+            variants: existing && !capabilityChanged ? toChannelModelVariantInputs(existing) : undefined,
         };
         setModelSaving(!runTest);
         setModelTesting(runTest);
