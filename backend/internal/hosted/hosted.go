@@ -164,7 +164,8 @@ func smsSender() auth.SMSSender {
 // 支付回调同样在这里显式登记，而不是让它自己去 init 里往这个切片追加：放行名单是
 // 一张安全边界清单，必须一眼看全，不能散落在各文件里。放行也不等于放权——回调的
 // 准入是渠道验签与金额核对（HandleBillingCallback），中间件只负责别提前判 401。
-var anonymousPathPrefixes = []string{auth.BasePath, "/api/public/appearance", billingCallbackPathPrefix}
+var anonymousPathPrefixes = []string{auth.BasePath, "/api/public/appearance", "/api/public/resources",
+	billingCallbackPathPrefix}
 
 func isAnonymousPath(path string) bool {
 	for _, prefix := range anonymousPathPrefixes {
@@ -224,6 +225,8 @@ func (e *Extension) RegisterRoutes(api *gin.RouterGroup) {
 	auth.RegisterRoutes(api, e.service, e.cookie)
 	e.registerAdminRoutes(api)
 	e.registerAccountRoutes(api)
+	// 资源下载：供模型上游拉取参考素材，准入靠签名而非会话。
+	e.registerPublicResourceRoutes(api)
 	e.registerOwnCanvasModerationRoutes(api)
 	// 计费：套餐货架、结算试算、下单与支付（用户端，主体恒为会话账号）。
 	e.registerBillingRoutes(api)
