@@ -492,6 +492,19 @@ func TestDefaultImageCapabilityConfigForReplicateFamilies(t *testing.T) {
 		t.Fatalf("flux capability rejected: %v", err)
 	}
 
+	// gpt-image 是 OpenAI 图片族的 Replicate 托管版：quality 直通上游（默认最便宜的 low），
+	// 参考图走 input_images 编辑，输出上限 10 张。
+	gptImage := DefaultImageCapabilityConfig("replicate-prediction-image", "openai/gpt-image-2")
+	if gptImage.MaxOutputs != 10 || gptImage.References.MaxImages != 4 {
+		t.Fatalf("gpt-image-2 outputs=%d refs=%d, want 10/4", gptImage.MaxOutputs, gptImage.References.MaxImages)
+	}
+	if !containsCapabilityString(gptImage.Quality.Values, "low") || gptImage.Quality.Default != "low" || gptImage.Size.Parameter != "aspect_ratio" {
+		t.Fatalf("gpt-image-2 quality = %#v size = %#v", gptImage.Quality, gptImage.Size)
+	}
+	if err := validateImageCapabilityConfig(gptImage); err != nil {
+		t.Fatalf("gpt-image-2 capability rejected: %v", err)
+	}
+
 	imagen := DefaultImageCapabilityConfig("replicate-prediction-image", "google/imagen-4")
 	if imagen.MaxOutputs != 1 || len(imagen.Quality.Values) != 2 || imagen.Quality.Default != "1k" {
 		t.Fatalf("imagen4 tiers = %#v maxOutputs=%d", imagen.Quality, imagen.MaxOutputs)

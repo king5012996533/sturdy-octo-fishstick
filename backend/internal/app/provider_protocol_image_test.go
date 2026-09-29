@@ -185,6 +185,54 @@ func TestProtocolGrokImagesPluginPayloadKeepsAspectRatio(t *testing.T) {
 	}
 }
 
+// Replicate 的 OpenAI 图片族（openai/gpt-image-*）输入键与通用图片模型不同：
+// 质量直通 input.quality、参考图走 input_images、审核档位缺省 low（最便宜的试跑形态）。
+// 这三个键按 model owner 收口，绝不能下发给 flux、seedream 等不认这些字段的模型。
+func TestProtocolReplicateGPTImageMapsQualityModerationAndReferences(t *testing.T) {
+	adapter := officialSourceProviderAdapter(t, "replicate-prediction-image", "replicate-prediction-image")
+	profile := DefaultImageCapabilityConfig("replicate-prediction-image", "openai/gpt-image-2")
+	spec, err := adapter.BuildCreate(context.Background(), protocol.RequestContext{Request: protocolRequestFromInput(canvasGenerationInput{
+		Mode:            "image",
+		Prompt:          "an astronaut corgi",
+		Config:          providerConfig{Model: "openai/gpt-image-2", InterfaceType: "replicate-prediction-image", Size: "16:9", Quality: "low"},
+		ImageCapability: profile,
+		ReferenceImages: []providerMedia{{URL: "https://example.com/reference.png", MimeType: "image/png"}},
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, ok := marshalProtocolBody(t, spec.Body)["input"].(map[string]any)
+	if !ok {
+		t.Fatalf("gpt-image input = %#v, want object", marshalProtocolBody(t, spec.Body)["input"])
+	}
+	if input["quality"] != "low" || input["moderation"] != "low" || input["aspect_ratio"] != "16:9" {
+		t.Fatalf("gpt-image input = %#v, want quality/moderation low and aspect_ratio 16:9", input)
+	}
+	references, ok := input["input_images"].([]any)
+	if !ok || len(references) != 1 || references[0] != "https://example.com/reference.png" {
+		t.Fatalf("gpt-image input_images = %#v, want the single reference url", input["input_images"])
+	}
+
+	fluxSpec, err := adapter.BuildCreate(context.Background(), protocol.RequestContext{Request: protocolRequestFromInput(canvasGenerationInput{
+		Mode:            "image",
+		Prompt:          "an astronaut corgi",
+		Config:          providerConfig{Model: "black-forest-labs/flux-schnell", InterfaceType: "replicate-prediction-image", Size: "16:9", Quality: "1k"},
+		ImageCapability: DefaultImageCapabilityConfig("replicate-prediction-image", "black-forest-labs/flux-schnell"),
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fluxInput, ok := marshalProtocolBody(t, fluxSpec.Body)["input"].(map[string]any)
+	if !ok {
+		t.Fatalf("flux input = %#v, want object", marshalProtocolBody(t, fluxSpec.Body)["input"])
+	}
+	for _, key := range []string{"quality", "moderation", "input_images"} {
+		if _, exists := fluxInput[key]; exists {
+			t.Fatalf("flux input must not carry OpenAI-only key %q: %#v", key, fluxInput)
+		}
+	}
+}
+
 func officialSourceProviderAdapter(t *testing.T, pluginID, providerID string) protocol.Adapter {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("..", "..", "..", "plugin-packages", pluginID, "manifest.json"))

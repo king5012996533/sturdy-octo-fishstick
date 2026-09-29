@@ -229,6 +229,7 @@ var replicateImageRatioTiers = []string{"1k"}
 // Replicate 图片模型的比例枚举直接取自上游 schema；每个模型的取值并不相同。
 var (
 	replicateFluxRatios      = []string{"1:1", "16:9", "9:16", "3:2", "2:3", "4:3", "3:4", "4:5", "5:4", "21:9"}
+	replicateGPTImageRatios  = []string{"1:1", "16:9", "9:16", "3:2", "2:3", "4:3", "3:4"}
 	replicateKontextRatios   = []string{"1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "21:9", "2:1", "1:2"}
 	replicateKleinRatios     = []string{"1:1", "16:9", "9:16", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5", "21:9"}
 	replicateNanoBananaRatio = []string{"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"}
@@ -270,6 +271,10 @@ func applyReplicateImageCapability(image *ImageCapabilityConfig, modelName strin
 	}
 
 	switch {
+	case owner == "openai" && strings.HasPrefix(base, "gpt-image"):
+		// gpt-image：比例只走 aspect_ratio，档位直通上游 quality（low/medium/high，默认 low 最便宜），
+		// 参考图走 input_images 编辑，单次最多 10 张输出，没有分辨率与透明底参数。
+		apply(replicateGPTImageRatios, []string{"low", "medium", "high"}, 10, 4, "low")
 	case strings.HasPrefix(base, "flux-2-"):
 		// flux-2 klein：参考图数组 + match_input_image，单张输出。
 		apply(replicateKleinRatios, replicateImageRatioTiers, 1, 4, "1k")
