@@ -365,3 +365,77 @@ func TestChargeTaskRejectsUnpricedTextModel(t *testing.T) {
 		t.Fatalf("未配置过文本价目的模型应报 409，实际 %d", serviceErr.Status)
 	}
 }
+
+// TestQuoteTaskChargeBillsVideoPerRequest 覆盖视频按条计费：调用方传的时长不参与相乘。
+//
+// 上游按"每条多少钱"结算，跟生成多少秒无关。一旦把秒数乘进去，一条 600 积分的视频
+// 在 30 秒档会变成 18000 积分。这里同时覆盖 2.0（×0.6 的内测亏本价）与 2.5 两档。
+func TestQuoteTaskChargeBillsVideoPerRequest(t *testing.T) {
+	env := newCreditTaskEnv(t)
+	rows := []struct {
+		modelKey     string
+		multiplierBp int
+		want         int64
+	}{
+		{"CHANNEL_000007::seedance-2.0", 6000, 300},
+		{"CHANNEL_000007::seedance-2.5", 12000, 600},
+	}
+	for _, row := range rows {
+		upstream := int64(500) // 上游 ¥5/条
+		multiplierBp := row.multiplierBp
+		if err := env.store.SaveModelPrice(&ModelPrice{
+			ModelKey:          row.modelKey,
+			Capability:        string(CapabilityVideo),
+			Unit:              string(UnitPerRequest),
+			UpstreamUnitPrice: &upstream,
+			MultiplierBp:      &multiplierBp,
+			Enabled:           true,
+		}); err != nil {
+			t.Fatalf("写入 %s 单价失败: %v", row.modelKey, err)
+		}
+	}
+
+	// 2.0 支持 5/10/15 秒，2.5 固定 30 秒；按条计费时传哪个都只算一条。
+	for _, row := range rows {
+		for _, seconds := range []int64{5, 10, 15, 30} {
+			quote, err := env.service.QuoteTaskCharge(TaskChargeInput{
+				ModelKey:   row.modelKey,
+				Capability: "VIDEO",
+				Quantity:   seconds,
+			})
+			if err != nil {
+				t.Fatalf("%s 试算失败: %v", row.modelKey, err)
+			}
+			if !quote.Priced || quote.SellUnitPrice == nil || *quote.SellUnitPrice != row.want {
+				t.Fatalf("%s 单价应为 %d，实际 %#v", row.modelKey, row.want, quote)
+			}
+			if quote.Unit != string(UnitPerRequest) || quote.Quantity != 1 || quote.Credits != row.want {
+				t.Fatalf("%s 传 %d 秒应按一条 %d 积分，实际 %s × %d = %d",
+					row.modelKey, seconds, row.want, quote.Unit, quote.Quantity, quote.Credits)
+			}
+		}
+	}
+}
+
+// TestChargeFormulaRendersUserReadableUnit 覆盖流水备注里的单位标签。
+//
+// 备注是给用户复核账单用的：直接写 TOKEN_1M 这类枚举名，他没法看出这笔钱怎么来的。
+func TestChargeFormulaRendersUserReadableUnit(t *testing.T) {
+	cases := []struct {
+		unit     string
+		quantity int64
+		want     string
+	}{
+		// 按条计费时用量恒为 1，算式里不再冗余地写 "× 1"。
+		{string(UnitPerRequest), 1, "600分/条"},
+		{string(UnitPerImage), 3, "600分/张 × 3"},
+		{string(UnitPerSecond), 30, "600分/秒 × 30"},
+		{string(UnitPerMillionTokens), 1200, "600分/百万token × 1200"},
+		{string(UnitPerThousandTokens), 3300, "600分/千token × 3300"},
+	}
+	for _, testCase := range cases {
+		if got := chargeFormula(600, testCase.unit, testCase.quantity); got != testCase.want {
+			t.Fatalf("%s 的备注应为 %q，实际 %q", testCase.unit, testCase.want, got)
+		}
+	}
+}
