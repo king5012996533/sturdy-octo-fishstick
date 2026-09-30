@@ -824,11 +824,23 @@ func resourceUsesObjectStorage(resource *model.Resource) bool {
 
 func normalizedMediaMimeType(declared string, data []byte) string {
 	declared = strings.TrimSpace(strings.Split(declared, ";")[0])
-	if declared != "" && declared != "application/octet-stream" {
+	if declared != "" && !isGenericOctetStream(declared) {
 		return declared
 	}
 	detected := strings.TrimSpace(strings.Split(http.DetectContentType(data), ";")[0])
+	if isGenericOctetStream(detected) {
+		return "application/octet-stream"
+	}
 	return defaultString(detected, "application/octet-stream")
+}
+
+// isGenericOctetStream 识别传输层占位类型（application/octet-stream、binary/octet-stream 等）。
+// 它只说明「一段字节流，类型未知」，不是具体媒体类型：上游 CDN 常对 mp4 返回
+// binary/octet-stream，若当成具体类型落库，成功产物会在素材入库时被判成类型不匹配。
+func isGenericOctetStream(mimeType string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(strings.Split(mimeType, ";")[0]))
+	separator := strings.Index(normalized, "/")
+	return separator > 0 && normalized[separator+1:] == "octet-stream"
 }
 
 func (s *Service) resolveProviderConfig(config providerConfig) (providerConfig, error) {

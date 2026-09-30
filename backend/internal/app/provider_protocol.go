@@ -923,7 +923,10 @@ func protocolMediaBytes(ctx context.Context, config providerConfig, reference pr
 func protocolMediaBytesOnce(ctx context.Context, config providerConfig, reference protocol.MediaReference) ([]byte, string, error) {
 	if strings.TrimSpace(reference.DataURL) != "" {
 		mimeType, data, err := decodeProviderDataURL(reference.DataURL)
-		return data, mimeType, err
+		if err != nil {
+			return nil, "", err
+		}
+		return data, normalizedMediaMimeType(mimeType, data), nil
 	}
 	value := strings.TrimSpace(reference.URL)
 	if value == "" {

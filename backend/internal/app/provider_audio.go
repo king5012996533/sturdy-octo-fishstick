@@ -208,7 +208,7 @@ func validateGeneratedAudio(declared string, data []byte, format string) (string
 		resolved = mimeType
 	} else if strings.HasPrefix(detected, "audio/") {
 		resolved = detected
-	} else if fallback := audioFormatMimeType(format); fallback != "" && (mimeType == "" || mimeType == "application/octet-stream") {
+	} else if fallback := audioFormatMimeType(format); fallback != "" && (mimeType == "" || isGenericOctetStream(mimeType)) {
 		resolved = fallback
 	}
 	if resolved == "" {

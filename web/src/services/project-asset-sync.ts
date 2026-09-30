@@ -1,6 +1,7 @@
 import { canvasNodeToAsset, declaredCanvasNodeAssetCategory, findCanvasNodeAsset, type CanvasAssetSource } from "@/lib/canvas/canvas-node-asset";
 import { canvasVideoAssetPreviewUrl } from "@/lib/canvas/canvas-media-preview";
 import { readImageMeta } from "@/lib/image-utils";
+import { normalizeMediaMimeType } from "@/lib/media-mime";
 import { parseBackendGenerationResult, type BackendGenerationResult } from "@/services/api/generation-task";
 import { ApiError, http } from "@/services/api/request";
 import { resourceIdFromStorageKey } from "@/services/api/resources";
@@ -237,7 +238,7 @@ async function storedGenerationImage(result: NonNullable<BackendGenerationResult
         width: result.width || meta?.width || 1024,
         height: result.height || meta?.height || 1024,
         bytes: result.bytes || blob.size,
-        mimeType: result.mimeType || blob.type || "image/png",
+        mimeType: normalizeMediaMimeType(result.mimeType || blob.type, "image"),
     };
 }
 
@@ -263,7 +264,7 @@ async function storedGenerationMedia(dataUrl: string, effectKey: string, mediaTy
         height: metadata.height,
         durationMs: metadata.durationMs,
         bytes: metadata.bytes || blob.size,
-        mimeType: metadata.mimeType || blob.type,
+        mimeType: normalizeMediaMimeType(metadata.mimeType || blob.type, mediaType),
     };
 }
 
@@ -314,7 +315,7 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
                   height: video.height || 0,
                   durationMs: video.durationMs,
                   bytes: video.bytes || 0,
-                  mimeType: video.mimeType || "video/mp4",
+                  mimeType: normalizeMediaMimeType(video.mimeType, "video"),
               }
             : await storedGenerationMedia(
                   video.dataUrl,
@@ -325,7 +326,7 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
                       height: video.height,
                       durationMs: video.durationMs,
                       bytes: video.bytes,
-                      mimeType: video.mimeType || "video/mp4",
+                      mimeType: normalizeMediaMimeType(video.mimeType, "video"),
                   },
                   scope,
                   input.signal,
@@ -346,7 +347,7 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
                 height: stored.height || 0,
                 durationMs: stored.durationMs,
                 bytes: stored.bytes,
-                mimeType: stored.mimeType || "video/mp4",
+                mimeType: normalizeMediaMimeType(stored.mimeType, "video"),
             },
         };
     }
@@ -359,7 +360,7 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
               storageKey: audio.storageKey,
               durationMs: audio.durationMs,
               bytes: audio.bytes || 0,
-              mimeType: audio.mimeType || "audio/mpeg",
+              mimeType: normalizeMediaMimeType(audio.mimeType, "audio"),
           }
         : await storedGenerationMedia(
               audio.dataUrl,
@@ -368,7 +369,7 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
               {
                   durationMs: audio.durationMs,
                   bytes: audio.bytes,
-                  mimeType: audio.mimeType || "audio/mpeg",
+                  mimeType: normalizeMediaMimeType(audio.mimeType, "audio"),
               },
               scope,
               input.signal,
@@ -387,7 +388,7 @@ async function generationOutputAsset(input: Parameters<MaterializeGenerationTask
             storageKey: stored.storageKey,
             durationMs: stored.durationMs,
             bytes: stored.bytes,
-            mimeType: stored.mimeType || "audio/mpeg",
+            mimeType: normalizeMediaMimeType(stored.mimeType, "audio"),
         },
     };
 }

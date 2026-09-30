@@ -1,5 +1,6 @@
 import { getDataUrlByteSize } from "@/lib/image-utils";
 import { canvasNodeVideoPreviewUrl } from "@/lib/canvas/canvas-media-preview";
+import { normalizeMediaMimeType } from "@/lib/media-mime";
 import { ownedResourceIdFromMediaRef } from "@/services/api/resources";
 import type { Asset, AssetCategory, NewAsset } from "@/stores/use-asset-store";
 import { CanvasNodeType, type CanvasNodeData, type CanvasNodeTypeId } from "@/types/canvas";
@@ -55,7 +56,7 @@ export function canvasNodeToAsset(node: CanvasNodeData, options: CanvasNodeAsset
                 width: node.metadata?.naturalWidth || node.width,
                 height: node.metadata?.naturalHeight || node.height,
                 bytes: node.metadata?.bytes || getDataUrlByteSize(dataUrl),
-                mimeType: node.metadata?.mimeType || "image/png",
+                mimeType: normalizeMediaMimeType(node.metadata?.mimeType, "image"),
             },
         };
     }
@@ -71,7 +72,7 @@ export function canvasNodeToAsset(node: CanvasNodeData, options: CanvasNodeAsset
                 durationMs: node.metadata?.durationMs,
                 hasAudio: node.metadata?.hasAudio,
                 bytes: node.metadata?.bytes || 0,
-                mimeType: node.metadata?.mimeType || "video/mp4",
+                mimeType: normalizeMediaMimeType(node.metadata?.mimeType, "video"),
             },
         };
     }
@@ -84,7 +85,7 @@ export function canvasNodeToAsset(node: CanvasNodeData, options: CanvasNodeAsset
                 storageKey,
                 durationMs: node.metadata?.durationMs,
                 bytes: node.metadata?.bytes || 0,
-                mimeType: node.metadata?.mimeType || "audio/mpeg",
+                mimeType: normalizeMediaMimeType(node.metadata?.mimeType, "audio"),
             },
         };
     }

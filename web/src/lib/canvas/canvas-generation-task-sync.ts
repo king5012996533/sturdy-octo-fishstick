@@ -14,6 +14,7 @@ import { applyGenerationConsumerEffect, generationEffectApplied } from "@/servic
 import { attachNodeEffectKey } from "@/services/generation-task-materializer";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 import { mediaResultMetadata } from "@/lib/canvas/canvas-node-semantics";
+import { normalizeMediaMimeType } from "@/lib/media-mime";
 
 export function generationTaskInput(task: GenerationTask) {
     if (!task.inputJson) return null;
@@ -51,7 +52,7 @@ export function imageMetadata(image: UploadedImage): CanvasNodeMetadata {
         naturalWidth: image.width,
         naturalHeight: image.height,
         bytes: image.bytes,
-        mimeType: image.mimeType,
+        mimeType: normalizeMediaMimeType(image.mimeType, "image"),
         errorDetails: undefined,
         generationErrorCode: undefined,
         resourceReloadAvailable: undefined,
@@ -67,7 +68,7 @@ export function videoMetadata(video: UploadedFile): CanvasNodeMetadata {
         naturalWidth: video.width,
         naturalHeight: video.height,
         bytes: video.bytes,
-        mimeType: video.mimeType || "video/mp4",
+        mimeType: normalizeMediaMimeType(video.mimeType, "video"),
         durationMs: video.durationMs,
         hasAudio: video.hasAudio,
         videoPreview: video.preview ? {
@@ -98,7 +99,7 @@ export function audioMetadata(audio: UploadedFile): CanvasNodeMetadata {
         storageKey: audio.storageKey,
         status: "success",
         bytes: audio.bytes,
-        mimeType: audio.mimeType || "audio/mpeg",
+        mimeType: normalizeMediaMimeType(audio.mimeType, "audio"),
         durationMs: audio.durationMs,
         errorDetails: undefined,
         generationErrorCode: undefined,
@@ -204,9 +205,9 @@ export async function buildGenerationTaskNodeResult(node: CanvasNodeData, task: 
                   height: result.video?.height,
                   durationMs: result.video?.durationMs,
                   bytes: result.video?.bytes || 0,
-                  mimeType: result.video?.mimeType || "video/mp4",
+                  mimeType: normalizeMediaMimeType(result.video?.mimeType, "video"),
               }
-            : await mediaIO.storeGeneratedVideo({ url: videoSource, mimeType: result.video?.mimeType || "video/mp4" });
+            : await mediaIO.storeGeneratedVideo({ url: videoSource, mimeType: normalizeMediaMimeType(result.video?.mimeType, "video") });
         const videoSize = fitNodeSize(video.width || node.width || VIDEO_NODE_MAX_SIZE.width, video.height || node.height || VIDEO_NODE_MAX_SIZE.height, VIDEO_NODE_MAX_SIZE.width, VIDEO_NODE_MAX_SIZE.height);
         const geometry = node.metadata?.locked
             ? {}
@@ -228,7 +229,7 @@ export async function buildGenerationTaskNodeResult(node: CanvasNodeData, task: 
         const reuseAudioKey = reuseGeneratedMediaStorageKey(result.audio?.storageKey, audioSource);
         if (!audioSource && !reuseAudioKey) throw new Error("后端任务没有返回音频");
         const audio = reuseAudioKey
-            ? { url: await mediaIO.resolveMediaUrl(reuseAudioKey, audioSource), storageKey: reuseAudioKey, durationMs: result.audio?.durationMs, bytes: result.audio?.bytes || 0, mimeType: result.audio?.mimeType || "audio/mpeg" }
+            ? { url: await mediaIO.resolveMediaUrl(reuseAudioKey, audioSource), storageKey: reuseAudioKey, durationMs: result.audio?.durationMs, bytes: result.audio?.bytes || 0, mimeType: normalizeMediaMimeType(result.audio?.mimeType, "audio") }
             : await mediaIO.storeGeneratedAudio(await mediaIO.fetchBlob(audioSource), result.audio?.format || "mp3");
         return { ...node, type: CanvasNodeType.Audio, metadata: applyGeneratedMediaResultMetadata(node, audioMetadata(audio), { prompt, ...completedTaskMetadata(task) }) };
     }

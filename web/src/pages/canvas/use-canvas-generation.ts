@@ -336,13 +336,17 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
             } catch (error) {
                 // 成功任务的副作用确认失败时，直接用已持久化结果回写节点，避免永久停留在生成中。
                 if (task.status === "succeeded") {
-                    await applyStoredTaskResult().catch(() => {
+                    try {
+                        await applyStoredTaskResult();
+                    } catch {
+                        // 回写也失败说明卡在客户端落库/挂载，而不是上游生成失败：
+                        // 保留「重新加载资源」入口，避免用户为同一个已成功结果再付一次积分。
+                        if (generationTaskCanReloadResource(task)) {
+                            setNodes((current) => current.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, resourceReloadAvailable: true } } : node)));
+                        }
                         throw error;
-                    });
-                } else {
-                    if (generationTaskCanReloadResource(task)) {
-                        setNodes((current) => current.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, resourceReloadAvailable: true } } : node)));
                     }
+                } else {
                     throw error;
                 }
             }

@@ -35,6 +35,7 @@ function mockIO() {
     const resolveMediaCalls: Array<[string | undefined, string]> = [];
     const uploaded: string[] = [];
     const storedVideo: string[] = [];
+    const storedVideoMime: string[] = [];
     const storedAudio: string[] = [];
     const fetched: string[] = [];
     const io: GenerationResultMediaIO = {
@@ -52,6 +53,7 @@ function mockIO() {
         },
         storeGeneratedVideo: async (result) => {
             storedVideo.push(result.url || "");
+            storedVideoMime.push(result.mimeType || "");
             return { url: "uploaded-video", storageKey: "video:new", bytes: 8, mimeType: "video/mp4", width: 16, height: 9 };
         },
         storeGeneratedAudio: async (blob) => {
@@ -63,7 +65,7 @@ function mockIO() {
             return new Blob(["x"], { type: "audio/mpeg" });
         },
     };
-    return { io, resolveImageCalls, resolveMediaCalls, uploaded, storedVideo, storedAudio, fetched };
+    return { io, resolveImageCalls, resolveMediaCalls, uploaded, storedVideo, storedVideoMime, storedAudio, fetched };
 }
 
 describe("buildGenerationTaskNodeResult history reuse", () => {
@@ -147,5 +149,20 @@ describe("buildGenerationTaskNodeResult history reuse", () => {
         expect(storedVideo).toEqual([]);
         expect(storedAudio).toEqual([]);
         expect(fetched).toEqual([]);
+    });
+
+    test("上游返回传输层占位 mimeType 时按视频容器落库，不把成功结果判成类型不匹配", async () => {
+        const { io, storedVideoMime } = mockIO();
+        const video = await buildGenerationTaskNodeResult(
+            mediaNode(CanvasNodeType.Video),
+            task("canvas_video", {
+                video: { dataUrl: "data:binary/octet-stream;base64,AAAAIGZ0eXBpc29t", mimeType: "binary/octet-stream" },
+            }),
+            undefined,
+            io,
+        );
+
+        expect(storedVideoMime).toEqual(["video/mp4"]);
+        expect(video.metadata?.mimeType).toBe("video/mp4");
     });
 });

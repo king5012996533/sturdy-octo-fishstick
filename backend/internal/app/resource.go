@@ -311,7 +311,7 @@ func (s *Service) uploadResourceFile(userID string, fileName string, size int64,
 
 func detectUploadedMimeType(file io.ReadSeeker, fileName string, declared string) string {
 	declared = strings.TrimSpace(strings.Split(declared, ";")[0])
-	if declared != "" && declared != "application/octet-stream" {
+	if declared != "" && !isGenericOctetStream(declared) {
 		return declared
 	}
 	buffer := make([]byte, 512)
@@ -795,7 +795,7 @@ func downloadRemoteResource(rawURL string, maxBytes int64) (remoteResourcePayloa
 	if idx := strings.Index(mimeType, ";"); idx >= 0 {
 		mimeType = strings.TrimSpace(mimeType[:idx])
 	}
-	if mimeType == "" || mimeType == "application/octet-stream" {
+	if mimeType == "" || isGenericOctetStream(mimeType) {
 		mimeType = http.DetectContentType(data)
 	}
 	fileName := path.Base(parsed.Path)
