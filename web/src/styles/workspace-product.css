@@ -902,7 +902,9 @@
     to { opacity: 1; transform: translateX(0); }
 }
 
-.creation-floating-prompt { position: absolute; z-index: 40; top: 14px; left: 50%; display: flex; width: min(860px, calc(100% - 96px)); min-height: 72px; align-items: center; gap: 16px; border: 1px solid var(--user-border); border-radius: 24px; padding: 10px 12px 10px 22px; background: var(--user-surface-raised); color: var(--user-accent); box-shadow: 0 16px 42px color-mix(in srgb, var(--user-ink) 12%, transparent); }
+/* 顶部右上角常驻一排浮标（历史 + 账户），居中的浮动输入条要和它错开一层高度，
+   否则窗口一窄就被压住右端。 */
+.creation-floating-prompt { position: absolute; z-index: 40; top: 68px; left: 50%; display: flex; width: min(860px, calc(100% - 96px)); min-height: 72px; align-items: center; gap: 16px; border: 1px solid var(--user-border); border-radius: 24px; padding: 10px 12px 10px 22px; background: var(--user-surface-raised); color: var(--user-accent); box-shadow: 0 16px 42px color-mix(in srgb, var(--user-ink) 12%, transparent); }
 .creation-floating-prompt > svg { width: 22px; height: 22px; flex: 0 0 22px; }
 .creation-floating-prompt input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--user-ink); font-size: 16px; }
 .creation-floating-prompt input::placeholder { color: var(--user-ink-soft); }
@@ -1323,6 +1325,17 @@
 .app-user-workspace.app-product-workspace .app-workspace-nav-link.is-active:not([data-nav-id="new"]) {
     background: var(--user-surface-hover) !important;
     font-weight: 400 !important;
+}
+/* 图标轨里每个入口收成正方形图标钮：整条轨只有图标，宽扁的横条会把节奏撑散。 */
+.app-user-workspace.app-product-workspace .app-workspace-nav-link.is-collapsed,
+.app-user-workspace.app-product-workspace .app-workspace-nav-link.is-collapsed[data-nav-id="new"] {
+    width: 40px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    margin-inline: auto !important;
+    justify-content: center !important;
+    padding: 0 !important;
+    border-radius: 12px !important;
 }
 .app-user-workspace.app-product-workspace .app-workspace-nav-link .app-workspace-nav-icon {
     width: 20px !important;

@@ -93,6 +93,19 @@ function WorkspaceSwitcher({ collapsed, onNavigate, onExpand, onCollapse }: { co
     if (collapsed) {
         return (
             <div className="app-workspace-sidebar-rail-header shrink-0">
+                <Link to="/" onClick={onNavigate} className="app-workspace-sidebar-rail-brand" aria-label={`${appearance.brandName}首页`}>
+                    <BrandLogoFrame
+                        className="app-workspace-brand-mark grid size-9 shrink-0 place-items-center"
+                        logoClassName="size-5 object-contain"
+                        alt=""
+                        fallback={
+                            <span className="app-workspace-brand-placeholder" aria-hidden>
+                                K
+                            </span>
+                        }
+                    />
+                    <span className="app-workspace-sidebar-rail-wordmark">{appearance.brandName}</span>
+                </Link>
                 <button type="button" className="app-workspace-sidebar-rail-button" aria-label="展开侧栏菜单" title="展开侧栏菜单" onClick={onExpand}>
                     <PanelLeftOpen className="size-4" strokeWidth={1.7} />
                 </button>

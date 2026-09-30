@@ -25,14 +25,26 @@
 .app-product-workspace .creation-home .creation-reference-add-button.creation-chat-reference-add svg { width: 16px; height: 16px; }
 .app-product-workspace .creation-home .creation-submit.is-icon-only.ant-btn { width: 44px; height: 44px; min-height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent !important; box-shadow: none; }
 .app-product-workspace .creation-home .creation-submit.is-icon-only .creation-submit-cost { display: none; }
-.app-product-workspace .creation-home .creation-submit.is-icon-only .creation-submit-action { display: grid; width: 44px; height: 44px; place-items: center; padding: 0; border-radius: 50%; background: #fff; color: #090909; transition: background var(--user-motion), box-shadow var(--user-motion), transform var(--user-motion); }
+.app-product-workspace .creation-home .creation-submit.is-icon-only .creation-submit-action { display: grid; width: 46px; height: 46px; place-items: center; padding: 0; border-radius: 50%; background: var(--creation-submit-gradient); color: #fff; box-shadow: 0 8px 22px rgba(86, 96, 255, .38); transition: background var(--user-motion), box-shadow var(--user-motion), transform var(--user-motion); }
 .app-product-workspace .creation-home .creation-submit.is-icon-only .creation-submit-action span { display: none; }
 .app-product-workspace .creation-home .creation-submit.is-icon-only .creation-submit-action svg { width: 18px; height: 18px; }
-.app-product-workspace .creation-home .creation-submit.is-icon-only.ant-btn:disabled .creation-submit-action { background: #fff; color: #090909; opacity: .48; }
-.app-product-workspace .creation-home .creation-submit.is-icon-only.ant-btn:not(:disabled):hover .creation-submit-action { box-shadow: 0 8px 22px color-mix(in srgb, var(--user-accent) 28%, transparent); transform: translateY(-1px); }
+.app-product-workspace .creation-home .creation-submit.is-icon-only.ant-btn:disabled .creation-submit-action { background: rgba(255, 255, 255, .16); color: rgba(255, 255, 255, .58); box-shadow: none; }
+.app-product-workspace .creation-home .creation-submit.is-icon-only.ant-btn:not(:disabled):hover .creation-submit-action { box-shadow: 0 12px 28px rgba(86, 96, 255, .48); transform: translateY(-1px); }
 .creation-submit-cost { display: inline-flex; align-items: center; gap: 4px; color: var(--user-ink-muted); font-size: 12px; padding-inline: 8px; }
 .creation-submit-cost svg { width: 14px; height: 14px; }
 @layer utilities {
+    /* 首页输入卡内部是一片深色玻璃，浅色主题下这两个控件不能再翻成浅底深字，
+       否则模型名直接看不见。弹层走 portal，仍是主题色。 */
+    html:not(.dark) .app-product-workspace .creation-home .creation-empty-composer .creation-model-picker.canvas-composer-model-picker {
+        border-color: transparent !important;
+        background: var(--user-surface-muted) !important;
+        color: var(--user-ink-muted) !important;
+    }
+    html:not(.dark) .app-product-workspace .creation-home .creation-empty-composer .creation-model-picker.canvas-composer-model-picker:hover,
+    html:not(.dark) .app-product-workspace .creation-home .creation-empty-composer .creation-model-picker.canvas-composer-model-picker[aria-expanded="true"] {
+        background: var(--user-surface-hover) !important;
+        color: var(--user-ink) !important;
+    }
     .app-product-workspace .creation-home .creation-submit.ant-btn { height: auto; min-height: 40px; padding: 0; border: 0; background: transparent !important; box-shadow: none; border-radius: 999px; opacity: 1; }
     .app-product-workspace .creation-home .creation-submit.ant-btn .creation-submit-action { position: relative; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; gap: 8px; width: auto; height: 40px; padding: 0 18px; border-radius: 999px; background: var(--user-action-gradient); color: var(--user-action-foreground); transition: background var(--user-motion), box-shadow var(--user-motion), transform var(--user-motion); }
     .app-product-workspace .creation-home .creation-submit.ant-btn .creation-submit-action::after { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 28%, rgb(255 255 255 / .28) 48%, transparent 68%); transform: translateX(-120%); pointer-events: none; }

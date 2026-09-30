@@ -12,7 +12,7 @@ import { useWorkspaceTopBarMount } from "@/components/layout/workspace-top-bar-e
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { Reorder, motion } from "motion/react";
 import { useNavigate } from "react-router";
-import { ArrowDown, ArrowUp, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, Copy, Download, FileText, Film, History, Image as ImageIcon, LoaderCircle, Maximize2, MessageSquareText, Minimize2, MoreHorizontal, Music2, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Sparkles, Trash2, UserRound, WandSparkles, Waves, X } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, Copy, Download, FileText, Film, History, Image as ImageIcon, LoaderCircle, Maximize2, MessageSquareText, Minimize2, MoreHorizontal, Music2, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Sparkles, Trash2, UserRound, WandSparkles, Waves, X } from "lucide-react";
 
 import { AIMessageMarkdown } from "@/components/ai/ai-message-markdown";
 import { GenerationToolCard, type GenerationToolStatus } from "@/components/ai/generation-tool-card";
@@ -804,7 +804,8 @@ const creationSkillWorks = [
 export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode: CreationMode, prompt: string) => void }) {
     const navigate = useNavigate();
     const [filter, setFilter] = useState<"all" | CreationMode>("all");
-    const [limit, setLimit] = useState(12);
+    // 首页 bento 是"一张主推荐占 2×2 + 若干单格"，13 张正好铺满四行，末尾不留缺口。
+    const [limit, setLimit] = useState(13);
     const [collection, setCollection] = useState<"inspiration" | "skill">("inspiration");
     const [skillSection, setSkillSection] = useState<"recommended" | "mine">("recommended");
     const [mySkills, setMySkills] = useState<Skill[]>([]);
@@ -843,10 +844,20 @@ export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode:
     const visibleSkills = skillSection === "mine" ? installedSkillWorks : creationSkillWorks;
     return <section className="creation-featured-works" aria-labelledby="creation-featured-title">
         <div className="creation-featured-heading">
-            <div className="flex items-center gap-6">
-                <button type="button" className={`creation-collection-tab ${!isSkill ? "is-active" : ""}`} aria-pressed={!isSkill} onClick={() => setCollection("inspiration")}>精选灵感</button>
-                <button type="button" className={`creation-collection-tab ${isSkill ? "is-active" : ""}`} aria-pressed={isSkill} onClick={() => setCollection("skill")}>Skill</button>
+            {/* 这一行照抄参考页的字卡节奏：栏目名 + 全大写小标，展开入口挪到最右侧。 */}
+            <div className="creation-featured-heading-main">
+                <div className="flex items-center gap-6">
+                    <button type="button" className={`creation-collection-tab ${!isSkill ? "is-active" : ""}`} aria-pressed={!isSkill} onClick={() => setCollection("inspiration")}>精选灵感</button>
+                    <button type="button" className={`creation-collection-tab ${isSkill ? "is-active" : ""}`} aria-pressed={isSkill} onClick={() => setCollection("skill")}>Skill</button>
+                </div>
+                <span className="creation-featured-eyebrow">Inspiration</span>
             </div>
+            {!isSkill && limit < filtered.length ? (
+                <button type="button" className="creation-featured-more" onClick={() => setLimit((count) => count + 12)}>
+                    查看更多
+                    <ArrowRight aria-hidden="true" />
+                </button>
+            ) : null}
         </div>
         {isSkill ? <div className="creation-skill-toolbar">
             <div className="creation-skill-subpages" role="tablist" aria-label="Skill 子页面">
@@ -855,7 +866,7 @@ export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode:
             </div>
             {skillSection === "mine" ? <button type="button" className="creation-skill-create" onClick={() => navigate("/skills?create=1")}><Plus size={16} />创建 Skill</button> : null}
         </div> : <div className="creation-inspiration-filters" role="group" aria-label="灵感类型">
-            {(["all", "video", "image", "text"] as const).map((value) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => { setFilter(value); setLimit(12); }}>{value === "all" ? "全部灵感" : modeLabels[value]}<span>{creationInspirationPool.filter((item) => value === "all" || item.mode === value).length}</span></button>)}
+            {(["all", "video", "image", "text"] as const).map((value) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => { setFilter(value); setLimit(13); }}>{value === "all" ? "全部灵感" : modeLabels[value]}<span>{creationInspirationPool.filter((item) => value === "all" || item.mode === value).length}</span></button>)}
         </div>}
         <div className={`creation-featured-layout ${isSkill ? "creation-skill-grid" : ""}`}>
                 {isSkill ? visibleSkills.map((item) => <button key={item.title} type="button" className="product-collection-card creation-featured-card creation-skill-card" onClick={() => onStartPrompt("video", item.prompt)}>
@@ -864,11 +875,11 @@ export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode:
                     </span>
                 </button>) : filtered.slice(0, limit).map((item, index) => <button key={item.title} type="button" className={`product-collection-card creation-featured-card ${index === 0 ? "is-featured-hero" : ""}`} onClick={() => onStartPrompt(item.mode, item.prompt)}>
                     <span className="creation-featured-media"><img src={item.image} alt="" loading="lazy" referrerPolicy={item.sourceUrl ? "no-referrer" : undefined} /><span className="creation-inspiration-overlay"><ArrowUp />使用这个创意</span></span>
-                    <span className="creation-featured-copy"><strong>{item.title}</strong><span>{item.description}</span><em><Sparkles />{inspirationCredit(item)} · {modeLabels[item.mode]}</em></span>
+                    <span className="creation-featured-copy"><strong>{item.title}</strong><span>{item.description}</span><em><Sparkles />{index === 0 ? `${inspirationCredit(item)} · ${modeLabels[item.mode]}` : modeLabels[item.mode]}</em></span>
                 </button>)}
         </div>
         {isSkill && skillSection === "mine" && mySkillsLoaded && !visibleSkills.length ? <div className="creation-skill-empty"><Sparkles /><strong>还没有安装 Skill</strong><span>上传、安装或创建一个 Skill 后，它会显示在这里。</span></div> : null}
-        <footer className="creation-inspiration-footer">{isSkill ? <span>已展示 {visibleSkills.length} 个 Skill</span> : <>{limit < filtered.length ? <Button onClick={() => setLimit((count) => count + 12)}>展开更多灵感<ChevronDown /></Button> : <span>已展示全部 {filtered.length} 个创意</span>}<details><summary>模板与封面来源</summary><p>{inspirationSource.notice}</p><p>{libtvSampleSource.notice}</p><div className="creation-inspiration-sources"><a href={inspirationSource.repository} target="_blank" rel="noreferrer">awesome-chatgpt-prompts · CC0</a><a href={libtvSampleSource.site} target="_blank" rel="noreferrer">LibTV 公开作品页 · 示例素材</a></div></details></>}</footer>
+        <footer className="creation-inspiration-footer">{isSkill ? <span>已展示 {visibleSkills.length} 个 Skill</span> : <><span>已展示 {Math.min(limit, filtered.length)} / {filtered.length} 个创意</span><details><summary>模板与封面来源</summary><p>{inspirationSource.notice}</p><p>{libtvSampleSource.notice}</p><div className="creation-inspiration-sources"><a href={inspirationSource.repository} target="_blank" rel="noreferrer">awesome-chatgpt-prompts · CC0</a><a href={libtvSampleSource.site} target="_blank" rel="noreferrer">LibTV 公开作品页 · 示例素材</a></div></details></>}</footer>
     </section>;
 }
 

@@ -18,6 +18,9 @@ export function AppWorkspaceShell({ children }: { children: ReactNode }) {
     const navigate = useNavigate();
     const [mobileSidebarExpanded, setMobileSidebarExpanded] = useState(false);
     const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(readWorkspaceSidebarCollapsed);
+    // 首页按电影感设计默认只留图标栏；用户手动展开后本轮会话内不再自动收起，
+    // 以免点一下展开就被路由重渲染打回原形。切走再回来时恢复默认收起。
+    const [homeSidebarExpanded, setHomeSidebarExpanded] = useState(false);
     const [paletteOpen, setPaletteOpen] = useState(false);
     const sessionHydrated = useUserStore((state) => state.hydrated);
     const storageMode = useUserStore((state) => state.storageMode);
@@ -25,6 +28,7 @@ export function AppWorkspaceShell({ children }: { children: ReactNode }) {
     const localMode = isLocalWorkspaceMode() || storageMode === "local" || user?.username === "local";
     useDesktopUpdateBootstrap();
 
+    const isHome = pathname === "/";
     const hideChrome = pathname.startsWith("/admin") || /^\/canvas\/[^/]+/.test(pathname);
     const spatialWorkbench = isSpatialWorkbenchPath(pathname);
     const creationWorkspace = pathname === "/create";
@@ -45,6 +49,7 @@ export function AppWorkspaceShell({ children }: { children: ReactNode }) {
 
     const expandDesktopSidebar = () => {
         setDesktopSidebarCollapsed(false);
+        setHomeSidebarExpanded(true);
         writeWorkspaceSidebarCollapsed(false);
     };
 
@@ -53,11 +58,17 @@ export function AppWorkspaceShell({ children }: { children: ReactNode }) {
         writeWorkspaceSidebarCollapsed(true);
     };
 
+    const sidebarCollapsed = desktopSidebarCollapsed || (isHome && !homeSidebarExpanded);
+
     const handleNavClick = () => {
         if (isMobileViewport()) setMobileSidebarExpanded(false);
     };
 
     // ⌘K / Ctrl+K 全局呼出搜索面板。
+    useEffect(() => {
+        setHomeSidebarExpanded(false);
+    }, [pathname]);
+
     useEffect(() => {
         const handler = (event: KeyboardEvent) => {
             if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -91,11 +102,11 @@ export function AppWorkspaceShell({ children }: { children: ReactNode }) {
                             className={cn(
                                 "app-workspace-sidebar flex h-full shrink-0 flex-col overflow-hidden",
                                 mobileSidebarExpanded && "is-mobile-expanded",
-                                desktopSidebarCollapsed && "is-collapsed",
+                                sidebarCollapsed && "is-collapsed",
                             )}
                         >
                             <WorkspaceSidebarNav
-                                collapsed={desktopSidebarCollapsed}
+                                collapsed={sidebarCollapsed}
                                 onNavigate={handleNavClick}
                                 onOpenSearch={() => setPaletteOpen(true)}
                                 onExpand={expandDesktopSidebar}
