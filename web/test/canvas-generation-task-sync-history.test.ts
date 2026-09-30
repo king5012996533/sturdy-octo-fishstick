@@ -165,4 +165,33 @@ describe("buildGenerationTaskNodeResult history reuse", () => {
         expect(storedVideoMime).toEqual(["video/mp4"]);
         expect(video.metadata?.mimeType).toBe("video/mp4");
     });
+
+    test("任务结果带资源引用时直接复用后端资源，不再本地转存", async () => {
+        const { io, resolveMediaCalls, storedVideo } = mockIO();
+        const video = await buildGenerationTaskNodeResult(
+            mediaNode(CanvasNodeType.Video),
+            task("canvas_video", {
+                mode: "video",
+                video: {
+                    bytes: 56089006,
+                    dataUrl: "/api/resources/video-owned/file",
+                    durationMs: 30041,
+                    height: 720,
+                    mimeType: "video/mp4",
+                    resourceId: "video-owned",
+                    storageKey: "resource:video-owned",
+                    url: "/api/resources/video-owned/file",
+                    width: 1280,
+                },
+            }),
+            undefined,
+            io,
+        );
+
+        expect(video.metadata?.storageKey).toBe("resource:video-owned");
+        expect(video.metadata?.mimeType).toBe("video/mp4");
+        expect(video.metadata?.durationMs).toBe(30041);
+        expect(resolveMediaCalls).toEqual([["resource:video-owned", "/api/resources/video-owned/file"]]);
+        expect(storedVideo).toEqual([]);
+    });
 });
