@@ -264,7 +264,7 @@ func newOutboundTransport(resolveHost func(context.Context, string) ([]net.IP, e
 			if err != nil {
 				return nil, err
 			}
-			return dialer.DialContext(ctx, network, net.JoinHostPort(addresses[0].String(), port))
+			return dialResolvedAddresses(ctx, dialer, network, addresses, port)
 		},
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
@@ -273,6 +273,61 @@ func newOutboundTransport(resolveHost func(context.Context, string) ([]net.IP, e
 		TLSHandshakeTimeout:   15 * time.Second,
 		ExpectContinueTimeout: time.Second,
 	}
+}
+
+// dialAttemptTimeout 是单个地址的拨号上限。
+//
+// net.Dialer 自己的 Timeout 是"整次拨号"的预算，逐个重试时每个地址都会重新计满，
+// 双栈域名因此可能拖到一分钟。这里给单个地址一个更小的上限：公网上还连不上的地址，
+// 五秒基本可以判定不可达，把剩下的时间留给下一个地址比死等更划算。
+const dialAttemptTimeout = 5 * time.Second
+
+// dialResolvedAddresses 按 IPv4 优先的顺序逐个尝试解析结果，返回第一个连上的连接。
+//
+// 只拨 addresses[0] 会把"这台机器没有 IPv6 出口"变成一次 15 秒超时：双栈域名
+// （api.replicate.com 这类）的解析结果常常 IPv6 排在前面，而境内不少网络根本没有 IPv6
+// 路由，于是每次生成都卡死在第一个地址上。这种失败还会被归到"请求可能已发出"，
+// 连带让预扣退不回来——所以这里必须逐个试，而不是信解析顺序。
+//
+// 标准库的 Happy Eyeballs 用不上：SSRF 校验依赖解析结果，拨号必须按 IP 而不是域名。
+func dialResolvedAddresses(ctx context.Context, dialer *net.Dialer, network string, addresses []net.IP, port string) (net.Conn, error) {
+	ordered := preferIPv4Order(addresses)
+	if len(ordered) == 0 {
+		return nil, BadAuthRequest("外部服务域名没有可用的解析结果")
+	}
+	var lastErr error
+	for _, ip := range ordered {
+		attemptCtx, cancel := context.WithTimeout(ctx, dialAttemptTimeout)
+		conn, err := dialer.DialContext(attemptCtx, network, net.JoinHostPort(ip.String(), port))
+		cancel()
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return nil, lastErr
+}
+
+// preferIPv4Order 把 IPv4 地址排到前面，同族内保持解析顺序。
+//
+// 排序而非过滤：IPv6 只在 IPv4 全试过之后才轮到，既不放弃双栈能力，也不让最常见的那种
+// "有 AAAA 没路由"网络卡在第一个地址上。
+func preferIPv4Order(addresses []net.IP) []net.IP {
+	ordered := make([]net.IP, 0, len(addresses))
+	for _, ip := range addresses {
+		if ip.To4() != nil {
+			ordered = append(ordered, ip)
+		}
+	}
+	for _, ip := range addresses {
+		if ip.To4() == nil {
+			ordered = append(ordered, ip)
+		}
+	}
+	return ordered
 }
 
 func outboundProxyFromEnvironment(req *http.Request) (*url.URL, error) {

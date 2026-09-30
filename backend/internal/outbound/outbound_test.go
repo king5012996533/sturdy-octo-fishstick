@@ -1,6 +1,7 @@
 package outbound
 
 import (
+	"context"
 	"encoding/base64"
 	"net"
 	"net/http"
@@ -204,5 +205,59 @@ func TestCustomRelayHTTPClientDoesNotFollowRedirects(t *testing.T) {
 	}
 	if redirected {
 		t.Fatal("redirect destination should not receive the request")
+	}
+}
+
+// TestOutboundTransportTriesEveryResolvedAddress 覆盖"解析结果里的第一个地址连不上"。
+//
+// 这正是双栈域名的常见形态：IPv6 排在解析结果前面，而运行环境没有 IPv6 出口。只拨
+// addresses[0] 的实现会在这里失败，而失败的那次生成在上游侧可能已经计费——代价不只是
+// 一次重试，是一笔说不清的账。
+func TestOutboundTransportTriesEveryResolvedAddress(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("解析测试服务地址失败: %v", err)
+	}
+	_, port, err := net.SplitHostPort(serverURL.Host)
+	if err != nil {
+		t.Fatalf("解析测试服务地址失败: %v", err)
+	}
+
+	// 127.0.0.2 与 127.0.0.1 同端口：前者没人监听（立刻连接被拒），后者是真实服务。
+	// 第一个地址必须被跳过，才可能连上。
+	transport := newOutboundTransport(func(context.Context, string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("127.0.0.2"), net.ParseIP("127.0.0.1")}, nil
+	})
+	client := &http.Client{Transport: transport}
+	response, err := client.Get("http://outbound-test.invalid:" + port + "/")
+	if err != nil {
+		t.Fatalf("第一个解析地址不可达时应继续尝试下一个，实际报错: %v", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", response.StatusCode)
+	}
+}
+
+// TestPreferIPv4Order 覆盖拨号顺序：IPv4 在前，同族内保持解析顺序。
+func TestPreferIPv4Order(t *testing.T) {
+	ordered := preferIPv4Order([]net.IP{
+		net.ParseIP("2606:4700::6812:23c"),
+		net.ParseIP("2606:4700::6812:33c"),
+		net.ParseIP("104.18.3.60"),
+		net.ParseIP("104.18.2.60"),
+	})
+	want := []string{"104.18.3.60", "104.18.2.60", "2606:4700::6812:23c", "2606:4700::6812:33c"}
+	if len(ordered) != len(want) {
+		t.Fatalf("地址数量 = %d, want %d", len(ordered), len(want))
+	}
+	for index, ip := range ordered {
+		if ip.String() != want[index] {
+			t.Fatalf("第 %d 个地址 = %s, want %s", index, ip, want[index])
+		}
 	}
 }
