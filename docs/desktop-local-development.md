@@ -9,14 +9,14 @@ BeefTV 的桌面版是 Wails 应用：前端运行在 WebView，Go 后端在同�
 其中包含本地 SQLite 数据库、资源文件和迁移备份。验收或调试时可通过环境变量指定隔离目录：
 
 ```bash
-CANVAS_DESKTOP_DATA_DIR="$(mktemp -d /tmp/beeftv-data.XXXXXX)" \
+CANVAS_DESKTOP_DATA_DIR="$(mktemp -d /tmp/kinotv-data.XXXXXX)" \
   backend/cmd/desktop/build/bin/BeefTV.app/Contents/MacOS/BeefTV
 ```
 
 Windows：
 
 ```powershell
-$env:CANVAS_DESKTOP_DATA_DIR = Join-Path $env:TEMP "beeftv-data"
+$env:CANVAS_DESKTOP_DATA_DIR = Join-Path $env:TEMP "kinotv-data"
 backend\cmd\desktop\build\bin\BeefTV.exe
 ```
 
