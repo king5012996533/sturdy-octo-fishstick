@@ -366,53 +366,36 @@ func TestChargeTaskRejectsUnpricedTextModel(t *testing.T) {
 	}
 }
 
-// TestQuoteTaskChargeBillsVideoPerRequest 覆盖视频按条计费：调用方传的时长不参与相乘。
+// TestQuoteTaskChargeBillsVideoPerSecond 覆盖视频按秒计费：金额随提交时的时长走。
 //
-// 上游按"每条多少钱"结算，跟生成多少秒无关。一旦把秒数乘进去，一条 600 积分的视频
-// 在 30 秒档会变成 18000 积分。这里同时覆盖 2.0（×0.6 的内测亏本价）与 2.5 两档。
-func TestQuoteTaskChargeBillsVideoPerRequest(t *testing.T) {
+// 售价定 ¥0.3/秒，所以 15 秒的视频扣 450 分。时长由提交时的 videoSeconds 决定——
+// 用户的选择，或模型声明的默认时长（见 app/task_creation.go 的 applyChannelCapabilityDefaults），
+// 所以这里只需守住"传进来的秒数真的参与相乘"。
+func TestQuoteTaskChargeBillsVideoPerSecond(t *testing.T) {
 	env := newCreditTaskEnv(t)
-	rows := []struct {
-		modelKey     string
-		multiplierBp int
-		want         int64
-	}{
-		{"CHANNEL_000007::seedance-2.0", 6000, 300},
-		{"CHANNEL_000007::seedance-2.5", 12000, 600},
-	}
-	for _, row := range rows {
-		upstream := int64(500) // 上游 ¥5/条
-		multiplierBp := row.multiplierBp
-		if err := env.store.SaveModelPrice(&ModelPrice{
-			ModelKey:          row.modelKey,
-			Capability:        string(CapabilityVideo),
-			Unit:              string(UnitPerRequest),
-			UpstreamUnitPrice: &upstream,
-			MultiplierBp:      &multiplierBp,
-			Enabled:           true,
-		}); err != nil {
-			t.Fatalf("写入 %s 单价失败: %v", row.modelKey, err)
-		}
+	sell := int64(30) // 30 分/秒
+	if err := env.store.SaveModelPrice(&ModelPrice{
+		ModelKey:      "CHANNEL_000007::seedance-2.0",
+		Capability:    string(CapabilityVideo),
+		Unit:          string(UnitPerSecond),
+		SellUnitPrice: &sell,
+		Enabled:       true,
+	}); err != nil {
+		t.Fatalf("写入单价失败: %v", err)
 	}
 
-	// 2.0 支持 5/10/15 秒，2.5 固定 30 秒；按条计费时传哪个都只算一条。
-	for _, row := range rows {
-		for _, seconds := range []int64{5, 10, 15, 30} {
-			quote, err := env.service.QuoteTaskCharge(TaskChargeInput{
-				ModelKey:   row.modelKey,
-				Capability: "VIDEO",
-				Quantity:   seconds,
-			})
-			if err != nil {
-				t.Fatalf("%s 试算失败: %v", row.modelKey, err)
-			}
-			if !quote.Priced || quote.SellUnitPrice == nil || *quote.SellUnitPrice != row.want {
-				t.Fatalf("%s 单价应为 %d，实际 %#v", row.modelKey, row.want, quote)
-			}
-			if quote.Unit != string(UnitPerRequest) || quote.Quantity != 1 || quote.Credits != row.want {
-				t.Fatalf("%s 传 %d 秒应按一条 %d 积分，实际 %s × %d = %d",
-					row.modelKey, seconds, row.want, quote.Unit, quote.Quantity, quote.Credits)
-			}
+	// 2.0 支持 5/10/15 秒。
+	for _, testCase := range []struct{ seconds, want int64 }{{5, 150}, {10, 300}, {15, 450}} {
+		quote, err := env.service.QuoteTaskCharge(TaskChargeInput{
+			ModelKey:   "CHANNEL_000007::seedance-2.0",
+			Capability: "VIDEO",
+			Quantity:   testCase.seconds,
+		})
+		if err != nil {
+			t.Fatalf("%d 秒试算失败: %v", testCase.seconds, err)
+		}
+		if !quote.Priced || quote.Unit != string(UnitPerSecond) || quote.Credits != testCase.want {
+			t.Fatalf("%d 秒应扣 %d 分，实际 %#v", testCase.seconds, testCase.want, quote)
 		}
 	}
 }

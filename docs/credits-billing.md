@@ -192,6 +192,38 @@ KINO_ADMIN_COOKIE='<Cookie>' KINO_BASE_URL=https://kinotv.xingtudesign.com/api \
     python3 scripts/seed-image-model-prices.py --apply
 ```
 
+### 视频按秒计价，但上游按条结算
+
+Seedance 2.0 / 2.5（渠道 `CHANNEL_000007`）售价 **¥0.3/秒**，价目行单位是 `SECOND`，
+金额 = 单价 × 提交时的 `videoSeconds`。这个值在任务创建阶段一定存在：用户选的时长，或
+模型声明的默认时长（`applyChannelCapabilityDefaults` 会把 `duration.default` 写进 config，
+再由此重建 `capabilityOptions`），所以按秒计费不需要"取不到时长"的兜底分支。
+
+上游（插件 aigenvideo-seedance）却是**按条**结算：2.0 与 2.5 同价、一条 ¥5，与生成多少秒
+无关。成本是常数、收入随时长线性涨，于是每一档的毛利都不同：
+
+| 模型 | 时长 | 收入 | 上游成本 | 每条 |
+| --- | --- | --- | --- | --- |
+| Seedance 2.0 | 5 秒 | ¥1.5 | ¥5 | **-¥3.5** |
+| Seedance 2.0 | 10 秒 | ¥3 | ¥5 | -¥2 |
+| Seedance 2.0 | 15 秒 | ¥4.5 | ¥5 | -¥0.5 |
+| Seedance 2.5 | 30 秒 | ¥9 | ¥5 | +¥4 |
+
+2.0 的三档全在成本线以下（5 秒档亏得最多），2.5 固定 30 秒、是唯一有毛利的档。这是刻意的
+内测福利价，但它**不是"低毛利"，而是按条计的净亏**，跑量起来亏损同比例放大。保本线：
+5 秒档需要 ¥1/秒，15 秒档需要 ¥0.34/秒。改 `scripts/seed-video-model-prices.py` 里的
+`SELL_FEN_PER_SECOND` 重跑即可。
+
+这一行的 `upstream_unit_price` 留空：上游成本只有"每条 ¥5"这一个事实，而单位是秒，把 500
+填进去会被读成"每秒钟成本 500 分"，是个六倍于真实成本的假数字。成本口径写进 note，
+售价用 `sell_unit_price` 直接落库。
+
+```bash
+KINO_ADMIN_COOKIE='<Cookie>' python3 scripts/seed-video-model-prices.py
+KINO_ADMIN_COOKIE='<Cookie>' KINO_BASE_URL=https://kinotv.xingtudesign.com/api \
+    python3 scripts/seed-video-model-prices.py --apply
+```
+
 ## 六、充值到账
 
 套餐（`billing_plans`）带两个字段：`credits`（到账积分）与 `gift_credits`（平台赠送）。

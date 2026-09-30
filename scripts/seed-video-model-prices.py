@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""把视频模型 Seedance 2.0 / 2.5 的按条价写进定价表。
+"""把视频模型 Seedance 2.0 / 2.5 的按秒价写进定价表。
 
 这份价目是产品决策，不是默认值，所以和 seed-image-model-prices.py、seed-text-model-prices.py
 一样做成"可重放"的：价目变了就改下面的常量，重跑一遍，而不是靠谁记得当初在后台点过什么。
@@ -12,33 +12,32 @@
     KINO_ADMIN_COOKIE='...' KINO_BASE_URL=https://kinotv.xingtudesign.com/api \\
         python3 scripts/seed-video-model-prices.py --apply
 
-## 为什么按「条」而不是按「秒」
+## 用户按秒付，上游按条收
 
-上游（插件 aigenvideo-seedance）对 Seedance 2.0 与 2.5 **同价，且不分时长**：一条多少钱，
-跟他生成 5 秒还是 30 秒无关。成本是常数、时长是变量，两者结构不同，所以按秒定价必然错
-一头——3 毛/秒的话 5 秒档只收 1.5 元，而每出一条都要付 5 元，等于最短的那一档每单亏 3.5 元，
-而它恰恰是用户最常选的。
+售价定 **¥0.3/秒**，所以价目行的单位是 `SECOND`，秒数由提交时的 `videoSeconds` 决定：
+用户选 15 秒就扣 15 秒的钱，选 5 秒就扣 5 秒。这个值在任务创建阶段一定会被填上——
+用户的选择，或模型声明的默认时长（见 app/task_creation.go 的 applyChannelCapabilityDefaults），
+所以按秒计费不需要为"取不到时长"留兜底分支。
 
-按条计价后毛利不再随时长漂移：收入与成本都是常数，一条就是一条。代价是 5 秒和 15 秒同价，
-用户会倾向选最长时长——成本不变，所以这不是漏洞。
+上游（插件 aigenvideo-seedance）是**按条**结算：2.0 与 2.5 同价，一条 ¥5，与生成多少秒
+无关。成本是常数、收入随时长线性涨，这个结构决定了每一档的毛利都不一样：
 
-后端的 `credits = 单价 × 用量` 不变，靠「计费单位 = REQUEST 时用量恒为 1」把秒数挡在相乘
-之外（见 auth/credit_task.go）。所以这张表里的单位必须是 REQUEST，写成 SECOND 会把一条
-600 积分的视频乘成 9000 积分。
-
-## 内测福利价：2.0 是低于成本的
-
-| 模型 | 上游成本 | 售价 | 倍率 | 每条 |
+| 模型 | 时长 | 收入 | 上游成本 | 每条 |
 | --- | --- | --- | --- | --- |
-| Seedance 2.0（5/10/15 秒） | ¥5 | ¥3 | ×0.6 | **-¥2** |
-| Seedance 2.5（30 秒 720P） | ¥5 | ¥6 | ×1.2 | +¥1 |
+| Seedance 2.0 | 5 秒 | ¥1.5 | ¥5 | **-¥3.5** |
+| Seedance 2.0 | 10 秒 | ¥3 | ¥5 | -¥2 |
+| Seedance 2.0 | 15 秒 | ¥4.5 | ¥5 | -¥0.5 |
+| Seedance 2.5 | 30 秒 | ¥9 | ¥5 | +¥4 |
 
-上游两档同价，所以 2.5 的差价全是毛利。2.0 定到成本以下是有意为之的内测福利，用来换早期
-用户；它同时是引流主力，跑量起来后亏的绝对值会跟着涨，**这是需要盯的一条线，不是可以忘掉
-的临时配置**。要回到保本，把 SELL_YUAN 改成 "5" 重跑即可。
+即 2.0 的三档全在成本线以下（5 秒档最狠），2.5 固定 30 秒、是唯一有毛利的档。这是刻意的
+内测福利价，用来换早期用户；但它不是"低毛利"，是**按条计的净亏**，跑量起来亏损同比例放大。
+要回到保本，把 SELL_FEN_PER_SECOND 改成 100 重跑（5 秒档刚好打平），或改成 34 让 15 秒档打平。
 
-倍率而不是售价写进价目行：上游调价时只改 UPSTREAM_YUAN_PER_VIDEO 一个数，售价按比例自动
-跟随，两档之间的相对关系也不会被改歪。
+## 为什么这一行的 upstream 是空的
+
+上游成本只有"每条 ¥5"这个事实，而这一行的单位是秒——把 500 填进 `upstream_unit_price`
+会被读成"每秒钟成本 500 分"，那是六倍于真实成本的假数字。成本口径写进 note，
+售价用 `sell_unit_price` 直接落库（倍率那一级在这里没有干净的定义）。
 """
 
 from __future__ import annotations
@@ -52,26 +51,23 @@ import urllib.parse
 import urllib.request
 from decimal import Decimal
 
-# 上游每条的实价（元）。两个模型同一个价，且与视频时长无关。
-UPSTREAM_YUAN_PER_VIDEO = "5"
+# 售价：分 / 秒。30 分 = ¥0.3/秒。
+SELL_FEN_PER_SECOND = 30
 
-# 每档的售价（元）。2.0 低于成本，见文件头 docstring。
-MODELS: list[dict[str, str]] = [
-    {
-        "modelKey": "CHANNEL_000007::seedance-2.0",
-        "label": "Seedance 2.0（5/10/15 秒）",
-        "sellYuan": "3",
-    },
-    {
-        "modelKey": "CHANNEL_000007::seedance-2.5",
-        "label": "Seedance 2.5（固定 30 秒 720P）",
-        "sellYuan": "6",
-    },
+# 上游的结算事实：每条固定 ¥5，与时长无关。只用于把账算给你看，不落库（见文件头）。
+UPSTREAM_FEN_PER_VIDEO = 500
+
+# durations 只用于打印上面那张账，不参与写库：真实可选时长由渠道模型的能力配置决定
+# （2.0 = 5/10/15，2.5 = 固定 30）。这里与它重复一份是有意的——改渠道配置忘了改这里，
+# 代价只是预览表格少显示一行，而不会写错价。
+MODELS: list[dict] = [
+    {"modelKey": "CHANNEL_000007::seedance-2.0", "label": "Seedance 2.0", "durations": [5, 10, 15]},
+    {"modelKey": "CHANNEL_000007::seedance-2.5", "label": "Seedance 2.5", "durations": [30]},
 ]
 
 CAPABILITY = "VIDEO"
-# 必须是 REQUEST：按秒结算会把每条价乘成"单价 × 秒数"。理由见文件头 docstring。
-UNIT = "REQUEST"
+# 必须是 SECOND：计费侧按 `单价 × 秒数` 相乘，秒数取自提交时的 videoSeconds。
+UNIT = "SECOND"
 VENDOR_CODE = "aigenvideo-seedance"
 
 
@@ -99,70 +95,59 @@ def request(method: str, base_url: str, path: str, cookie: str, payload: dict | 
     return envelope.get("data") or {}
 
 
-def yuan_to_fen(value: str) -> int:
-    """元 → 分。¥5 = 500 分，1 积分等于 1 分，所以这里同时就是积分。
-
-    元转分必须是整数：金额列存不下小数，而"每条 5.5 元"这类价一旦被截断，就会在
-    每一条视频上稳定地少收一点，累计起来无法追溯。除不尽直接报错，逼调用方改价。
-    """
-    fen = Decimal(value) * 100
-    if fen != fen.to_integral_value():
-        raise ValueError(f"售价/成本必须精确到分，无法表示 {value} 元")
-    return int(fen)
-
-
-def multiplier_text(sell_yuan: str) -> str:
-    """倍率 = 售价 / 上游成本，写成后台表单收的倍数字符串。"""
-    multiplier = Decimal(sell_yuan) / Decimal(UPSTREAM_YUAN_PER_VIDEO)
-    return format(multiplier.normalize(), "f")
-
-
-def multiplier_bp(sell_yuan: str) -> int:
-    multiplier = Decimal(sell_yuan) / Decimal(UPSTREAM_YUAN_PER_VIDEO)
-    return int(multiplier * 10000)
+def note_for(model: dict) -> str:
+    return (
+        f"上游 ¥{Decimal(UPSTREAM_FEN_PER_VIDEO) / 100}/条（不分时长）；"
+        f"按秒售价 {Decimal(SELL_FEN_PER_SECOND) / 100} 元/秒"
+    )
 
 
 def desired_rows() -> list[dict]:
-    upstream_fen = yuan_to_fen(UPSTREAM_YUAN_PER_VIDEO)
-    rows: list[dict] = []
-    for model in MODELS:
-        sell_fen = yuan_to_fen(model["sellYuan"])
-        rows.append(
-            {
-                "modelKey": model["modelKey"],
-                "capability": CAPABILITY,
-                "priceTier": "",
-                "unit": UNIT,
-                "vendorCode": VENDOR_CODE,
-                # 售价 = null + 倍率：售价由服务端按倍率算出，上游调价只改上游价一个数。
-                "upstreamUnitPrice": upstream_fen,
-                "sellUnitPrice": None,
-                "multiplier": multiplier_text(model["sellYuan"]),
-                "enabled": True,
-                "note": (
-                    f"上游 ¥{UPSTREAM_YUAN_PER_VIDEO}/条（不分时长）×{multiplier_text(model['sellYuan'])}"
-                    f" = ¥{model['sellYuan']}/条"
-                    + ("（内测福利价，低于成本）" if sell_fen < upstream_fen else "")
-                ),
-            }
-        )
-    return rows
+    return [
+        {
+            "modelKey": model["modelKey"],
+            "capability": CAPABILITY,
+            "priceTier": "",
+            "unit": UNIT,
+            "vendorCode": VENDOR_CODE,
+            # 直接定价：成本按条、售价按秒，两者之间没有干净的倍率（见文件头）。
+            "upstreamUnitPrice": None,
+            "sellUnitPrice": SELL_FEN_PER_SECOND,
+            "multiplier": None,
+            "enabled": True,
+            "note": note_for(model),
+        }
+        for model in MODELS
+    ]
 
 
 def same_as_existing(row: dict, existing: dict) -> bool:
     return (
         existing.get("unit") == row["unit"]
-        and existing.get("upstreamUnitPrice") == row["upstreamUnitPrice"]
-        and existing.get("sellUnitPrice") is None
-        and existing.get("multiplierBp") == multiplier_bp(
-            next(model["sellYuan"] for model in MODELS if model["modelKey"] == row["modelKey"])
-        )
+        and existing.get("upstreamUnitPrice") is None
+        and existing.get("sellUnitPrice") == row["sellUnitPrice"]
         and existing.get("enabled") is True
     )
 
 
+def print_economics() -> None:
+    print(
+        f"上游按条结算：每条 ¥{Decimal(UPSTREAM_FEN_PER_VIDEO) / 100}，"
+        f"与时长无关；售价 ¥{Decimal(SELL_FEN_PER_SECOND) / 100}/秒"
+    )
+    for model in MODELS:
+        for seconds in model["durations"]:
+            revenue = SELL_FEN_PER_SECOND * seconds
+            delta = revenue - UPSTREAM_FEN_PER_VIDEO
+            mark = "低于成本 " if delta < 0 else ""
+            print(
+                f"  {model['label']:14} {seconds:>2} 秒：收入 {revenue:>4} 分 vs 成本 "
+                f"{UPSTREAM_FEN_PER_VIDEO} 分 → {mark}{delta:+d} 分（{delta / 100:+.2f} 元）"
+            )
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="写入视频模型按条价（默认只预览）")
+    parser = argparse.ArgumentParser(description="写入视频模型按秒价（默认只预览）")
     parser.add_argument("--apply", action="store_true", help="真正写入；不加则只打印将要做的变更")
     parser.add_argument("--base-url", default=os.environ.get("KINO_BASE_URL", "http://127.0.0.1:8080/api"))
     parser.add_argument("--cookie", default=os.environ.get("KINO_ADMIN_COOKIE", ""))
@@ -173,7 +158,9 @@ def main() -> int:
         print("缺少管理员会话：请设置 KINO_ADMIN_COOKIE（浏览器里任意 /api/admin/* 请求的 Cookie 头）", file=sys.stderr)
         return 2
 
-    upstream_fen = yuan_to_fen(UPSTREAM_YUAN_PER_VIDEO)
+    print_economics()
+    print()
+
     existing_rows = request("GET", args.base_url, "/admin/billing/model-prices", cookie).get("prices") or []
     index = {
         (row.get("modelKey"), row.get("capability"), row.get("priceTier") or ""): row
@@ -187,28 +174,18 @@ def main() -> int:
             continue
         plan.append(("update" if existing else "create", row, existing))
 
-    labels = {model["modelKey"]: model["label"] for model in MODELS}
-    for model in MODELS:
-        sell_fen = yuan_to_fen(model["sellYuan"])
-        mark = "低于成本 " if sell_fen < upstream_fen else ""
-        print(
-            f"{model['label']}：上游 ¥{UPSTREAM_YUAN_PER_VIDEO}/条 → 售价 ¥{model['sellYuan']}/条"
-            f"（{mark}倍率 ×{multiplier_text(model['sellYuan'])}，每条 {sell_fen - upstream_fen:+d} 积分）"
-        )
-
     if not plan:
-        print("\n视频价目已经是目标状态，无需变更。")
+        print("视频价目已经是目标状态，无需变更。")
         return 0
 
-    print()
     for action, row, existing in plan:
-        target = f"{labels.get(row['modelKey'], row['modelKey'])} · {row['modelKey']}"
         if action == "create":
-            print(f"新建 {target}：上游 {row['upstreamUnitPrice']} 分/条，倍率 ×{row['multiplier']}")
+            print(f"新建 {row['modelKey']}：单位 {row['unit']}，售价 {row['sellUnitPrice']} 分/秒")
         else:
             print(
-                f"更新 {target}：上游 {existing.get('upstreamUnitPrice')} → {row['upstreamUnitPrice']} 分/条，"
-                f"倍率 ×{row['multiplier']}（原有独立售价会被清掉，改由倍率计算）"
+                f"更新 {row['modelKey']}：单位 {existing.get('unit')} → {row['unit']}，"
+                f"售价 {existing.get('sellUnitPrice')} → {row['sellUnitPrice']} 分/秒"
+                f"（上游成本与倍率会被清空，见文件头说明）"
             )
 
     if not args.apply:

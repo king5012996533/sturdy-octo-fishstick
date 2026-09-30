@@ -117,13 +117,6 @@ func (s *Service) QuoteTaskCharge(input TaskChargeInput) (*TaskChargeQuote, erro
 	}, price, rules)
 
 	unit := unitOf(price, capability)
-	// 按条计费时用量恒为 1：一条就是一条。视频上游普遍按"每条多少钱"结算，跟我们让用户
-	// 选了多少秒无关，所以调用方传进来的秒数在这里必须丢掉——留着它会把一条 600 积分的
-	// 视频乘成 9000 积分。单位是权威口径，秒数只在按秒计费时才参与相乘。
-	if unit == string(UnitPerRequest) {
-		quantity = 1
-	}
-
 	quote := &TaskChargeQuote{
 		MultiplierBp:     resolution.MultiplierBp,
 		MultiplierSource: resolution.Source,
