@@ -10,9 +10,9 @@ import { AppDrawer } from "@/components/ui/product/app-drawer";
 import { AppModal } from "@/components/ui/product/app-modal";
 import { useWorkspaceTopBarMount } from "@/components/layout/workspace-top-bar-extension";
 import { Tooltip } from "@/components/ui/base/tooltip";
-import { Reorder, LayoutGroup, motion, useReducedMotion } from "motion/react";
+import { Reorder, motion } from "motion/react";
 import { useNavigate } from "react-router";
-import { ArrowDown, ArrowUp, Brain, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, Copy, Download, FileText, Film, History, Image as ImageIcon, LoaderCircle, Maximize2, MessageSquareText, Minimize2, MoreHorizontal, Music2, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Sparkles, Trash2, UserRound, WandSparkles, Waves, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, Copy, Download, FileText, Film, History, Image as ImageIcon, LoaderCircle, Maximize2, MessageSquareText, Minimize2, MoreHorizontal, Music2, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Sparkles, Trash2, UserRound, WandSparkles, Waves, X } from "lucide-react";
 
 import { AIMessageMarkdown } from "@/components/ai/ai-message-markdown";
 import { GenerationToolCard, type GenerationToolStatus } from "@/components/ai/generation-tool-card";
@@ -30,7 +30,6 @@ import { VoiceRecordingButton } from "@/components/conversation/voice-recording-
 import { HoverBorderGradient } from "@/components/ui/aceternity/hover-border-gradient";
 import { SpotlightSurface } from "@/components/ui/aceternity/spotlight-surface";
 import { ModelPicker } from "@/components/model-picker";
-import { aceternityMotion } from "@/lib/aceternity-motion";
 import { ASSET_CATEGORY_LABELS } from "@/lib/asset-category";
 import { formatShotOrdinal } from "@/lib/shot-label";
 import { useCopyText } from "@/hooks/use-copy-text";
@@ -362,6 +361,9 @@ type ComposerProps = {
     onReplaceReferenceFiles: (targetAttachmentId: string, files: File[]) => void;
     onOpenLibrary: () => void;
     onModeChange: (mode: CreationMode) => void;
+    /** 首页空态才有的 Agent 入口；对话态不传，模式菜单里就不出现 Agent。 */
+    agentActive?: boolean;
+    onAgentSelect?: () => void;
     model: string;
     modelRequirements: ModelRequirements;
     videoProfile: VideoCapabilityConfig;
@@ -523,6 +525,14 @@ export function CreationComposer(props: ComposerProps) {
         }
         return undefined;
     };
+    // 引导 chip 只看"输入框有没有内容"：空则显示、有内容就让位，避免一聚焦就整块抖动。
+    const composerIsEmpty = !props.prompt.trim() && !props.attachments.length && !props.references.some((reference) => reference.active);
+    const startStarter = (item: CreationStarterSuggestion) => {
+        props.onModeChange(item.mode);
+        if (item.prompt) props.setPrompt(item.prompt);
+        if (item.openLibrary) props.onOpenLibrary();
+        else window.requestAnimationFrame(() => props.composerFocusRef.current?.focus());
+    };
     const composer = <HoverBorderGradient as="div" duration={2.2} containerClassName="creation-composer-shell" className="creation-composer-shell-inner">
         <SpotlightSurface
             className={`creation-chat-composer is-${props.variant}`}
@@ -598,9 +608,10 @@ export function CreationComposer(props: ComposerProps) {
                 </div> : null}
             </div>
         </div>
+        {props.variant === "empty" && composerIsEmpty && !interactionBusy ? <CreationStarterChips onStart={startStarter} /> : null}
         <footer className="creation-chat-dock">
             <div className="creation-chat-controls">
-                {props.variant === "thread" ? <ModePicker mode={props.mode} onModeChange={props.onModeChange} /> : null}
+                <CreationModeMenu mode={props.mode} agentActive={Boolean(props.agentActive)} onModeChange={props.onModeChange} onAgentSelect={props.onAgentSelect} />
                 {referencesSupported ? <Tooltip title={addReferenceLabel}><button type="button" className="creation-reference-add-button creation-chat-reference-add" onClick={props.onOpenLibrary} disabled={interactionBusy || !canAddMoreReferences} aria-label={addReferenceLabel}><Plus aria-hidden="true" /></button></Tooltip> : null}
                 <VoiceRecordingButton
                     // 高度必须走 Tailwind 工具类：@layer utilities 里的 !important 会压过
@@ -673,42 +684,40 @@ export function CreationComposer(props: ComposerProps) {
     );
 }
 
-export function CreationModeTabs({ mode, onModeChange, agentActive = false, onAgentSelect, orientation = "horizontal" }: { mode: CreationMode; onModeChange: (mode: CreationMode) => void; agentActive?: boolean; onAgentSelect?: () => void; orientation?: "horizontal" | "vertical" }) {
-    const reducedMotion = useReducedMotion();
-    const items: { mode: CreationMode; icon: ReactNode; label: string }[] = [
-        { mode: "video", icon: <Film />, label: "视频" },
-        { mode: "image", icon: <ImageIcon />, label: "图片" },
-        { mode: "text", icon: <MessageSquareText />, label: "文本" },
-    ];
-    const indicator = (pressed: boolean) => pressed ? (
-        <motion.span
-            layoutId={`creation-mode-indicator-${orientation}`}
-            className="creation-mode-indicator"
-            aria-hidden
-            transition={reducedMotion ? { duration: 0 } : aceternityMotion.spring.dock}
-        />
-    ) : null;
-    return <LayoutGroup id={`creation-mode-tabs-${orientation}`}>
-        <div className="creation-mode-tabs" role="group" aria-label="创作模式" data-active-mode={agentActive ? "agent" : mode} data-orientation={orientation} style={{ gridTemplateColumns: orientation === "vertical" ? "minmax(0, 1fr)" : `repeat(${onAgentSelect ? 4 : 3}, minmax(0, 1fr))` }}>
-        {items.map((item) => (
-            <button key={item.mode} type="button" className="creation-mode-button" data-mode={item.mode} aria-pressed={!agentActive && item.mode === mode} aria-label={`${item.label}生成`} onClick={() => onModeChange(item.mode)}>
-                {indicator(!agentActive && item.mode === mode)}
-                {item.icon}
-                <span>{item.label}</span>
-            </button>
-        ))}
-        {onAgentSelect ? <button type="button" className="creation-mode-button" data-mode="agent" aria-pressed={agentActive} onClick={onAgentSelect}>{indicator(agentActive)}<Brain /><span>Agent</span><Sparkles className="creation-mode-agent-star" aria-hidden /></button> : null}
-        </div>
-    </LayoutGroup>;
-}
-
 function inspirationCredit(item: CreationInspiration) {
     if (item.sourceUrl) return item.author ? `示例素材 · ${item.author}` : "示例素材";
     return item.source ? "开源改编 · CC0" : "原创提示词";
 }
 
-function ModePicker({ mode, onModeChange }: { mode: CreationMode; onModeChange: (mode: CreationMode) => void }) {
-    return <CreationModeTabs mode={mode} onModeChange={onModeChange} />;
+type CreationStarterSuggestion = { mode: CreationMode; icon: typeof Clapperboard; title: string; hint: string; prompt: string; openLibrary?: boolean };
+
+const creationStarters: CreationStarterSuggestion[] = [
+    { mode: "video", icon: Clapperboard, title: "生成第一个镜头", hint: "描述画面、镜头运动与光线", prompt: "雨夜天台，镜头缓缓推近霓虹灯牌下的主角，她回眸看向镜头，强对比电影感布光" },
+    { mode: "image", icon: ImageIcon, title: "从参考图开始", hint: "上传风格图，生成同风格画面", prompt: "", openLibrary: true },
+    { mode: "text", icon: FileText, title: "续写故事", hint: "和 AI 讨论剧情、角色与对白", prompt: "帮我续写一个短剧故事，先聊聊剧情走向：" },
+    { mode: "video", icon: Sparkles, title: "引用技能增强", hint: "@技能 调用分镜与配音", prompt: "调用分镜技能，帮我规划这个镜头的拍摄方案：" },
+];
+
+/** 模式收进输入框：收起时只占一个控件的宽度，展开才列出四个入口，避免空态被一整行胶囊占掉。 */
+export function CreationModeMenu({ mode, agentActive = false, onModeChange, onAgentSelect }: { mode: CreationMode; agentActive?: boolean; onModeChange: (mode: CreationMode) => void; onAgentSelect?: () => void }) {
+    const [open, setOpen] = useState(false);
+    const items: Array<{ key: string; icon: ReactNode; label: string; isActive: boolean; select: () => void }> = [
+        { key: "video", icon: <Film />, label: "视频", isActive: !agentActive && mode === "video", select: () => onModeChange("video") },
+        { key: "image", icon: <ImageIcon />, label: "图片", isActive: !agentActive && mode === "image", select: () => onModeChange("image") },
+        { key: "text", icon: <MessageSquareText />, label: "文本", isActive: !agentActive && mode === "text", select: () => onModeChange("text") },
+    ];
+    // Agent 换的是整套输入区，不是生成参数；调用方不传入口时（对话态）就不列它。
+    if (onAgentSelect) items.push({ key: "agent", icon: <Brain />, label: "Agent", isActive: agentActive, select: onAgentSelect });
+    const current = items.find((item) => item.isActive) || items[0];
+    return <Popover open={open} onOpenChange={setOpen} trigger="click" placement="bottomLeft" arrow={false} classNames={{ root: "creation-control-popover", container: "creation-control-popover-surface", content: "creation-control-popover-content" }} content={<div className="creation-mode-menu" role="menu" aria-label="创作模式">
+        {items.map((item) => <button key={item.key} type="button" role="menuitemradio" aria-checked={item.isActive} className={item.isActive ? "is-selected" : undefined} onClick={() => { setOpen(false); item.select(); }}>{item.icon}<span>{item.label}</span>{item.isActive ? <Check className="creation-mode-menu-check" aria-hidden="true" /> : null}</button>)}
+    </div>}>
+        <button type="button" className="creation-chat-control is-mode" aria-label={`创作模式：${current.label}`} aria-haspopup="menu" aria-expanded={open}>
+            {current.icon}
+            <span>{current.label}</span>
+            <ChevronDown className={open ? "is-open" : ""} />
+        </button>
+    </Popover>;
 }
 
 function GenerationSettingsMenu(props: ComposerProps) {
@@ -790,51 +799,14 @@ export function CreationEmptyBanner() {
     </div>;
 }
 
-const creationEmptySuggestions: Array<{ mode: CreationMode; icon: typeof Clapperboard; title: string; hint: string; prompt: string; openLibrary?: boolean }> = [
-    { mode: "video", icon: Clapperboard, title: "生成第一个镜头", hint: "描述画面、镜头运动与光线", prompt: "雨夜天台，镜头缓缓推近霓虹灯牌下的主角，她回眸看向镜头，强对比电影感布光" },
-    { mode: "image", icon: ImageIcon, title: "从参考图开始", hint: "上传风格图，生成同风格画面", prompt: "", openLibrary: true },
-    { mode: "text", icon: FileText, title: "续写故事", hint: "和 AI 讨论剧情、角色与对白", prompt: "帮我续写一个短剧故事，先聊聊剧情走向：" },
-    { mode: "video", icon: Sparkles, title: "引用技能增强", hint: "@技能 调用分镜与配音", prompt: "调用分镜技能，帮我规划这个镜头的拍摄方案：" },
-];
-
-export function CreationEmptySuggest({ onStartPrompt, onOpenLibrary }: { onStartPrompt: (mode: CreationMode, prompt: string) => void; onOpenLibrary: () => void }) {
-    const reducedMotion = useReducedMotion();
-    const [hovered, setHovered] = useState<string | null>(null);
-    return <LayoutGroup id="creation-empty-suggest">
-        <div className="creation-empty-suggest" aria-label="快捷创作入口">
-        {creationEmptySuggestions.map((item) => {
+/** 空态引导：只在内层输入框为空时出现，开始打字就自动让位，不需要额外的手动收起。 */
+function CreationStarterChips({ onStart }: { onStart: (item: CreationStarterSuggestion) => void }) {
+    return <div className="creation-starter-chips" aria-label="快捷创作入口">
+        {creationStarters.map((item) => {
             const Icon = item.icon;
-            const start = () => {
-                if (item.openLibrary) onOpenLibrary();
-                else onStartPrompt(item.mode, item.prompt);
-            };
-            return <motion.button
-                key={item.title}
-                type="button"
-                className="suggest-card"
-                onClick={start}
-                onHoverStart={() => setHovered(item.title)}
-                onHoverEnd={() => setHovered(null)}
-                whileHover={reducedMotion ? undefined : { y: -2 }}
-                transition={aceternityMotion.spring.surface}
-            >
-                {hovered === item.title ? (
-                    <motion.span
-                        layoutId="creation-suggest-hover"
-                        className="suggest-card-hover"
-                        aria-hidden
-                        transition={reducedMotion ? { duration: 0 } : aceternityMotion.spring.surface}
-                    />
-                ) : null}
-                <span className="library-icon-tile suggest-icon"><Icon size={18} strokeWidth={2} /></span>
-                <span className="suggest-copy">
-                    <strong>{item.title}</strong>
-                    <span>{item.hint}</span>
-                </span>
-            </motion.button>;
+            return <button key={item.title} type="button" className="creation-starter-chip" title={item.hint} onClick={() => onStart(item)}><Icon aria-hidden="true" /><span>{item.title}</span></button>;
         })}
-        </div>
-    </LayoutGroup>;
+    </div>;
 }
 
 

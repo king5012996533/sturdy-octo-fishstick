@@ -64,7 +64,7 @@ import {
     newMessage,
     reconcileCreationTaskMessages,
 } from "./creation-conversations";
-import { CreationComposer, CreationEmptySuggest, CreationFeaturedWorks, CreationHistoryDrawer, CreationMessageView, CreationModeTabs, CreationWorkspaceToolbar, creationAssetCategoryLabels } from "./creation-workspace";
+import { CreationComposer, CreationFeaturedWorks, CreationHistoryDrawer, CreationMessageView, CreationModeMenu, CreationWorkspaceToolbar, creationAssetCategoryLabels } from "./creation-workspace";
 import { CreationAgentEntry } from "./creation-agent-entry";
 import { createDemoConversation } from "./creation-demo-data";
 
@@ -1106,6 +1106,8 @@ export default function CreatePage() {
         onReplaceReferenceFiles: replaceReferenceFromFiles,
         onOpenLibrary: () => setLibraryOpen(true),
         onModeChange: selectMode,
+        agentActive: agentMode,
+        onAgentSelect: () => setAgentMode(true),
         model: selectedModel,
         modelRequirements,
         imageProfile,
@@ -1179,36 +1181,27 @@ export default function CreatePage() {
                             </div>
                             <section ref={launchpadRef} className="creation-launchpad" aria-label="开始创作">
                                 <div className={cn("creation-composer-stage is-home-mode", agentMode && "is-agent-mode")}>
-                                    <CreationModeTabs
-                                        mode={mode}
-                                        agentActive={agentMode}
-                                        onAgentSelect={() => setAgentMode(true)}
-                                        onModeChange={(next) => {
-                                            setAgentMode(false);
-                                            selectMode(next);
-                                        }}
-                                    />
                                     {agentMode ? (
-                                        <CreationAgentEntry autoStart />
+                                        <>
+                                            <div className="creation-agent-mode-bar">
+                                                <CreationModeMenu
+                                                    mode={mode}
+                                                    agentActive
+                                                    onAgentSelect={() => setAgentMode(true)}
+                                                    onModeChange={(next) => {
+                                                        setAgentMode(false);
+                                                        selectMode(next);
+                                                    }}
+                                                />
+                                            </div>
+                                            <CreationAgentEntry autoStart />
+                                        </>
                                     ) : (
                                         <div className="creation-empty-composer">
                                             <CreationComposer {...composerProps} variant="empty" />
                                         </div>
                                     )}
                                 </div>
-                                <CreationEmptySuggest
-                                    onStartPrompt={(nextMode, prompt) => {
-                                        setAgentMode(false);
-                                        selectMode(nextMode);
-                                        setPrompt(prompt);
-                                        window.requestAnimationFrame(() => composerFocusRef.current?.focus());
-                                    }}
-                                    onOpenLibrary={() => {
-                                        setAgentMode(false);
-                                        selectMode("image");
-                                        setLibraryOpen(true);
-                                    }}
-                                />
                             </section>
                             <CreationFeaturedWorks
                                 onStartPrompt={(nextMode, prompt) => {

@@ -25,7 +25,7 @@ describe("creation library button", () => {
         expect(dockStart).toBeGreaterThanOrEqual(0);
         expect(dockEnd).toBeGreaterThan(dockStart);
         const dockSource = compactSource(source.slice(dockStart, dockEnd));
-        const modePickerIndex = dockSource.indexOf("<ModePicker mode={props.mode}");
+        const modePickerIndex = dockSource.indexOf("<CreationModeMenu mode={props.mode}");
 
         expect(modePickerIndex).toBeGreaterThanOrEqual(0);
         expect(source).not.toContain("creation-composer-mode-row");
@@ -69,7 +69,7 @@ describe("creation library button", () => {
         const source = readCreateWorkspaceSource();
         const styles = readFileSync(resolve(import.meta.dir, "../src/styles/globals.css"), "utf8");
 
-        expect(source).toContain("import { Reorder, LayoutGroup, motion, useReducedMotion } from \"motion/react\"");
+        expect(source).toContain("import { Reorder, motion } from \"motion/react\"");
         expect(source).toContain("<Reorder.Group");
         expect(source).toContain('axis="x"');
         expect(source).toContain("values={visibleAttachments}");
