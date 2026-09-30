@@ -1,0 +1,386 @@
+/* 积分中心：把"余额 → 充值 → 订单 → 流水"四段拉成同一套节奏。
+   wallet-kit 负责面料（玻璃面板），这里只负责横幅、读数、档位卡与结算条的版式。
+   颜色一律走既有令牌，明暗两主题各自成立，不写死主题色。 */
+
+/* ---------- 横幅：与首页同一套剧照 + 压字 ---------- */
+
+/* 首页那面横幅是这一屏的第一个像素，这里照抄它的构图与压字底：
+   照片上只留标题，页面外壳的页头不再出现，阅读顺序从"图 → 读数 → 档位"开始。 */
+.wallet-hero {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    align-items: center;
+    min-height: clamp(300px, 38vh, 430px);
+    overflow: hidden;
+}
+.wallet-hero-art {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* 与首页同一个裁切点：人物在中右、巨行星在上半，左边留给压字。 */
+    object-position: 50% 58%;
+    user-select: none;
+}
+/* 压字底固定用深色，不跟主题翻转：浅色主题下若跟着反转，白底会把标题吃掉。 */
+.wallet-hero::before {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: linear-gradient(180deg, rgba(6, 7, 10, .8) 0%, rgba(6, 7, 10, .34) 32%, rgba(6, 7, 10, .22) 58%, rgba(6, 7, 10, .74) 86%, var(--workspace-page) 100%);
+    content: "";
+}
+.wallet-hero::after {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: linear-gradient(92deg, rgba(5, 8, 15, .9) 0%, rgba(5, 8, 15, .5) 36%, rgba(5, 8, 15, .12) 64%, transparent 80%);
+    /* 只压中上部：底部那条要留给压字底渐隐，否则左下角会留一道硬边。 */
+    mask-image: linear-gradient(180deg, #000 0%, #000 62%, transparent 88%);
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 62%, transparent 88%);
+    content: "";
+}
+.wallet-hero-copy {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    /* 与下方内容的左右基准线对齐（外壳的 px-3 / sm:px-4 / xl:px-5）。 */
+    padding: 62px 12px 54px;
+    width: 100%;
+}
+.wallet-hero-brand {
+    margin: 0;
+    color: rgba(255, 255, 255, .42);
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .35em;
+    line-height: 1.1;
+    text-transform: uppercase;
+}
+.wallet-hero-title {
+    margin: 0;
+    max-width: 22ch;
+    color: #fff;
+    font-family: var(--font-display);
+    font-size: clamp(34px, 4.4vw, 60px);
+    /* 这种页面靠"细"出高级感，粗黑体一眼就是后台模板。 */
+    font-weight: 300;
+    letter-spacing: -.04em;
+    line-height: 1;
+    text-shadow: 0 2px 30px rgba(0, 0, 0, .45);
+}
+.wallet-hero-sub {
+    margin: 2px 0 0;
+    max-width: 44ch;
+    color: rgba(255, 255, 255, .62);
+    font-size: var(--fs-body);
+    font-weight: 300;
+    letter-spacing: .04em;
+    line-height: 1.7;
+    text-shadow: 0 1px 18px rgba(0, 0, 0, .5);
+}
+.wallet-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+/* 横幅是照片，按钮不能跟着明暗主题走，否则浅色主题下会出现一块白底。 */
+.wallet-hero-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: var(--r-full);
+    background: rgba(255, 255, 255, .06);
+    padding: 9px 18px;
+    color: rgba(255, 255, 255, .8);
+    font-size: var(--fs-caption);
+    transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+.wallet-hero-action:hover:not(:disabled) {
+    border-color: rgba(255, 255, 255, .3);
+    background: rgba(255, 255, 255, .13);
+    color: #fff;
+}
+.wallet-hero-action:disabled { cursor: default; opacity: .6; }
+.wallet-hero-action svg { width: 14px; height: 14px; }
+.wallet-hero-account {
+    border: 1px solid rgba(255, 255, 255, .14);
+    border-radius: var(--r-full);
+    padding: 6px 12px;
+    color: rgba(255, 255, 255, .58);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--fs-label);
+}
+
+@media (min-width: 640px) {
+    .wallet-hero-copy { padding: 70px 16px 60px; }
+}
+@media (min-width: 1280px) {
+    .wallet-hero-copy { padding: 78px 20px 66px; }
+}
+@media (max-width: 640px) {
+    .wallet-hero { min-height: 260px; }
+    .wallet-hero-title { font-size: 30px; }
+    .wallet-hero-sub { font-size: var(--fs-caption); }
+}
+
+.wallet-section { margin-top: 44px; }
+
+/* 首段（余额）紧跟在横幅之后：横幅底部已经把画面渐隐回页面底色，这里不再叠满 44px。 */
+.wallet-section-lead { margin-top: 28px; }
+
+.wallet-section-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--workspace-border);
+}
+.wallet-section-head-main { min-width: 0; }
+.wallet-section-eyebrow {
+    display: block;
+    margin-bottom: 7px;
+    color: color-mix(in srgb, var(--foreground) 34%, transparent);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .35em;
+    text-transform: uppercase;
+}
+.wallet-section-title {
+    margin: 0;
+    color: var(--foreground);
+    font-family: var(--font-display);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -.02em;
+    line-height: 1.2;
+}
+.wallet-section-note {
+    max-width: 56ch;
+    margin: 8px 0 0;
+    color: color-mix(in srgb, var(--foreground) 55%, transparent);
+    font-size: var(--fs-caption);
+    line-height: 1.7;
+}
+.wallet-section-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; }
+
+@media (max-width: 720px) {
+    .wallet-section { margin-top: 32px; }
+    .wallet-section-head { align-items: flex-start; flex-direction: column; gap: 12px; }
+}
+
+/* ---------- 余额：整页唯一的主角读数 ---------- */
+
+.wallet-balance-panel {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+}
+/* 一层很淡的品牌色辉光垫在读数后方，玻璃面因此有厚度，而不是一块平天花板。 */
+.wallet-balance-panel::before {
+    position: absolute;
+    z-index: -1;
+    top: -140px;
+    left: -90px;
+    width: 460px;
+    height: 340px;
+    background: radial-gradient(50% 50% at 50% 50%, rgba(124, 92, 255, .16), transparent 70%);
+    content: "";
+    pointer-events: none;
+}
+
+.wallet-balance-row { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.wallet-balance-label {
+    margin: 0;
+    color: color-mix(in srgb, var(--foreground) 50%, transparent);
+    font-size: var(--fs-label);
+    letter-spacing: .16em;
+    text-transform: uppercase;
+}
+.wallet-balance-value {
+    margin: 10px 0 0;
+    color: var(--foreground);
+    font-family: var(--font-display);
+    font-size: clamp(38px, 4.2vw, 56px);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.035em;
+    line-height: 1;
+}
+.wallet-balance-meta {
+    margin: 12px 0 0;
+    color: color-mix(in srgb, var(--foreground) 45%, transparent);
+    font-size: var(--fs-label);
+}
+
+/* 累计读数铺满整卡宽度并用分隔线分区：之前两个小方块挤在左下角，右侧整片是空的。 */
+.wallet-metrics {
+    display: grid;
+    margin-top: 24px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: hidden;
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--r-lg);
+}
+.wallet-metric { padding: 14px 18px; }
+.wallet-metric + .wallet-metric { border-left: 1px solid var(--workspace-border); }
+.wallet-metric-label {
+    margin: 0;
+    color: color-mix(in srgb, var(--foreground) 50%, transparent);
+    font-size: var(--fs-label);
+}
+.wallet-metric-value {
+    margin: 7px 0 0;
+    color: var(--foreground);
+    font-family: var(--font-display);
+    font-size: var(--fs-title);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+@media (max-width: 640px) {
+    .wallet-metrics { grid-template-columns: minmax(0, 1fr); }
+    .wallet-metric + .wallet-metric { border-top: 1px solid var(--workspace-border); border-left: 0; }
+}
+
+/* ---------- 充值档位 ---------- */
+
+.wallet-plan { display: flex; flex-direction: column; }
+.wallet-plan[aria-checked="true"] {
+    border-color: color-mix(in srgb, #7c5cff 55%, var(--workspace-border));
+    background: color-mix(in srgb, #7c5cff 9%, var(--surface));
+}
+.wallet-plan-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.wallet-plan-name {
+    min-width: 0;
+    overflow: hidden;
+    color: color-mix(in srgb, var(--foreground) 62%, transparent);
+    font-size: var(--fs-caption);
+    font-weight: 500;
+    letter-spacing: .04em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.wallet-plan-badge {
+    flex: 0 0 auto;
+    border: 1px solid color-mix(in srgb, #7c5cff 45%, transparent);
+    border-radius: var(--r-full);
+    background: color-mix(in srgb, #7c5cff 14%, transparent);
+    padding: 3px 9px;
+    color: color-mix(in srgb, var(--foreground) 88%, transparent);
+    font-size: var(--fs-tiny);
+    font-weight: 600;
+    letter-spacing: .02em;
+}
+/* 积分数量才是这一档的商品本体，价格退到第二层。 */
+.wallet-plan-credits {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-top: 18px;
+    color: var(--foreground);
+    font-family: var(--font-display);
+    font-size: clamp(26px, 2.4vw, 34px);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.03em;
+    line-height: 1;
+}
+.wallet-plan-credits em {
+    color: color-mix(in srgb, var(--foreground) 50%, transparent);
+    font-size: var(--fs-caption);
+    font-style: normal;
+    font-weight: 500;
+    letter-spacing: 0;
+}
+/* 卖点行：每一条都由真实字段推出来（赠送、有效期、这一档自己的换算率），不编卖点。 */
+.wallet-plan-points { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.wallet-plan-point {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: color-mix(in srgb, var(--foreground) 60%, transparent);
+    font-size: var(--fs-caption);
+    line-height: 1.5;
+}
+.wallet-plan-point svg { width: 13px; height: 13px; flex: 0 0 13px; color: color-mix(in srgb, #7c5cff 78%, var(--foreground)); }
+
+/* 卡底一行：价格在左、行动在右。
+   这一格看着像按钮，但整张卡才是单选项（radio），点它只换选中档位，
+   真正付钱只有网格下方结算条那一个入口——所以文案是「选择」而不是「立即购买」。 */
+.wallet-plan-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: auto;
+    padding-top: 22px;
+}
+.wallet-plan-price {
+    color: var(--foreground);
+    font-family: var(--font-display);
+    font-size: var(--fs-heading-lg);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em;
+}
+.wallet-plan-action {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 7px;
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--r-full);
+    padding: 8px 15px;
+    color: color-mix(in srgb, var(--foreground) 78%, transparent);
+    font-size: var(--fs-caption);
+    font-weight: 500;
+    transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+.wallet-plan-action svg { width: 13px; height: 13px; transition: transform 160ms ease; }
+.wallet-plan:not([aria-checked="true"]):hover .wallet-plan-action {
+    border-color: var(--workspace-border-strong);
+    color: var(--foreground);
+}
+.wallet-plan[aria-checked="true"] .wallet-plan-action {
+    border-color: transparent;
+    background-image: linear-gradient(142deg, #7c5cff, #4f7dff 55%, #22b6ff);
+    color: #fff;
+    box-shadow: 0 12px 28px -14px rgba(90, 96, 255, .85);
+}
+.wallet-plan[aria-checked="true"] .wallet-plan-action svg { transform: translateX(2px); }
+
+/* ---------- 结算条 ---------- */
+
+.wallet-checkout {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 16px;
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--r-2xl);
+    background: var(--surface);
+    padding: 16px 18px;
+}
+.wallet-checkout-summary { min-width: 0; color: color-mix(in srgb, var(--foreground) 62%, transparent); font-size: var(--fs-caption); line-height: 1.8; }
+.wallet-checkout-summary strong { color: var(--foreground); font-weight: 600; }
+.wallet-checkout-summary .wallet-checkout-amount {
+    font-family: var(--font-display);
+    font-size: var(--fs-heading);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    letter-spacing: -.01em;
+}
+.wallet-checkout-fields { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+
+@media (min-width: 900px) {
+    .wallet-checkout { flex-direction: row; align-items: center; justify-content: space-between; padding: 14px 18px; }
+    .wallet-checkout-summary { flex: 1 1 auto; }
+    .wallet-checkout-fields { flex: 0 0 auto; }
+}

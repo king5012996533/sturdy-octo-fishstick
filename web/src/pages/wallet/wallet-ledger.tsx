@@ -8,7 +8,7 @@ import { formatCount, formatDateTime } from "@/lib/format-usage";
 import { cn } from "@/lib/utils";
 import { getCreditLedger, type CreditLedgerEntry, type CreditLedgerKind } from "@/services/api/credit";
 
-import { WalletPanel, errorMessage, formatCreditDelta, useDelayedLoading } from "./wallet-kit";
+import { WalletPanel, WalletSectionHead, errorMessage, formatCreditDelta, useDelayedLoading } from "./wallet-kit";
 
 /**
  * Zone D —— 流水区。
@@ -114,24 +114,25 @@ export function CreditLedgerSection({ revision, onTopUp }: { revision: number; o
     }, [page, pageSize, kind, reloadKey, revision]);
 
     return (
-        <section className="mt-8" aria-label="积分流水">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-                <div className="min-w-0">
-                    <h2 className="font-[family-name:var(--font-display)] text-[var(--fs-heading-lg)] font-semibold leading-[1.35] text-foreground">积分流水</h2>
-                    <p className="mt-1 text-[var(--fs-caption)] leading-relaxed text-foreground/58">按时间倒序记录每一次扣费、退回与充值。</p>
-                </div>
-                <Select
-                    className="w-36"
-                    value={kind}
-                    options={kindOptions}
-                    aria-label="按类型筛选流水"
-                    onChange={(value: CreditLedgerKind | "") => {
-                        setKind(value);
-                        // 换筛选条件等于换一份结果集，停在第 3 页会看到空列表而不是新结果的第一页。
-                        setPage(1);
-                    }}
-                />
-            </div>
+        <section className="wallet-section" aria-label="积分流水">
+            <WalletSectionHead
+                eyebrow="Ledger"
+                title="积分流水"
+                note="按时间倒序记录每一次扣费、退回与充值。"
+                actions={
+                    <Select
+                        className="w-36"
+                        value={kind}
+                        options={kindOptions}
+                        aria-label="按类型筛选流水"
+                        onChange={(value: CreditLedgerKind | "") => {
+                            setKind(value);
+                            // 换筛选条件等于换一份结果集，停在第 3 页会看到空列表而不是新结果的第一页。
+                            setPage(1);
+                        }}
+                    />
+                }
+            />
 
             {showSkeleton && !entries.length ? (
                 <div className="mt-4 rounded-lg bg-surface p-4">

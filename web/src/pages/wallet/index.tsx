@@ -3,7 +3,7 @@ import { RefreshCw } from "lucide-react";
 import { useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { PageHeader, WorkspacePage } from "@/components/layout/workspace-page";
+import { WorkspacePage } from "@/components/layout/workspace-page";
 import { WorkspaceErrorState } from "@/components/layout/workspace-state";
 import { Callout, type CalloutTone } from "@/components/ui/product/callout";
 import { formatCount, formatDateTime } from "@/lib/format-usage";
@@ -14,7 +14,7 @@ import { useUserStore } from "@/stores/use-user-store";
 import { CreditLedgerSection } from "./wallet-ledger";
 import { CreditOrdersSection } from "./wallet-orders";
 import { CreditTopUpSection } from "./wallet-top-up";
-import { WalletPanel, errorMessage, useDelayedLoading } from "./wallet-kit";
+import { WalletPanel, WalletSectionHead, errorMessage, useDelayedLoading } from "./wallet-kit";
 
 /**
  * 用户端积分中心（/wallet）：余额 → 充值 → 订单 → 流水，四级信息层级。
@@ -51,9 +51,9 @@ function useCountUp(value: number) {
 
 function Readout({ label, value }: { label: string; value: number }) {
     return (
-        <div className="rounded-[var(--r-lg)] bg-surface-secondary px-3 py-2">
-            <p className="text-[var(--fs-label)] text-foreground/58">{label}</p>
-            <p className="mt-0.5 font-mono text-[var(--fs-body)] tabular-nums text-foreground">{formatCount(value)}</p>
+        <div className="wallet-metric">
+            <p className="wallet-metric-label">{label}</p>
+            <p className="wallet-metric-value">{formatCount(value)}</p>
         </div>
     );
 }
@@ -68,7 +68,7 @@ function BalanceCard({ wallet, loading, error, onRetry, onTopUp }: { wallet: Cre
         if (error) return <WorkspaceErrorState title="余额加载失败" description={error} onRetry={onRetry} />;
         if (!showSkeleton) return null;
         return (
-            <WalletPanel className="mt-4">
+            <WalletPanel>
                 <div className="flex flex-col gap-3" aria-busy="true" aria-live="polite">
                     <span className="block h-4 w-20 rounded-[var(--r-sm)] bg-surface-active" />
                     <span className="block h-9 w-40 rounded-[var(--r-md)] bg-surface-active" />
@@ -78,35 +78,23 @@ function BalanceCard({ wallet, loading, error, onRetry, onTopUp }: { wallet: Cre
         );
     }
 
-    const zeroBalance = balance <= 0;
     return (
-        <WalletPanel className="mt-4">
-            <div className={cn("flex flex-col gap-3", !zeroBalance && "sm:flex-row sm:items-start sm:justify-between")}>
+        <WalletPanel className="wallet-balance-panel">
+            <div className="wallet-balance-row">
                 <div className="min-w-0">
-                    <p className="text-[var(--fs-label)] tracking-[0.02em] text-foreground/58">剩余积分</p>
-                    <p
-                        aria-hidden
-                        className={cn(
-                            "mt-1 font-[family-name:var(--font-display)] font-semibold tabular-nums text-foreground",
-                            zeroBalance ? "text-[var(--fs-title)] leading-7" : "text-[var(--fs-display)] leading-[1.1]",
-                        )}
-                    >
-                        {formatCount(shown)}
-                    </p>
+                    <p className="wallet-balance-label">剩余积分</p>
+                    <p aria-hidden className="wallet-balance-value">{formatCount(shown)}</p>
                     {/* 数字在跳动，屏幕阅读器只播报落定后的终值，不逐帧播报。 */}
                     <span className="sr-only" aria-live="polite">{`当前余额 ${formatCount(balance)} 积分`}</span>
-                    <p className="mt-1 text-[var(--fs-label)] text-foreground/58">更新于 {formatDateTime(wallet.updatedAt)}</p>
+                    <p className="wallet-balance-meta">更新于 {formatDateTime(wallet.updatedAt)}</p>
                 </div>
-                <Button className="h-11 shrink-0 px-5" type="primary" onClick={onTopUp}>
+                <Button className="h-11 shrink-0 px-6" type="primary" onClick={onTopUp}>
                     充值
                 </Button>
             </div>
-            {/* 底部一道 hairline 分层：读数在上、累计读数在下，不靠投影造层级。 */}
-            <div className="mt-4 border-t border-[var(--workspace-border)] pt-4">
-                <div className="grid max-w-md grid-cols-2 gap-3">
-                    <Readout label="累计获得" value={wallet.lifetimeIn} />
-                    <Readout label="累计消耗" value={wallet.lifetimeOut} />
-                </div>
+            <div className="wallet-metrics">
+                <Readout label="累计获得" value={wallet.lifetimeIn} />
+                <Readout label="累计消耗" value={wallet.lifetimeOut} />
             </div>
             {error ? (
                 <Callout className="mt-3" tone="warning" title="余额刷新失败" action={<Button size="small" onClick={onRetry}>重新加载</Button>}>
@@ -154,20 +142,25 @@ export function WalletPage() {
 
     return (
         <WorkspacePage>
-            <PageHeader
-                title="积分中心"
-                description="账户积分由平台统一计费：每次生成按模型用量扣减，失败自动退回。"
-                meta={
-                    accountName ? (
-                        <span className="rounded-[var(--r-full)] border border-[var(--workspace-border)] bg-surface-secondary px-2 py-0.5 font-mono text-[var(--fs-label)] text-foreground/70">{accountName}</span>
-                    ) : null
-                }
-                actions={
-                    <Button icon={<RefreshCw className="size-3.5" />} loading={walletLoading} onClick={reloadAll}>
-                        刷新
-                    </Button>
-                }
-            />
+            {/* 负边距正好抵消 WorkspacePage 的 px-3 py-3：横幅铺满内容区，从这一屏的第一个像素开始。
+                标题压在剧照上，与首页是同一套语言；外壳页头在这条路由上不再出现。 */}
+            <section className="wallet-hero -mx-3 -mt-3 sm:-mx-4 sm:-mt-4 xl:-mx-5" aria-labelledby="wallet-hero-title">
+                <img className="wallet-hero-art" src="/home/hero.webp" alt="" aria-hidden="true" draggable={false} />
+                <div className="wallet-hero-copy">
+                    <p className="wallet-hero-brand">Creation credits</p>
+                    <h1 id="wallet-hero-title" className="wallet-hero-title">
+                        积分中心
+                    </h1>
+                    <p className="wallet-hero-sub">账户积分由平台统一计费：每次生成按模型用量扣减，失败自动退回。</p>
+                    <div className="wallet-hero-actions">
+                        <button type="button" className="wallet-hero-action" disabled={walletLoading} onClick={reloadAll}>
+                            <RefreshCw className={cn(walletLoading && "animate-spin")} aria-hidden />
+                            刷新
+                        </button>
+                        {accountName ? <span className="wallet-hero-account">{accountName}</span> : null}
+                    </div>
+                </div>
+            </section>
 
             {/* 全局 message 在本项目里是关闭的，所有反馈都必须落在页面内。 */}
             {notice ? (
@@ -176,7 +169,11 @@ export function WalletPage() {
                 </Callout>
             ) : null}
 
-            <BalanceCard wallet={wallet} loading={walletLoading} error={walletError} onRetry={reloadAll} onTopUp={scrollToTopUp} />
+            {/* Zone A 与下面三段共用同一套段落头：四段的节奏一致，余额靠读数大小而不是靠没有标题来当主角。 */}
+            <section className="wallet-section wallet-section-lead" aria-label="账户余额">
+                <WalletSectionHead eyebrow="Balance" title="账户余额" />
+                <BalanceCard wallet={wallet} loading={walletLoading} error={walletError} onRetry={reloadAll} onTopUp={scrollToTopUp} />
+            </section>
 
             <div ref={topUpRef} className="scroll-mt-16">
                 <CreditTopUpSection revision={revision} onNotice={setNotice} onSettled={reloadAll} />

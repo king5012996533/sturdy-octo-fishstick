@@ -1,4 +1,5 @@
 import { Button, Input, Skeleton } from "antd";
+import { ArrowRight, Check } from "lucide-react";
 import { Link } from "react-router";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
@@ -10,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { createBillingOrder, formatMoneyFen, payBillingOrder, type BillingPaymentLaunch } from "@/services/api/billing";
 import { getCreditTopUpPlans, type CreditTopUpPlan } from "@/services/api/credit";
 
-import { WalletPanel, errorMessage, errorNotice, useDelayedLoading } from "./wallet-kit";
+import { WalletPanel, WalletSectionHead, errorMessage, errorNotice, useDelayedLoading } from "./wallet-kit";
 
 /**
  * Zone B —— 充值区。
@@ -23,11 +24,15 @@ import { WalletPanel, errorMessage, errorNotice, useDelayedLoading } from "./wal
  */
 
 const cardClass = cn(
-    "flex min-h-11 w-full flex-col rounded-[var(--r-2xl)] border bg-surface p-4 text-left",
+    "wallet-plan w-full min-w-0 rounded-[var(--r-2xl)] border bg-surface p-4 text-left",
     "transition-[border-color,background-color] duration-[var(--motion-state)] ease-[var(--ease-product-enter)]",
-    "hover:bg-[var(--library-surface-hover)]",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
 );
+
+/** 每一档自己的换算率（含赠送）。写死一个全局比例，会和这一档的实付对不上。 */
+function planUnitRate(plan: CreditTopUpPlan) {
+    return plan.priceFen > 0 ? Math.round(((plan.credits + plan.giftCredits) * 100) / plan.priceFen) : 0;
+}
 
 export function CreditTopUpSection({ revision, onNotice, onSettled }: { revision: number; onNotice: (notice: { tone: CalloutTone; text: string }) => void; onSettled: () => void }) {
     const [plans, setPlans] = useState<CreditTopUpPlan[]>([]);
@@ -79,7 +84,7 @@ export function CreditTopUpSection({ revision, onNotice, onSettled }: { revision
     }, [plans]);
 
     const rateSource = selectedPlan ?? plans[0] ?? null;
-    const unitRate = rateSource && rateSource.priceFen > 0 ? Math.round(((rateSource.credits + rateSource.giftCredits) * 100) / rateSource.priceFen) : 0;
+    const unitRate = rateSource ? planUnitRate(rateSource) : 0;
 
     const selectPlan = (plan: CreditTopUpPlan) => setSelectedCode(plan.code);
 
@@ -139,13 +144,12 @@ export function CreditTopUpSection({ revision, onNotice, onSettled }: { revision
     };
 
     return (
-        <section className="mt-8" aria-label="充值积分">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-                <h2 className="font-[family-name:var(--font-display)] text-[var(--fs-heading-lg)] font-semibold leading-[1.35] text-foreground">充值积分</h2>
-                <p className="min-w-0 text-[var(--fs-caption)] leading-relaxed text-foreground/58">
-                    {unitRate > 0 ? `充值后积分立即到账，按当前档位约 1 元 = ${formatCount(unitRate)} 积分（含赠送）。` : "充值后积分立即到账，可直接用于平台模型生成。"}
-                </p>
-            </div>
+        <section className="wallet-section" aria-label="充值积分">
+            <WalletSectionHead
+                eyebrow="Top up"
+                title="充值积分"
+                note={unitRate > 0 ? `充值后积分立即到账，按当前档位约 1 元 = ${formatCount(unitRate)} 积分（含赠送）。` : "充值后积分立即到账，可直接用于平台模型生成。"}
+            />
 
             {showSkeleton && !plans.length ? (
                 <CollectionGrid>
@@ -183,6 +187,7 @@ export function CreditTopUpSection({ revision, onNotice, onSettled }: { revision
                         <CollectionGrid>
                             {plans.map((plan, index) => {
                                 const selected = plan.code === selectedCode;
+                                const rate = planUnitRate(plan);
                                 return (
                                     <button
                                         key={plan.code}
@@ -193,32 +198,47 @@ export function CreditTopUpSection({ revision, onNotice, onSettled }: { revision
                                         ref={(node) => {
                                             cardRefs.current[index] = node;
                                         }}
-                                        className={cn(cardClass, selected || plan.code === giftLeaderCode ? "border-[var(--workspace-border-strong)]" : "border-[var(--workspace-border)]")}
+                                        className={cn(
+                                            cardClass,
+                                            selected || plan.code === giftLeaderCode ? "border-[var(--workspace-border-strong)]" : "border-[var(--workspace-border)]",
+                                            // 选中态的背景由 .wallet-plan[aria-checked] 负责，hover 只补在未选中的卡上，免得悬停把选中态涂掉。
+                                            selected ? "" : "hover:bg-[var(--library-surface-hover)]",
+                                        )}
                                         onClick={() => selectPlan(plan)}
                                         onKeyDown={(event) => handleCardKeyDown(event, index)}
                                     >
-                                        <span className="flex items-start justify-between gap-2">
-                                            <span className="truncate font-[family-name:var(--font-display)] text-[var(--fs-heading)] font-semibold text-foreground">{plan.name}</span>
-                                            {plan.code === giftLeaderCode ? (
-                                                <span className="shrink-0 rounded-[var(--r-full)] border border-[var(--workspace-border-strong)] px-2 py-0.5 text-[var(--fs-tiny)] font-medium tracking-[0.02em] text-foreground/70">赠送最多</span>
+                                        <span className="wallet-plan-top">
+                                            <span className="wallet-plan-name">{plan.name}</span>
+                                            {plan.code === giftLeaderCode ? <span className="wallet-plan-badge">赠送最多</span> : null}
+                                        </span>
+                                        <span className="wallet-plan-credits">
+                                            {formatCount(plan.credits)}
+                                            <em>积分</em>
+                                        </span>
+                                        <span className="wallet-plan-points">
+                                            <span className="wallet-plan-point">
+                                                <Check aria-hidden strokeWidth={2.5} />
+                                                {plan.giftCredits > 0 ? `含赠送 ${formatCount(plan.giftCredits)} 积分` : "无赠送积分"}
+                                            </span>
+                                            {plan.periodDays > 0 ? (
+                                                <span className="wallet-plan-point">
+                                                    <Check aria-hidden strokeWidth={2.5} />
+                                                    有效期 {formatCount(plan.periodDays)} 天
+                                                </span>
+                                            ) : null}
+                                            {rate > 0 ? (
+                                                <span className="wallet-plan-point">
+                                                    <Check aria-hidden strokeWidth={2.5} />
+                                                    约 1 元 = {formatCount(rate)} 积分
+                                                </span>
                                             ) : null}
                                         </span>
-                                        <span className="mt-3 flex items-baseline gap-1">
-                                            <span className="font-[family-name:var(--font-display)] text-[var(--fs-title)] font-semibold tabular-nums text-foreground">{formatCount(plan.credits)}</span>
-                                            <span className="text-[var(--fs-caption)] text-foreground/58">积分</span>
-                                        </span>
-                                        <span className="mt-1 font-[family-name:var(--font-display)] text-[var(--fs-heading-lg)] font-medium tabular-nums text-foreground/85">{formatMoneyFen(plan.priceFen)}</span>
-                                        <span className="mt-2 block text-[var(--fs-caption)] text-foreground/70">
-                                            {plan.giftCredits > 0 ? <>赠送 <span className="font-mono tabular-nums text-foreground">{formatCount(plan.giftCredits)}</span> 积分</> : "无赠送积分"}
-                                        </span>
-                                        {plan.periodDays > 0 ? <span className="mt-0.5 block text-[var(--fs-label)] text-foreground/58">有效期 {formatCount(plan.periodDays)} 天</span> : null}
-                                        <span
-                                            className={cn(
-                                                "mt-4 inline-flex h-9 w-full items-center justify-center rounded-[var(--r-lg)] border px-3 text-[var(--fs-caption)] font-medium transition-colors",
-                                                selected ? "border-transparent bg-[var(--workspace-accent-soft)] text-foreground" : "border-[var(--workspace-border)] text-foreground/70",
-                                            )}
-                                        >
-                                            {selected ? "已选择" : "选择"}
+                                        <span className="wallet-plan-foot">
+                                            <span className="wallet-plan-price">{formatMoneyFen(plan.priceFen)}</span>
+                                            <span className="wallet-plan-action">
+                                                {selected ? "已选择" : "选择"}
+                                                <ArrowRight aria-hidden strokeWidth={2} />
+                                            </span>
                                         </span>
                                     </button>
                                 );
@@ -226,20 +246,20 @@ export function CreditTopUpSection({ revision, onNotice, onSettled }: { revision
                         </CollectionGrid>
                     </div>
 
-                    <div className="mt-4 flex flex-col gap-3 rounded-[var(--r-2xl)] border border-[var(--workspace-border)] bg-surface-secondary p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
-                        <p className="min-w-0 text-[var(--fs-caption)] leading-relaxed text-foreground/70">
+                    <div className="wallet-checkout">
+                        <p className="wallet-checkout-summary">
                             {selectedPlan ? (
                                 <>
-                                    <span className="font-medium text-foreground">{selectedPlan.name}</span>
-                                    <span className="mx-2 text-foreground/30">·</span>到账 <span className="font-mono tabular-nums text-foreground">{formatCount(selectedPlan.credits)}</span> 积分
-                                    {selectedPlan.giftCredits > 0 ? <>，赠送 <span className="font-mono tabular-nums text-foreground">{formatCount(selectedPlan.giftCredits)}</span> 积分</> : null}
-                                    <span className="mx-2 text-foreground/30">·</span>实付 <span className="font-mono tabular-nums text-foreground">{formatMoneyFen(selectedPlan.priceFen)}</span>
+                                    <strong>{selectedPlan.name}</strong>
+                                    <span className="mx-2 text-foreground/30">·</span>到账 <strong className="font-mono tabular-nums">{formatCount(selectedPlan.credits)}</strong> 积分
+                                    {selectedPlan.giftCredits > 0 ? <>，赠送 <strong className="font-mono tabular-nums">{formatCount(selectedPlan.giftCredits)}</strong> 积分</> : null}
+                                    <span className="mx-2 text-foreground/30">·</span>实付 <span className="wallet-checkout-amount">{formatMoneyFen(selectedPlan.priceFen)}</span>
                                 </>
                             ) : (
                                 "选择上方任意档位后再下单。"
                             )}
                         </p>
-                        <div className="flex shrink-0 items-center gap-2">
+                        <div className="wallet-checkout-fields">
                             <Input className="w-40" placeholder="优惠券（可选）" value={couponCode} disabled={!selectedPlan || checkoutBusy} onChange={(event) => setCouponCode(event.target.value)} />
                             <Button className="h-11 px-5" type="primary" disabled={!selectedPlan} loading={checkoutBusy} onClick={() => void handleCheckout()}>
                                 立即充值

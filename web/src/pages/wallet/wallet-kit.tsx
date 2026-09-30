@@ -1,12 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 
+import "./wallet-product.css";
+
 import type { CalloutTone } from "@/components/ui/product/callout";
 import { formatCount } from "@/lib/format-usage";
 import { cn } from "@/lib/utils";
 import { isInsufficientCredits } from "@/services/api/credit";
 
 /**
- * 积分中心三个 Zone 共用的物料。
+ * 积分中心四个 Zone 共用的物料。
  *
  * 面料：明色走 --surface（白），暗色用登录页已定型的玻璃面——顶部高光渐变 + 内高光 +
  * 外层深投影。描边不写死颜色，走 --workspace-border：用户端外壳已把它在明色下定为
@@ -20,6 +22,25 @@ const walletPanelClass = cn(
 
 export function WalletPanel({ children, className }: { children: ReactNode; className?: string }) {
     return <div className={cn(walletPanelClass, "p-4 sm:p-5", className)}>{children}</div>;
+}
+
+/**
+ * 四个 Zone 共用的段落头。
+ *
+ * 首页已经把"小标 + 标题"做成了品牌语言（INSPIRATION / 精选灵感），积分中心沿用同一套：
+ * 每段有独立的小标与 24px 标题，段间靠留白和一道 hairline 分界，而不是靠投影堆层级。
+ */
+export function WalletSectionHead({ eyebrow, title, note, actions }: { eyebrow: string; title: string; note?: ReactNode; actions?: ReactNode }) {
+    return (
+        <div className="wallet-section-head">
+            <div className="wallet-section-head-main">
+                <span className="wallet-section-eyebrow">{eyebrow}</span>
+                <h2 className="wallet-section-title">{title}</h2>
+                {note ? <p className="wallet-section-note">{note}</p> : null}
+            </div>
+            {actions ? <div className="wallet-section-actions">{actions}</div> : null}
+        </div>
+    );
 }
 
 /**

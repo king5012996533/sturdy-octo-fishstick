@@ -8,7 +8,7 @@ import type { CalloutTone } from "@/components/ui/product/callout";
 import { formatDateTime } from "@/lib/format-usage";
 import { cancelBillingOrder, formatMoneyFen, listMyBillingOrders, payBillingOrder, type BillingOrder, type BillingOrderStatus } from "@/services/api/billing";
 
-import { WalletPanel, errorMessage, useDelayedLoading } from "./wallet-kit";
+import { WalletPanel, WalletSectionHead, errorMessage, useDelayedLoading } from "./wallet-kit";
 
 /**
  * Zone C —— 充值订单。
@@ -142,16 +142,17 @@ export function CreditOrdersSection({ revision, onNotice }: { revision: number; 
     };
 
     return (
-        <section className="mt-8" aria-label="充值订单">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-                <h2 className="font-[family-name:var(--font-display)] text-[var(--fs-heading-lg)] font-semibold leading-[1.35] text-foreground">充值订单</h2>
-                <div className="flex items-center gap-3">
-                    <p className="min-w-0 text-[var(--fs-caption)] leading-relaxed text-foreground/58">支付完成后积分自动入账，可在积分流水里逐笔核对。</p>
+        <section className="wallet-section" aria-label="充值订单">
+            <WalletSectionHead
+                eyebrow="Orders"
+                title="充值订单"
+                note="支付完成后积分自动入账，可在积分流水里逐笔核对。"
+                actions={
                     <Button icon={<RefreshCw className="size-3.5" strokeWidth={1.75} />} loading={loading} onClick={reload}>
                         刷新状态
                     </Button>
-                </div>
-            </div>
+                }
+            />
 
             {showSkeleton ? (
                 <div className="mt-4">
