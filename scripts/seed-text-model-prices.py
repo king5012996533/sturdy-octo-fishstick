@@ -49,9 +49,14 @@ import urllib.request
 
 # 官方高峰价，单位：分 / 百万 token。（0.04 元 = 4 分）
 # 换算口径：元/百万 token × 100 = 分/百万 token。
+#
+# 键必须是**运行时的取价标识**，也就是「渠道::模型」。计费侧取的是任务上的 model 字段
+# （前端 encodeChannelModel 拼出来的 CHANNEL_000006::deepseek-flash），而取价是精确匹配
+# model_key 的：写成裸模型名，这三行就永远命中不了，表现为按「尚未定价」拒绝生成——
+# 价目配了，却和没配一样。
 PEAK_PRICE_FEN: dict[str, dict[str, int]] = {
-    "deepseek-flash": {"CACHE": 4, "INPUT": 200, "OUTPUT": 800},
-    "deepseek-v4-pro": {"CACHE": 30, "INPUT": 900, "OUTPUT": 2700},
+    "CHANNEL_000006::deepseek-flash": {"CACHE": 4, "INPUT": 200, "OUTPUT": 800},
+    "CHANNEL_000006::deepseek-v4-pro": {"CACHE": 30, "INPUT": 900, "OUTPUT": 2700},
 }
 
 # 售价相对高峰成本的倍率：20000 = ×2。倍率写在这里而不是"把售价乘好再填"，
