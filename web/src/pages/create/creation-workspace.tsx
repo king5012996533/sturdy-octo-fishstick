@@ -782,23 +782,6 @@ function DurationMenu({ profile, seconds, onChange }: { profile: VideoCapability
     </Popover>;
 }
 
-const creationEmptyBannerFrames = [
-    { src: "/short-drama-styles/cyberpunk-neon.jpg", caption: "镜头01 · 雨夜霓虹" },
-    { src: "/short-drama-styles/suspense-noir.jpg", caption: "镜头02 · 暗巷追逐" },
-    { src: "/short-drama-styles/retro-hong-kong.jpg", caption: "镜头03 · 天台重逢" },
-];
-
-export function CreationEmptyBanner() {
-    const brandName = useAppearanceStore((state) => state.appearance.brandName);
-    return <div className="creation-empty-art" aria-hidden="true">
-        {creationEmptyBannerFrames.map((frame, index) => <figure key={frame.caption} className={`creation-empty-art-frame ${index === 1 ? "is-main" : index === 0 ? "is-back" : "is-front"}`}>
-            <img src={frame.src} alt="" />
-            <span>{frame.caption}</span>
-        </figure>)}
-        <span className="creation-empty-art-caption"><span>{brandName}</span>把每一帧，交给镜头导演</span>
-    </div>;
-}
-
 /** 空态引导：只在内层输入框为空时出现，开始打字就自动让位，不需要额外的手动收起。 */
 function CreationStarterChips({ onStart }: { onStart: (item: CreationStarterSuggestion) => void }) {
     return <div className="creation-starter-chips" aria-label="快捷创作入口">

@@ -81,17 +81,13 @@ export function HostedAuthAccountPanel({ onLogout, pending }: { onLogout: () => 
 }
 
 /**
- * 侧栏底部的账户入口。
+ * 退出登录的本地状态。
  *
- * 取代原先裸露的「退出登录」按钮：身份条点开才是菜单，收起态只留头像。
- * 侧栏底部同时挂着主题切换与版本入口，多一个同等重量的按钮会让这一栏失去主次。
+ * 侧栏底部和首页右上角是同一件事的两个入口，共用一套流程，避免两处实现各自漂移。
  */
-export function HostedAuthSidebarFooter({ collapsed }: { collapsed: boolean }) {
+function useHostedAuthLogout() {
     const [pending, setPending] = useState(false);
-    const [open, setOpen] = useState(false);
-    const user = useUserStore((state) => state.user);
-
-    const handleLogout = useCallback(() => {
+    const logout = useCallback(() => {
         setPending(true);
         void performHostedAuthLogout({
             logout: logoutHostedAuth,
@@ -99,6 +95,47 @@ export function HostedAuthSidebarFooter({ collapsed }: { collapsed: boolean }) {
             redirect: (url) => window.location.assign(url),
         }).finally(() => setPending(false));
     }, []);
+    return { pending, logout };
+}
+
+/**
+ * 首页右上角的账户入口。
+ *
+ * 首页没有页头，右上角是唯一不压内容的位置；与侧栏那枚共用同一个面板，
+ * 只把触发器换成头像 chip。
+ */
+export function HostedAuthTopbarAccount() {
+    const [open, setOpen] = useState(false);
+    const user = useUserStore((state) => state.user);
+    const { pending, logout } = useHostedAuthLogout();
+    const label = user ? user.displayName || user.username : "账户";
+
+    return (
+        <Popover trigger="click" open={open} onOpenChange={setOpen} placement="bottomRight" content={<HostedAuthAccountPanel onLogout={logout} pending={pending} />}>
+            <button
+                type="button"
+                aria-label="账户菜单与退出登录"
+                aria-expanded={open}
+                data-testid="hosted-auth-topbar-account"
+                className="creation-top-action is-account"
+            >
+                {user ? <UserAvatar user={user} className="size-6 shrink-0 rounded-full" /> : <CircleUserRound className="size-4" aria-hidden />}
+                <span className="creation-top-account-name">{label}</span>
+            </button>
+        </Popover>
+    );
+}
+
+/**
+ * 侧栏底部的账户入口。
+ *
+ * 取代原先裸露的「退出登录」按钮：身份条点开才是菜单，收起态只留头像。
+ * 侧栏底部同时挂着主题切换与版本入口，多一个同等重量的按钮会让这一栏失去主次。
+ */
+export function HostedAuthSidebarFooter({ collapsed }: { collapsed: boolean }) {
+    const [open, setOpen] = useState(false);
+    const user = useUserStore((state) => state.user);
+    const { pending, logout: handleLogout } = useHostedAuthLogout();
 
     // 收起态不渲染任何 span：宽度只剩 40px，除图标外的一切都只会被裁掉半截。
     if (collapsed) {

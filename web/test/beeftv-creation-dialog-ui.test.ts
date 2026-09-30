@@ -6,8 +6,9 @@ const styles = await Bun.file(new URL("../src/pages/create/creation-product.css"
 const creationTypes = await Bun.file(new URL("../src/pages/create/creation-types.ts", import.meta.url)).text();
 
 test("BeefTV creation dialog uses the simplified Agent controls", () => {
-    // 品牌名取自外观配置，换皮时标题跟着走；上游这里是写死的字符串。
-    expect(page).toContain("和 {brandName} Agent 一起创作");
+    // 品牌名取自外观配置，换皮时横幅标题跟着走；上游这里是写死的字符串。
+    expect(page).toContain("className=\"creation-home-hero-brand\"");
+    expect(page).toContain("<span>{brandName}</span> <em>Agent</em>");
     expect(page).toContain("state.appearance.brandName");
     expect(page).not.toContain("从一个画面、一个角色或一句话开始");
     expect(composer).toContain("creation-chat-reference-add");

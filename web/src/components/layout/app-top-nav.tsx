@@ -100,6 +100,8 @@ export function AppWorkspaceShell({ children }: { children: ReactNode }) {
                                 onOpenSearch={() => setPaletteOpen(true)}
                                 onExpand={expandDesktopSidebar}
                                 onCollapse={collapseDesktopSidebar}
+                                // 首页把账户入口放在右上角（那里没有页头），侧栏底部就不重复一份。
+                                hideAccount={pathname === "/"}
                             />
                         </aside>
                     ) : null}

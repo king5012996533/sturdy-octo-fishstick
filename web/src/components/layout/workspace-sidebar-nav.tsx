@@ -275,7 +275,7 @@ function NavGroup({ group, activeId, onNavigate, onOpenSearch, collapsed }: { gr
     );
 }
 
-export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExpand, onCollapse }: { collapsed: boolean; onNavigate: () => void; onOpenSearch: () => void; onExpand: () => void; onCollapse: () => void }) {
+export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExpand, onCollapse, hideAccount = false }: { collapsed: boolean; onNavigate: () => void; onOpenSearch: () => void; onExpand: () => void; onCollapse: () => void; hideAccount?: boolean }) {
     const theme = useThemeStore((state) => state.theme);
     const setTheme = useThemeStore((state) => state.setTheme);
     const { pathname } = useLocation();
@@ -336,7 +336,7 @@ export function WorkspaceSidebarNav({ collapsed, onNavigate, onOpenSearch, onExp
                         ))}
                     </div>
                 ) : null}
-                {HostedAuthSidebarFooter ? (
+                {HostedAuthSidebarFooter && !hideAccount ? (
                     <Suspense fallback={null}>
                         <HostedAuthSidebarFooter collapsed={collapsed} />
                     </Suspense>

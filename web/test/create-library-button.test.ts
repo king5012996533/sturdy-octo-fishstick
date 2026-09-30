@@ -165,7 +165,7 @@ describe("creation thread chrome", () => {
         expect(workspace).toContain("useWorkspaceTopBarMount");
         expect(workspace).toContain("createPortal(toolbar, mount)");
         expect(topBar).toContain("WorkspaceTopBarExtensionSlot");
-        expect(product).toContain(".creation-chat-dock .creation-mode-tabs");
+        expect(product).toContain(".app-user-workspace .creation-chat-composer.is-thread");
         expect(product).not.toContain("creation-composer-mode-row");
     });
 
