@@ -138,10 +138,35 @@ type CreditLedgerFilter struct {
 	Kind   string
 	// RefType/RefID 按业务引用定位流水，用于回答"这一条任务到底扣了多少"。
 	// 两者都不做凭据：它们只在当前账号的流水里筛选，跨账号查不到任何东西。
+	// RefID 允许逗号分隔多个引用：一次提交生成多张图时，那几张图分属不同任务，
+	// 界面要把整条消息的账一次取回，否则请求数会跟着张数涨。
 	RefType  string
 	RefID    string
 	Page     int
 	PageSize int
+}
+
+// MaxCreditRefIDs 限制一次流水查询能带多少个业务引用。
+//
+// 上限不是为了性能，是为了不让 URL 决定 SQL 里 IN 的长度。
+const MaxCreditRefIDs = 32
+
+// SplitCreditRefIDs 把 refId 参数拆成去空、去重的引用列表，顺序保持调用方给的顺序。
+func SplitCreditRefIDs(value string) []string {
+	ids := make([]string, 0, 4)
+	seen := make(map[string]struct{}, 4)
+	for _, part := range strings.Split(value, ",") {
+		id := strings.TrimSpace(part)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 // CreditAccountRowView 是后台积分列表的一行：账户读数 + 账号资料。

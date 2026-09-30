@@ -96,6 +96,11 @@ func (s *Service) CreditLedger(filter CreditLedgerFilter) ([]CreditLedgerEntryVi
 		}
 		filter.Kind = kind
 	}
+	// 业务引用允许一次给多个（一条消息里的几张图分属不同任务）。超限直接拒绝，
+	// 不做截断：少查几个引用会让界面把"没查到"显示成"没扣钱"。
+	if len(SplitCreditRefIDs(filter.RefID)) > MaxCreditRefIDs {
+		return nil, 0, invalidArgument("一次最多按 32 个业务引用查询流水")
+	}
 	entries, total, err := s.store.CreditLedgerEntries(filter)
 	if err != nil {
 		return nil, 0, internalFailure(err)

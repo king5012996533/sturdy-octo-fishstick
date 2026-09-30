@@ -2,6 +2,8 @@ package auth
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -224,6 +226,49 @@ func TestCreditLedgerFiltersAndPaginates(t *testing.T) {
 
 	if _, _, err := env.service.CreditLedger(CreditLedgerFilter{UserID: "user-1", Kind: "NOT_A_KIND"}); err == nil {
 		t.Fatal("非法种类应报错，而不是静默返回空列表")
+	}
+}
+
+// TestCreditLedgerFiltersByMultipleTaskRefs 覆盖"一条消息里几张图分属不同任务"。
+//
+// 界面按消息取账：哪几个任务扣了、哪个退了要一次问回来。没有这个能力，批量生成的
+// 消耗提示就只能按张数打 N 次请求，或者只显示第一张的账。
+func TestCreditLedgerFiltersByMultipleTaskRefs(t *testing.T) {
+	env := newCreditTestEnv(t)
+	if _, _, err := env.service.GrantTopUpCredits("user-1", "order-1", 1000, 0, "测试充值"); err != nil {
+		t.Fatalf("充值失败: %v", err)
+	}
+	for _, taskID := range []string{"task-a", "task-b", "task-c"} {
+		if _, _, err := env.service.ChargeTaskCredits("user-1", taskID, 100, "批量扣费"); err != nil {
+			t.Fatalf("扣费失败: %v", err)
+		}
+	}
+
+	entries, total, err := env.service.CreditLedger(CreditLedgerFilter{UserID: "user-1", RefType: CreditRefTask, RefID: "task-a, task-b"})
+	if err != nil {
+		t.Fatalf("按多个任务号筛选失败: %v", err)
+	}
+	if total != 2 || len(entries) != 2 {
+		t.Fatalf("期望只返回 task-a 与 task-b 的两条流水，实际 total=%d len=%d", total, len(entries))
+	}
+	for _, entry := range entries {
+		if entry.RefID == "task-c" {
+			t.Fatal("没点名的任务不该出现在结果里")
+		}
+	}
+
+	// 重复与空段不该把"两个任务"变成一次查询失败。
+	if _, total, err := env.service.CreditLedger(CreditLedgerFilter{UserID: "user-1", RefID: "task-a,task-a,"}); err != nil || total != 1 {
+		t.Fatalf("重复引用应去重成 1 条，实际 total=%d err=%v", total, err)
+	}
+
+	// 超限必须报错：截断会让界面把"没查到"显示成"没扣钱"。
+	over := make([]string, 0, MaxCreditRefIDs+1)
+	for index := 0; index <= MaxCreditRefIDs; index++ {
+		over = append(over, "task-over-"+strconv.Itoa(index))
+	}
+	if _, _, err := env.service.CreditLedger(CreditLedgerFilter{UserID: "user-1", RefID: strings.Join(over, ",")}); err == nil {
+		t.Fatal("超过引用上限应报错，而不是静默截断")
 	}
 }
 

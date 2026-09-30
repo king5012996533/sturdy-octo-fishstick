@@ -90,8 +90,8 @@ func (s *Store) CreditLedgerEntries(filter CreditLedgerFilter) ([]CreditLedgerEn
 	if kind := strings.TrimSpace(filter.Kind); kind != "" {
 		query = query.Where("kind = ?", kind)
 	}
-	if refID := strings.TrimSpace(filter.RefID); refID != "" {
-		query = query.Where("ref_id = ?", refID)
+	if refIDs := SplitCreditRefIDs(filter.RefID); len(refIDs) > 0 {
+		query = query.Where("ref_id IN ?", refIDs)
 		if refType := strings.TrimSpace(filter.RefType); refType != "" {
 			query = query.Where("ref_type = ?", refType)
 		}

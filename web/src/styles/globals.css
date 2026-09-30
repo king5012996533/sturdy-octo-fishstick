@@ -13115,6 +13115,23 @@ html:not(.dark) .creation-user-message-reference { background: rgba(28, 32, 37, 
 .creation-media-actions a:hover, .creation-media-actions button:hover { color: var(--creation-text); }
 .creation-media-actions svg { width: 13px; height: 13px; }
 
+/* 生成完成后的实际扣费读数。与消息体同缩进，字号比正文再小一档：
+   它是一个备注，不该和"生成失败/重试"抢注意力。 */
+.creation-message-charge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 0 0 34px;
+    color: var(--creation-muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+.creation-message-charge strong { color: var(--creation-text); font-size: 13px; font-weight: 600; }
+.creation-message-charge em { color: var(--creation-faint); font-size: 11px; font-style: normal; }
+.creation-message-charge.is-refunded em { color: var(--palette-status-success, var(--creation-muted)); }
+.creation-message-charge.is-muted { color: var(--creation-faint); }
+.creation-message-charge.is-error { color: #d4483b; }
+
 .creation-media-preview-modal .ant-modal-container { overflow: hidden; border: 0; border-radius: 12px; background: #111215; padding: 0; }
 .creation-media-preview-modal .ant-modal-close { color: #fff; }
 .creation-media-preview-video { display: block; width: 100%; max-height: 82vh; margin: 0 auto; object-fit: contain; }
@@ -13136,7 +13153,7 @@ html:not(.dark) .creation-media-preview-modal .ant-modal-container { background:
     .creation-thread-stage { padding-top: 36px; }
     .creation-user-message { max-width: 78%; }
     .creation-assistant-message { max-width: 100%; }
-    .creation-message-content, .creation-message-error, .creation-media-result { padding-left: 0; }
+    .creation-message-content, .creation-message-error, .creation-media-result, .creation-message-charge { padding-left: 0; }
     .creation-media-pending, .creation-media-empty { margin-left: 0; }
     .creation-image-result-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

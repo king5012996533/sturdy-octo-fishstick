@@ -98,13 +98,17 @@ export async function quoteTaskCharge(input: CreateTaskInput) {
 }
 
 /**
- * 读出某个任务的真实扣费流水。
+ * 读出若干任务的真实扣费流水。
  *
- * 界面上的"本次消耗"只能来自这里：报价是"将要扣多少"，流水才是"实际扣了多少、
- * 有没有退"。两者都展示，用户才能看懂一次失败的任务为什么没收钱。
+ * 入参是任务号列表，因为一次提交可以生成多张图，那几张图分属不同任务：按消息取账要
+ * 一次问回来，否则批量生成的请求数会跟着张数涨。界面上的"本次消耗"只能来自这里——
+ * 报价是"将要扣多少"，流水才是"实际扣了多少、有没有退"，两者都展示，用户才能看懂
+ * 一次失败的任务为什么没收钱。
  */
-export async function getTaskChargeEntries(taskId: string) {
-    const page = await getCreditLedger({ refId: taskId, kind: undefined, pageSize: 20 });
+export async function getTaskChargeEntriesForTasks(taskIds: string[]) {
+    const ids = Array.from(new Set(taskIds.map((taskId) => taskId.trim()).filter(Boolean)));
+    if (!ids.length) return [];
+    const page = await getCreditLedger({ refId: ids.join(","), kind: undefined, pageSize: 50 });
     return page.entries;
 }
 
