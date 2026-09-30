@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { parseAssetRecord, parseAssetRecordList } from "@/lib/asset-record";
+import { normalizeMediaMimeType } from "@/lib/media-mime";
 
 const completeImage = {
     id: "image-1",
@@ -87,5 +88,29 @@ describe("parseAssetRecord 视频尺寸", () => {
 
     test("图片不受影响：零尺寸仍然拒", () => {
         expect(() => parseAssetRecord({ ...completeImage, data: { ...completeImage.data, width: 0, height: 1 } })).toThrow(/width/);
+    });
+});
+
+describe("生成视频入库", () => {
+    test("上游 CDN 返回 binary/octet-stream 且缺宽高时长时仍能入库", () => {
+        // 线上载荷：Seedance 任务 result.video 只有 dataUrl 与 mimeType，其余字段缺省。
+        const parsed = parseAssetRecord({
+            ...completeVideo,
+            data: {
+                url: "/api/resources/generation-video/file",
+                storageKey: "generation-video:local:materialize%3A49624117%3A0",
+                width: 0,
+                height: 0,
+                durationMs: undefined,
+                bytes: 5692352,
+                mimeType: normalizeMediaMimeType("binary/octet-stream", "video"),
+            },
+        });
+        expect(parsed.kind).toBe("video");
+        if (parsed.kind === "video") expect(parsed.data.mimeType).toBe("video/mp4");
+    });
+
+    test("未经归一化的传输层占位类型仍被合同拒绝", () => {
+        expect(() => parseAssetRecord({ ...completeVideo, data: { ...completeVideo.data, mimeType: "binary/octet-stream" } })).toThrow(/不匹配/);
     });
 });
