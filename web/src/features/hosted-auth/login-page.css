@@ -1,65 +1,63 @@
 /*
- * 登录场景 —— 「取景框 + 控制台」。
+ * 登录场景 —— 「左图右卡」。
  *
- * 底色、卡片、强调色仍然来自 :root 的 --auth-* 令牌（皮肤层会覆写它们），本文件只
- * 负责场景自己的结构：左栏的取景网格与监视器、右栏的表单卡。场景恒为暗色：登录页是
- * 产品门面，跟随系统的亮/暗切换会让左侧那一栏一时有一时无。
+ * 左栏是一张全出血主视觉（后台配了宣传片就放宣传片），右栏是一张玻璃表单卡。
+ * 场景固定在浅色下渲染：跟随系统亮暗会让左栏的主视觉一时有一时无，而登录页是门面。
+ *
+ * 三条刻意约束：
+ *   - 品牌色只出现在标题里的 AI、输入聚焦环与主按钮上，全页只留一个高对比动作；
+ *   - 主视觉上压一层白色渐变纱，深色文字在任何一张图上都读得清，换图不必重调文字；
+ *   - 移动端不留主视觉，标题与能力三栏一并收掉，只留表单。
  */
 
 .auth-scene {
-    --auth-hairline: rgba(255, 255, 255, 0.09);
-    --auth-hairline-strong: rgba(255, 255, 255, 0.18);
-    --auth-field-bg: rgba(255, 255, 255, 0.035);
+    /* 全局那套 --auth-* 是深色管理台复用的令牌，登录页在这里按浅色场景覆写：
+       改这里只影响登录场景，不会把管理台一起照亮。 */
+    --auth-page-bg: #f5f6fb;
+    --auth-panel-bg: #ffffff;
+    --auth-card-bg: rgba(255, 255, 255, 0.86);
+    --auth-accent: #4f46e5;
+    --auth-muted: #64748b;
+
+    --auth-accent-soft: rgba(79, 70, 229, 0.1);
+    --auth-ink: #0f172a;
+    --auth-ink-soft: #475569;
+    --auth-ink-faint: rgba(15, 23, 42, 0.42);
 }
 
-/* ---------- 左栏：取景网格 ---------- */
+/* 选中态跟随浅色场景：全局那套选中色是按深底配的，落在白输入框里会变成
+   一块黑底黑字，光标拖过自己输入的内容就什么都看不见。 */
+.auth-scene ::selection {
+    background: rgba(79, 70, 229, 0.22);
+    color: var(--auth-ink);
+}
 
-.auth-scene-hero {
+/* ---------- 左栏：主视觉 ---------- */
+
+.auth-hero {
     position: relative;
-    overflow: hidden;
-    border-right: 1px solid var(--auth-hairline);
-    background-color: var(--auth-page-bg);
-    background-image:
-        radial-gradient(90% 62% at 6% 0%, color-mix(in srgb, var(--auth-accent) 11%, transparent), transparent 62%), linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-    background-size:
-        100% 100%,
-        64px 64px,
-        64px 64px;
+    isolation: isolate;
+    background: #e8eaf4;
 }
 
-/* 缓慢扫过的光带：给静态网格一点「机器在跑」的暗示，不是装饰性噪点。 */
-.auth-scene-hero::after {
-    content: "";
+.auth-hero-art {
     position: absolute;
-    inset: -25% -15%;
-    background: linear-gradient(104deg, transparent 44%, color-mix(in srgb, var(--auth-accent) 9%, transparent) 50%, transparent 56%);
-    animation: auth-scene-sweep 12s linear infinite;
-    pointer-events: none;
+    inset: 0;
 }
 
-@keyframes auth-scene-sweep {
-    from {
-        transform: translate3d(-34%, 0, 0);
-    }
-    to {
-        transform: translate3d(34%, 0, 0);
-    }
+.auth-hero-media {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
-@media (prefers-reduced-motion: reduce) {
-    .auth-scene-hero::after {
-        animation: none;
-        opacity: 0.5;
-    }
-}
-
-.no-motion .auth-scene-hero::after {
-    animation: none;
-}
-
-.auth-brand-row {
-    position: relative;
+.auth-hero-veil {
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(96deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.7) 34%, rgba(255, 255, 255, 0.2) 66%, rgba(255, 255, 255, 0) 100%),
+        linear-gradient(0deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0) 42%);
 }
 
 .auth-brand-text {
@@ -73,169 +71,140 @@
     font-family: var(--font-display);
     font-size: 17px;
     font-weight: 600;
-    letter-spacing: -0.015em;
-    color: #fff;
+    letter-spacing: -0.01em;
+    color: var(--auth-ink);
 }
 
-.auth-mono {
+.auth-tagline {
     font-family: var(--font-mono);
     font-size: 10px;
-    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--auth-ink-faint);
+}
+
+.auth-hero-eyebrow {
+    margin: 0 0 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.5);
-}
-
-.auth-mono--dim {
-    color: rgba(255, 255, 255, 0.34);
-}
-
-.auth-mono--accent {
     color: var(--auth-accent);
-}
-
-.auth-hero-body {
-    position: relative;
-    display: flex;
-    max-width: 620px;
-    flex-direction: column;
-    gap: 18px;
 }
 
 .auth-hero-title {
     margin: 0;
     font-family: var(--font-display);
-    font-size: clamp(30px, 3vw, 44px);
-    font-weight: 500;
-    line-height: 1.14;
-    letter-spacing: -0.032em;
-    white-space: pre-line;
-    color: #fff;
+    font-size: clamp(2.1rem, 3.1vw, 3.2rem);
+    font-weight: 600;
+    line-height: 1.18;
+    letter-spacing: -0.02em;
+    color: var(--auth-ink);
+}
+
+.auth-hero-line {
+    display: block;
+}
+
+.auth-hero-accent {
+    font-style: normal;
+    color: var(--auth-accent);
 }
 
 .auth-hero-desc {
-    margin: 0;
-    max-width: 46ch;
-    font-size: 13px;
+    margin: 18px 0 0;
+    max-width: 32rem;
+    font-size: 14.5px;
     line-height: 1.8;
-    color: var(--auth-muted);
+    color: var(--auth-ink-soft);
 }
 
-/* ---------- 取景监视器 ---------- */
-
-.auth-monitor {
-    margin: 6px 0 0;
-    border: 1px solid var(--auth-hairline);
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.02);
-    overflow: hidden;
-}
-
-.auth-monitor-bar {
+.auth-hero-features {
     display: flex;
+    flex-wrap: wrap;
+    gap: 28px;
+    margin: 34px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.auth-hero-features li {
+    display: flex;
+    min-width: 0;
     align-items: center;
     gap: 10px;
-    padding: 9px 13px;
-    border-bottom: 1px solid var(--auth-hairline);
 }
 
-.auth-monitor-rule {
-    flex: 1;
-    height: 1px;
-    background: var(--auth-hairline);
+.auth-hero-feature-icon {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.72);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+    color: var(--auth-accent);
+    font-size: 15px;
 }
 
-.auth-monitor-signal {
-    width: 6px;
-    height: 6px;
-    border-radius: 999px;
-    background: var(--auth-accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--auth-accent) 18%, transparent);
+.auth-hero-feature-text {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
 }
 
-.auth-monitor-frame {
-    position: relative;
-    padding: 10px;
+.auth-hero-feature-text strong {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--auth-ink);
 }
 
-.auth-monitor-media {
-    display: block;
-    width: 100%;
-    aspect-ratio: 16 / 9;
-    object-fit: cover;
-    object-position: top center;
-    border: 1px solid var(--auth-hairline);
-    border-radius: 8px;
-    background: rgba(0, 0, 0, 0.4);
+.auth-hero-feature-text span {
+    font-size: 12px;
+    color: var(--auth-ink-faint);
 }
 
-/* 四角取景标记：摄影机取景框的语言，2px 直角臂比圆角边框更像器材。 */
-.auth-bracket {
-    position: absolute;
-    width: 13px;
-    height: 13px;
-    border: solid color-mix(in srgb, var(--auth-accent) 78%, transparent);
-    border-width: 0;
+/* 备案信息压在图上：全局那套是给深底写的，这里是浅底。 */
+/* 选择器带上 .is-auth：通用那条在 globals.css 里同样特异度，靠打包顺序决胜负不可靠。 */
+.auth-hero .site-compliance-footer.is-auth {
+    justify-content: flex-start;
+    min-height: 0;
+    padding: 0;
+    border-top: 0;
+    background: transparent;
+    backdrop-filter: none;
+    color: var(--auth-ink-faint);
+    font-size: 12px;
 }
 
-.auth-bracket.is-tl {
-    top: 4px;
-    left: 4px;
-    border-top-width: 1px;
-    border-left-width: 1px;
+.auth-hero .site-compliance-footer.is-auth a:hover,
+.auth-hero .site-compliance-footer.is-auth a:focus-visible {
+    color: var(--auth-ink);
 }
 
-.auth-bracket.is-tr {
-    top: 4px;
-    right: 4px;
-    border-top-width: 1px;
-    border-right-width: 1px;
-}
+/* ---------- 右栏：表单卡 ---------- */
 
-.auth-bracket.is-bl {
-    bottom: 4px;
-    left: 4px;
-    border-bottom-width: 1px;
-    border-left-width: 1px;
-}
-
-.auth-bracket.is-br {
-    bottom: 4px;
-    right: 4px;
-    border-bottom-width: 1px;
-    border-right-width: 1px;
-}
-
-.auth-compliance {
-    position: relative;
-}
-
-/* ---------- 右栏：控制台卡片 ---------- */
-
-.auth-scene-form-pane {
-    background-image: radial-gradient(120% 70% at 100% 0%, rgba(255, 255, 255, 0.035), transparent 60%);
+/* 选择器多一层是必要的：.auth-scene-form-pane 在 globals.css 里已经有一条背景，
+   两边特异性相同时胜负由打包顺序决定，而那顺序不该成为「卡片底色」的依据。 */
+.auth-scene .auth-scene-form-pane {
+    background:
+        radial-gradient(120% 60% at 100% 0%, rgba(99, 102, 241, 0.16), transparent 60%),
+        radial-gradient(90% 40% at 0% 100%, rgba(79, 70, 229, 0.08), transparent 60%),
+        linear-gradient(180deg, #f8f9fe 0%, #ecedf7 100%);
 }
 
 .auth-card {
-    position: relative;
     width: 100%;
-    max-width: 384px;
-    padding: 30px 30px 26px;
-    border: 1px solid var(--auth-hairline);
-    border-radius: 14px;
+    max-width: 460px;
+    padding: 34px 32px 28px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.9);
     background: var(--auth-card-bg);
     box-shadow:
-        0 30px 70px rgba(0, 0, 0, 0.45),
-        inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-
-/* 顶边一道强调色发丝线：卡片与背景的分界，比整圈发光克制。 */
-.auth-card::before {
-    content: "";
-    position: absolute;
-    inset: 0 0 auto;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--auth-accent) 70%, transparent) 32%, color-mix(in srgb, var(--auth-accent) 24%, transparent) 72%, transparent);
+        0 24px 60px rgba(15, 23, 42, 0.1),
+        0 2px 6px rgba(15, 23, 42, 0.04);
+    backdrop-filter: blur(18px) saturate(140%);
 }
 
 .auth-card-head {
@@ -243,186 +212,133 @@
 }
 
 .auth-title {
-    margin: 8px 0 0;
+    margin: 0;
     font-family: var(--font-display);
-    font-size: 26px;
+    font-size: 25px;
     font-weight: 600;
-    letter-spacing: -0.022em;
-    color: #fff;
+    letter-spacing: -0.01em;
+    color: var(--auth-ink);
 }
 
 .auth-subtitle {
-    margin: 7px 0 0;
+    margin: 8px 0 0;
     font-size: 13px;
     line-height: 1.7;
-    color: var(--auth-muted);
+    color: var(--auth-ink-soft);
 }
 
-.auth-scene .ant-form-item {
-    margin-bottom: 18px;
-}
-
-.auth-scene .ant-form-item-label {
-    width: 100%;
-    padding-bottom: 6px;
-}
-
-.auth-scene .ant-form-item-label > label {
-    display: block;
-    width: 100%;
-    height: auto;
-    color: inherit;
-}
-
-.auth-field-label {
-    font-size: 12px;
-    font-weight: 500;
-    letter-spacing: 0.04em;
-    color: rgba(255, 255, 255, 0.58);
-}
-
-.auth-field-label-row {
+/* 因子切换：药丸分段控件，选中态用白底把「当前用哪种方式证明归属」顶出来。 */
+.auth-factor-tabs {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-}
-
-/* 因子切换是表单内的次要动作：不做成按钮，避免和主操作抢层级。 */
-.auth-field-action {
-    border: 0;
-    background: none;
-    padding: 0;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.02em;
-    color: var(--auth-accent);
-    cursor: pointer;
-}
-
-.auth-field-action:hover {
-    color: #fff;
-    text-decoration: underline;
-    text-underline-offset: 3px;
-}
-
-.auth-inline-send {
-    border: 0;
-    background: none;
-    padding: 0 2px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.02em;
-    color: var(--auth-accent);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.auth-inline-send:hover:not(:disabled) {
-    color: #fff;
-}
-
-.auth-inline-send:disabled {
-    color: rgba(255, 255, 255, 0.26);
-    cursor: not-allowed;
-}
-
-.auth-divider.ant-divider {
-    margin: 20px 0 16px;
-    font-size: 11px;
-    letter-spacing: 0.1em;
-    color: rgba(255, 255, 255, 0.32);
-}
-
-.auth-mode-switch.ant-typography {
-    margin: 18px 0 0;
-    text-align: center;
-    font-size: 13px;
-    color: var(--auth-muted);
-}
-
-/* ---------- 卡片材质：对齐创作工作台的玻璃面 ---------- */
-
-/* 卡片背后一层极淡的强调色光晕。表单要从纯黑里浮起来，靠提高边框对比度会立刻
-   退回「后台表单」的观感，靠光晕才像同一套产品里的面板。 */
-.auth-scene-form-pane::before {
-    content: "";
-    position: absolute;
-    width: min(470px, 78vw);
-    aspect-ratio: 1;
+    gap: 4px;
+    margin-bottom: 20px;
+    padding: 4px;
     border-radius: 999px;
-    background: radial-gradient(circle, color-mix(in srgb, var(--auth-accent) 13%, transparent), transparent 68%);
-    filter: blur(16px);
-    pointer-events: none;
+    background: rgba(15, 23, 42, 0.05);
 }
 
-.auth-card {
-    max-width: 392px;
-    padding: 34px 32px 30px;
-    border-color: rgba(255, 255, 255, 0.1);
-    border-radius: 22px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.062), rgba(255, 255, 255, 0.018));
-    box-shadow:
-        0 40px 90px rgba(0, 0, 0, 0.5),
-        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+.auth-factor-tab {
+    flex: 1;
+    height: 32px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--auth-ink-soft);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+        background 0.16s ease,
+        color 0.16s ease,
+        box-shadow 0.16s ease;
 }
 
-.auth-title {
-    font-size: 28px;
-    letter-spacing: -0.03em;
+.auth-factor-tab:hover {
+    color: var(--auth-ink);
 }
 
-.auth-scene .ant-form-item {
+.auth-factor-tab.is-active {
+    background: #ffffff;
+    color: var(--auth-accent);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+.auth-factor-tab:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--auth-accent) 40%, transparent);
+    outline-offset: 1px;
+}
+
+/* antd 控件的留白与圆角在卡片里收敛一次，配色其余交给 ConfigProvider 的令牌。 */
+.auth-form .ant-form-item {
     margin-bottom: 16px;
 }
 
-.auth-scene .ant-input,
-.auth-scene .ant-input-affix-wrapper {
-    border-color: rgba(255, 255, 255, 0.11);
+.auth-form .ant-input-affix-wrapper,
+.auth-form .ant-input {
     border-radius: 12px;
-    background: var(--auth-field-bg);
-    transition: border-color 200ms cubic-bezier(.16, 1, .3, 1), background 200ms cubic-bezier(.16, 1, .3, 1), box-shadow 200ms cubic-bezier(.16, 1, .3, 1);
 }
 
-.auth-scene .ant-input-affix-wrapper:hover,
-.auth-scene .ant-input:hover {
-    border-color: rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.055);
+.auth-form .ant-input-affix-wrapper {
+    padding-inline: 14px;
 }
 
-.auth-scene .ant-input-affix-wrapper-focused,
-.auth-scene .ant-input:focus {
-    border-color: color-mix(in srgb, var(--auth-accent) 62%, transparent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--auth-accent) 14%, transparent);
+/* 全局用 :where(...) + !important 把聚焦态统一成站点焦点环，那是给深色工作区配的；
+   登录卡在浅底上要的是品牌色光圈，所以这里也用 !important 顶回同一层。 */
+.auth-form .ant-input-affix-wrapper:focus-within,
+.auth-form .ant-input:focus {
+    border-color: var(--auth-accent) !important;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14) !important;
 }
 
-/* 主按钮沿用创作页的「白底 + 顶部高光」：整块界面只有一个高对比动作。 */
-.auth-scene .ant-btn-primary:not(.ant-btn-link) {
+.auth-form .ant-input-prefix {
+    margin-inline-end: 10px;
+    color: #94a3b8;
+}
+
+.auth-field-label {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--auth-ink-soft);
+}
+
+.auth-inline-send {
+    height: 26px;
+    padding: 0 10px;
     border: 0;
-    border-radius: 12px;
-    background: linear-gradient(180deg, #fff 25.3%, rgba(255, 255, 255, 0.87) 89.7%);
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.42);
+    border-radius: 999px;
+    background: var(--auth-accent-soft);
+    color: var(--auth-accent);
+    font-size: 12px;
     font-weight: 600;
-    transition: transform 200ms cubic-bezier(.16, 1, .3, 1), box-shadow 200ms cubic-bezier(.16, 1, .3, 1);
+    cursor: pointer;
+    transition: background 0.16s ease;
 }
 
-.auth-scene .ant-btn-primary:not(.ant-btn-link):hover:not(:disabled) {
-    background: linear-gradient(180deg, #fff 25.3%, rgba(255, 255, 255, 0.94) 89.7%);
-    box-shadow: 0 18px 38px rgba(0, 0, 0, 0.5);
-    transform: translateY(-1px);
+.auth-inline-send:hover:not(:disabled) {
+    background: rgba(79, 70, 229, 0.16);
 }
 
-.auth-scene .ant-btn-primary:not(.ant-btn-link):active:not(:disabled) {
-    transform: scale(0.99);
+.auth-inline-send:disabled {
+    background: rgba(15, 23, 42, 0.05);
+    color: #94a3b8;
+    cursor: not-allowed;
 }
 
-.auth-scene .ant-btn-default {
-    border-color: rgba(255, 255, 255, 0.14);
+.auth-submit,
+.auth-github {
+    height: 46px;
     border-radius: 12px;
-    background: rgba(255, 255, 255, 0.04);
 }
 
-.auth-scene .ant-btn-default:hover:not(:disabled) {
-    border-color: rgba(255, 255, 255, 0.24);
-    background: rgba(255, 255, 255, 0.08);
+.auth-divider {
+    margin: 20px 0 16px;
+    font-size: 12px;
+    color: #94a3b8;
+}
+
+.auth-mode-switch {
+    margin: 20px 0 0;
+    text-align: center;
+    font-size: 13px;
+    color: var(--auth-ink-soft);
 }

@@ -262,7 +262,9 @@ describe("密码通道", () => {
         // 默认因子是密码：它不依赖任何投递通道，是唯一「一定能用」的那条。
         expect(markup).toContain("hosted-auth-password");
         expect(markup).toContain("hosted-auth-factor-switch");
-        expect(markup).toContain("用验证码登录");
+        // 切换控件是分段控件，选中态只落在密码这一条上：验证码只是候选，不是并列的入口。
+        expect(markup).toContain('class="auth-factor-tab is-active" data-testid="hosted-auth-factor-switch"');
+        expect(markup).toContain("验证码登录");
         expect(markup).not.toContain("发送验证码");
     });
 

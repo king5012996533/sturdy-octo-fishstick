@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { App, Button, Checkbox, ConfigProvider, Divider, Form, Input, Typography, theme as antdTheme } from "antd";
-import { GithubOutlined } from "@ant-design/icons";
+import { App, Button, Checkbox, ConfigProvider, Divider, Form, Input, theme as antdTheme } from "antd";
+import { ArrowRightOutlined, GithubOutlined, LockOutlined, PictureOutlined, SafetyOutlined, ThunderboltOutlined, UserOutlined, VideoCameraOutlined } from "@ant-design/icons";
 
 import { BrandLogoFrame } from "@/components/brand/brand-logo";
 import { SiteComplianceFooter } from "@/components/layout/site-compliance-footer";
@@ -384,6 +384,8 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
     // 注册模式下只暴露能注册的因子：切到一个必然被退回的按钮比不出现更差。
     const canSignUp = supportsSignUp("password") || supportsSignUp("code");
     const canSwitchFactor = useCallback((target: HostedAuthFactor) => factors.includes(target) && (mode === "login" || supportsSignUp(target)), [factors, mode, supportsSignUp]);
+    // 值得给切换控件的只有「注册模式下也能用的因子」，只剩一个候选就不该出现控件。
+    const switchableFactors = factors.filter(canSwitchFactor);
     const showGithub = Boolean(githubMethod) && mode === "login";
     const hasAnyMethod = factors.length > 0 || showGithub;
 
@@ -399,163 +401,161 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
         return showGithub ? "使用 GitHub 账号登录" : "使用账号登录";
     })();
 
+    // 登录页固定在浅色场景里渲染。皮肤跟随系统会让左侧那张主视觉与右侧表单一时有一时无，
+    // 而这里是产品门面，光线必须稳定；品牌色只出现在标题里的 AI、聚焦环与主按钮三处。
     return (
-        // 场景底色恒为暗色，所以这里必须换到 antd 的暗色算法；否则浅色主题下
-        // 输入框、下拉、分割线会以白底渲染在深色底上，整块控件像没加载出来。
-        // 主按钮刻意走「白底深字」：整块界面只有它一个高对比动作，登录入口一眼可点，
-        // 也就不会退化成满屏蓝紫色控件的默认后台脸。
         <ConfigProvider
             theme={{
-                algorithm: antdTheme.darkAlgorithm,
+                // 登录页自己声明浅色算法：根配置带着用户的明暗选择，深色下主按钮是白底黑字，
+                // 那张白按钮落在白卡里就没了边界。这里连同主按钮的三态一起钉死。
+                algorithm: antdTheme.defaultAlgorithm,
                 token: {
                     fontFamily: "var(--font-sans)",
                     fontSize: 13,
                     borderRadius: 12,
                     controlHeightLG: 46,
-                    colorPrimary: "#ffffff",
-                    colorPrimaryHover: "#e6e9ee",
-                    colorPrimaryActive: "#d5d9e0",
-                    colorBgContainer: "rgba(255,255,255,0.035)",
-                    colorBorder: "rgba(255,255,255,0.13)",
-                    colorText: "#f4f5f7",
-                    colorTextPlaceholder: "rgba(255,255,255,0.28)",
-                    colorSplit: "rgba(255,255,255,0.1)",
+                    colorPrimary: "#4f46e5",
+                    colorLink: "#4f46e5",
+                    colorLinkHover: "#4338ca",
+                    colorText: "#0f172a",
+                    colorTextPlaceholder: "#9aa4b2",
+                    colorBorder: "#e2e8f0",
+                    colorBgContainer: "#ffffff",
                 },
                 components: {
+                    // 主按钮是全页唯一的高对比动作，antd 默认的投影会把它压低成普通控件。
                     Button: {
-                        primaryColor: "#0b0c10",
                         fontWeight: 600,
-                        defaultBg: "rgba(255,255,255,0.04)",
-                        defaultBorderColor: "rgba(255,255,255,0.14)",
-                        defaultColor: "#f4f5f7",
+                        primaryShadow: "none",
+                        colorPrimary: "#4f46e5",
+                        colorPrimaryHover: "#4338ca",
+                        colorPrimaryActive: "#3730a3",
+                        primaryColor: "#ffffff",
                     },
-                    Input: {
-                        activeBorderColor: "#93c5fd",
-                        hoverBorderColor: "rgba(255,255,255,0.22)",
-                        activeShadow: "0 0 0 3px rgba(147,197,253,0.14)",
-                    },
-                    // 主色是白色，勾选框得单独给强调色，否则白底白勾看不见。
-                    Checkbox: { colorPrimary: "#93c5fd" },
+                    Input: { activeShadow: "0 0 0 3px rgba(79,70,229,0.12)" },
+                    Checkbox: { colorPrimary: "#4f46e5" },
                 },
             }}
         >
-            <div className="auth-scene grid min-h-screen grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,462px)]">
-                {/* 品牌区只在 lg 以上出现：移动端不放宣传视频，省流量也少一种加载失败。 */}
-                <aside className="auth-scene-hero hidden flex-col justify-between gap-8 px-12 py-10 lg:flex">
-                    <header className="auth-brand-row flex items-center gap-[11px]">
+            <div className="auth-scene grid min-h-screen grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,500px)]">
+                {/* 品牌区只在 lg 以上出现：移动端不留主视觉，省流量也少一种加载失败。 */}
+                <aside className="auth-hero relative hidden overflow-hidden lg:block">
+                    <div className="auth-hero-art" aria-hidden>
+                        {appearance.authVideoConfigured ? (
+                            <video
+                                className="auth-hero-media"
+                                src={appearance.authVideoUrl}
+                                poster={appearance.authVideoPosterUrl || undefined}
+                                autoPlay={appearance.authVideoAutoplay}
+                                muted
+                                loop
+                                playsInline
+                                aria-label={`${appearance.brandName} 宣传片`}
+                            />
+                        ) : (
+                            <img className="auth-hero-media" src="/auth-hero.webp" alt="" />
+                        )}
+                    </div>
+                    <div className="auth-hero-veil" aria-hidden />
+
+                    {/* 登录页也是产品说明页：标题、能力三栏、备案信息都压在这一张图上。 */}
+                    <div className="auth-hero-content relative z-10 flex h-full flex-col justify-between gap-10 px-14 py-12 xl:px-16">
+                        <header className="flex items-center gap-3">
+                            <BrandLogoFrame
+                                className="grid size-9 shrink-0 place-items-center"
+                                logoClassName="size-9"
+                                alt=""
+                                theme="light"
+                                fallback={<span className="grid size-9 place-items-center rounded-[var(--r-sm)] bg-slate-900 text-[14px] font-semibold text-white">K</span>}
+                            />
+                            <span className="auth-brand-text">
+                                <strong className="auth-wordmark">{appearance.brandName}</strong>
+                                <span className="auth-tagline">{brandStudioLabel(appearance)}</span>
+                            </span>
+                        </header>
+
+                        <div className="max-w-[34rem]">
+                            <p className="auth-hero-eyebrow">AI 创作工作台</p>
+                            <h1 className="auth-hero-title">{renderAuthHeroTitle(appearance.authHeroTitle)}</h1>
+                            {appearance.authHeroDescription ? <p className="auth-hero-desc">{appearance.authHeroDescription}</p> : null}
+
+                            <ul className="auth-hero-features">
+                                {AUTH_HERO_FEATURES.map((feature) => (
+                                    <li key={feature.title}>
+                                        <span className="auth-hero-feature-icon" aria-hidden>
+                                            {feature.icon}
+                                        </span>
+                                        <span className="auth-hero-feature-text">
+                                            <strong>{feature.title}</strong>
+                                            <span>{feature.detail}</span>
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+
+                        {/* 备案号必须出现在登录页上：它是「本站已备案」的对外声明。 */}
+                        <SiteComplianceFooter variant="auth" className="auth-compliance" />
+                    </div>
+                </aside>
+
+                <div className="auth-scene-form-pane relative flex min-h-screen flex-col items-center justify-center px-5 py-10 sm:px-10">
+                    {/* 移动端没有左栏，品牌行收进表单上方：登录页必须自证是哪家的。 */}
+                    <header className="mb-6 flex items-center gap-3 lg:hidden">
                         <BrandLogoFrame
                             className="grid size-8 shrink-0 place-items-center"
                             logoClassName="size-8"
                             alt=""
-                            theme="dark"
-                            fallback={<span className="grid size-8 place-items-center rounded-[var(--r-sm)] bg-white/10 text-[13px] font-semibold text-white/80">K</span>}
+                            theme="light"
+                            fallback={<span className="grid size-8 place-items-center rounded-[var(--r-sm)] bg-slate-900 text-[13px] font-semibold text-white">K</span>}
                         />
                         <span className="auth-brand-text">
                             <strong className="auth-wordmark">{appearance.brandName}</strong>
-                            <span className="auth-mono auth-mono--dim">{brandStudioLabel(appearance)}</span>
-                        </span>
-                    </header>
-
-                    <div className="auth-hero-body">
-                        <p className="auth-mono auth-mono--accent">AI 影视创作工作台</p>
-                        <h1 className="auth-hero-title">{appearance.authHeroTitle}</h1>
-                        {appearance.authHeroDescription ? <p className="auth-hero-desc">{appearance.authHeroDescription}</p> : null}
-
-                        {/* 取景框：有宣传片就放宣传片，没配就放一张真实的画布界面。
-                            空着这一栏比放任何东西都更像坏了——这是登录页唯一的说服力来源。 */}
-                        <figure className="auth-monitor">
-                            <figcaption className="auth-monitor-bar">
-                                <span className="auth-mono">{appearance.authVideoConfigured ? "SHOWREEL" : "CANVAS"}</span>
-                                <span className="auth-monitor-rule" aria-hidden />
-                                <span className="auth-mono auth-mono--dim">{appearance.authVideoConfigured ? "宣传片" : "自由画布"}</span>
-                                <span className="auth-monitor-signal" aria-hidden />
-                            </figcaption>
-                            <div className="auth-monitor-frame">
-                                {appearance.authVideoConfigured ? (
-                                    <video
-                                        className="auth-monitor-media"
-                                        src={appearance.authVideoUrl}
-                                        poster={appearance.authVideoPosterUrl || undefined}
-                                        autoPlay={appearance.authVideoAutoplay}
-                                        muted
-                                        loop
-                                        playsInline
-                                        aria-label={`${appearance.brandName} 宣传片`}
-                                    />
-                                ) : (
-                                    <img className="auth-monitor-media" src="/welcome/workbench-canvas.webp" alt="画布工作台" />
-                                )}
-                                <span className="auth-bracket is-tl" aria-hidden />
-                                <span className="auth-bracket is-tr" aria-hidden />
-                                <span className="auth-bracket is-bl" aria-hidden />
-                                <span className="auth-bracket is-br" aria-hidden />
-                            </div>
-                        </figure>
-                    </div>
-
-                    {/* 备案号必须出现在登录页上：它是「本站已备案」的对外声明。 */}
-                    <SiteComplianceFooter variant="auth" className="auth-compliance !p-0" />
-                </aside>
-
-                <div className="auth-scene-form-pane relative flex flex-col items-center justify-center px-5 py-10 sm:px-10">
-                    {/* 移动端没有左栏，品牌行收进表单上方：登录页必须自证是哪家的。 */}
-                    <header className="auth-brand-row mb-6 flex items-center gap-[11px] lg:hidden">
-                        <BrandLogoFrame
-                            className="grid size-7 shrink-0 place-items-center"
-                            logoClassName="size-7"
-                            alt=""
-                            theme="dark"
-                            fallback={<span className="grid size-7 place-items-center rounded-[var(--r-sm)] bg-white/10 text-[12px] font-semibold text-white/80">K</span>}
-                        />
-                        <span className="auth-brand-text">
-                            <strong className="auth-wordmark">{appearance.brandName}</strong>
-                            <span className="auth-mono auth-mono--dim">{brandStudioLabel(appearance)}</span>
+                            <span className="auth-tagline">{brandStudioLabel(appearance)}</span>
                         </span>
                     </header>
 
                     <div className="auth-card">
                         <header className="auth-card-head">
-                            <span className="auth-mono auth-mono--accent">{mode === "login" ? "SIGN IN" : "CREATE ACCOUNT"}</span>
-                            <h2 className="auth-title">{mode === "login" ? `登录 ${appearance.brandName}` : "创建账号"}</h2>
+                            <h2 className="auth-title">{mode === "login" ? "欢迎回来" : "创建账号"}</h2>
                             <p className="auth-subtitle">{subtitle}</p>
                         </header>
 
+                        {/* 因子切换只在两条因子都能用时出现。通道是后台开关决定的，界面上
+                            让用户在邮箱/手机/密码之间先做一道选择题，就是「为了登录而登录」：
+                            标识能收什么由表单内容决定，这里只负责换证明方式。 */}
+                        {switchableFactors.length > 1 ? (
+                            <div className="auth-factor-tabs" role="tablist" aria-label="登录方式">
+                                {switchableFactors.map((item) => (
+                                    <button
+                                        key={item}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={activeFactor === item}
+                                        className={`auth-factor-tab${activeFactor === item ? " is-active" : ""}`}
+                                        data-testid="hosted-auth-factor-switch"
+                                        onClick={() => switchFactor(item)}
+                                    >
+                                        {item === "password" ? "密码登录" : "验证码登录"}
+                                    </button>
+                                ))}
+                            </div>
+                        ) : null}
+
                         {hasAnyMethod ? (
-                            <Form form={form} layout="vertical" onFinish={mode === "register" ? handleRegister : handleSubmit} requiredMark={false} disabled={submitting}>
+                            <Form form={form} layout="vertical" onFinish={mode === "register" ? handleRegister : handleSubmit} requiredMark={false} disabled={submitting} className="auth-form">
                                 <Form.Item name="target" label={<span className="auth-field-label">{identityLabel}</span>} rules={targetFieldRules}>
-                                    <Input size="large" data-testid="hosted-auth-identity" {...identityProps} />
+                                    <Input size="large" data-testid="hosted-auth-identity" prefix={<UserOutlined aria-hidden />} {...identityProps} />
                                 </Form.Item>
 
                                 {isPasswordFactor ? (
                                     <>
-                                        <Form.Item
-                                            name="password"
-                                            label={
-                                                <span className="auth-field-label-row">
-                                                    <span className="auth-field-label">密码</span>
-                                                    {canSwitchFactor("code") ? (
-                                                        <button
-                                                            type="button"
-                                                            className="auth-field-action"
-                                                            data-testid="hosted-auth-factor-switch"
-                                                            onClick={(event) => {
-                                                                // 标签内的按钮默认会连带聚焦输入框，这里只做切换。
-                                                                event.preventDefault();
-                                                                event.stopPropagation();
-                                                                switchFactor("code");
-                                                            }}
-                                                        >
-                                                            用验证码登录
-                                                        </button>
-                                                    ) : null}
-                                                </span>
-                                            }
-                                            rules={passwordFieldRules}
-                                        >
+                                        <Form.Item name="password" label={<span className="auth-field-label">密码</span>} rules={passwordFieldRules}>
                                             <Input.Password
                                                 size="large"
                                                 autoComplete={mode === "register" ? "new-password" : "current-password"}
                                                 maxLength={64}
+                                                prefix={<LockOutlined aria-hidden />}
                                                 placeholder={mode === "register" ? "8-64 位，含字母和数字" : "请输入密码"}
                                                 data-testid="hosted-auth-password"
                                             />
@@ -572,38 +572,17 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                                                     }),
                                                 ]}
                                             >
-                                                <Input.Password size="large" autoComplete="new-password" maxLength={64} placeholder="请再次输入密码" data-testid="hosted-auth-confirm-password" />
+                                                <Input.Password size="large" autoComplete="new-password" maxLength={64} prefix={<LockOutlined aria-hidden />} placeholder="请再次输入密码" data-testid="hosted-auth-confirm-password" />
                                             </Form.Item>
                                         ) : null}
                                     </>
                                 ) : (
-                                    <Form.Item
-                                        name="code"
-                                        label={
-                                            <span className="auth-field-label-row">
-                                                <span className="auth-field-label">验证码</span>
-                                                {canSwitchFactor("password") ? (
-                                                    <button
-                                                        type="button"
-                                                        className="auth-field-action"
-                                                        data-testid="hosted-auth-factor-switch"
-                                                        onClick={(event) => {
-                                                            event.preventDefault();
-                                                            event.stopPropagation();
-                                                            switchFactor("password");
-                                                        }}
-                                                    >
-                                                        用密码登录
-                                                    </button>
-                                                ) : null}
-                                            </span>
-                                        }
-                                        rules={[{ required: true, message: "请输入验证码" }]}
-                                    >
+                                    <Form.Item name="code" label={<span className="auth-field-label">验证码</span>} rules={[{ required: true, message: "请输入验证码" }]}>
                                         <Input
                                             size="large"
                                             autoComplete="one-time-code"
                                             maxLength={6}
+                                            prefix={<SafetyOutlined aria-hidden />}
                                             placeholder="6 位验证码"
                                             suffix={
                                                 <button type="button" className="auth-inline-send" onClick={() => void handleSendCode()} disabled={!canSendCode} data-testid="hosted-auth-send-code">
@@ -647,12 +626,12 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                                                 </Button>
                                             </Checkbox>
                                         </Form.Item>
-                                        <Button type="primary" size="large" htmlType="submit" block loading={submitting}>
+                                        <Button type="primary" size="large" htmlType="submit" block loading={submitting} className="auth-submit" icon={<ArrowRightOutlined aria-hidden />} iconPlacement="end">
                                             注册并进入
                                         </Button>
                                     </>
                                 ) : (
-                                    <Button type="primary" size="large" htmlType="submit" block loading={submitting} className="auth-submit">
+                                    <Button type="primary" size="large" htmlType="submit" block loading={submitting} className="auth-submit" icon={<ArrowRightOutlined aria-hidden />} iconPlacement="end">
                                         登录
                                     </Button>
                                 )}
@@ -662,9 +641,9 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                         {hasAnyMethod && showGithub ? (
                             <>
                                 <Divider plain className="auth-divider">
-                                    或
+                                    或继续使用
                                 </Divider>
-                                <Button size="large" block icon={<GithubOutlined aria-hidden />} loading={oauthPending} onClick={() => void handleGithubLogin()} data-testid="hosted-auth-github">
+                                <Button size="large" block icon={<GithubOutlined aria-hidden />} loading={oauthPending} onClick={() => void handleGithubLogin()} data-testid="hosted-auth-github" className="auth-github">
                                     使用 GitHub 登录
                                 </Button>
                             </>
@@ -672,12 +651,12 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
 
                         {/* 注册入口挂在后端配置上：allow_sign_up 关掉时这里不出现，用户就不会撞上 403。 */}
                         {hasAnyMethod && canSignUp ? (
-                            <Typography.Paragraph className="auth-mode-switch">
+                            <p className="auth-mode-switch">
                                 {mode === "register" ? "已有账号？" : "还没有账号？"}
                                 <Button type="link" size="small" className="!h-auto !p-0" onClick={() => setMode(mode === "register" ? "login" : "register")} data-testid="hosted-auth-mode-switch">
                                     {mode === "register" ? "去登录" : "立即注册"}
                                 </Button>
-                            </Typography.Paragraph>
+                            </p>
                         ) : null}
                     </div>
                 </div>
@@ -685,4 +664,32 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
             <HostedAuthAgreementDialog open={agreementView !== null} agreements={agreements} initialType={agreementView} onClose={() => setAgreementView(null)} />
         </ConfigProvider>
     );
+}
+
+/**
+ * 左侧能力三栏。
+ *
+ * 写死在代码里而不是做成配置项：这三行是「登录页即产品说明」的骨架，一旦可配置就会被
+ * 填成一串营销词；字数也会撑破左栏，把主视觉挤成背景板。
+ */
+const AUTH_HERO_FEATURES = [
+    { title: "AI 图像", detail: "生成 · 编辑 · 风格", icon: <PictureOutlined /> },
+    { title: "AI 视频", detail: "文生视频 · 图生视频", icon: <VideoCameraOutlined /> },
+    { title: "创作智能体", detail: "剧本 · 分镜 · 画布", icon: <ThunderboltOutlined /> },
+];
+
+/**
+ * 主标题按配置里的换行断行，并把 AI 这个词染成品牌色。
+ *
+ * 逐段返回文本节点而不是拼 HTML：标题来自后台配置，等于一条可被写入的外部输入，
+ * 在这里拼字符串就等于把它变成注入点。
+ */
+function renderAuthHeroTitle(title: string) {
+    return String(title ?? "")
+        .split("\n")
+        .map((line, lineIndex) => (
+            <span className="auth-hero-line" key={`${lineIndex}-${line}`}>
+                {line.split(/(AI)/).map((part, partIndex) => (part === "AI" ? <em key={partIndex} className="auth-hero-accent">{part}</em> : part))}
+            </span>
+        ));
 }
