@@ -5,7 +5,7 @@ import { App } from "antd";
 import { applyRecoveredGenerationTaskResultToNodes, generationTaskCanReloadResource, generationTaskNodeId } from "@/lib/canvas/canvas-generation-task-sync";
 import { applyCanvasGenerationTaskNodeEffect, isCanvasGenerationDurableAckError, persistCanvasGenerationEffect } from "@/services/canvas-generation-consumer";
 import { consumeGenerationTaskNode, ensureCanvasNodeAsset, retryCanvasAssetSyncAfterRateLimit } from "@/services/project-asset-sync";
-import { listGenerationTasks, listTaskLogs, queryGenerationTask, subscribeGenerationTasks, type GenerationTask, type TaskLog } from "@/services/api/task-center";
+import { listGenerationTasks, listTaskLogs, queryFailedVideoProviderTask, queryGenerationTask, subscribeGenerationTasks, type GenerationTask, type TaskLog } from "@/services/api/task-center";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
@@ -208,6 +208,8 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
     const [taskDetail, setTaskDetail] = useState<GenerationTask | null>(null);
     const [taskDetailLogs, setTaskDetailLogs] = useState<TaskLog[]>([]);
     const [taskDetailLoading, setTaskDetailLoading] = useState(false);
+    const [retrievingTaskId, setRetrievingTaskId] = useState<string | null>(null);
+    const retrievalRef = useRef<object | null>(null);
     const localMode = isLocalWorkspaceMode();
 
     const startGenerationRequest = useCallback((targetNodeId: string, originNodeId: string, runningId = originNodeId, controller = new AbortController()) => {
@@ -353,6 +355,36 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
         },
         [nodesRef, projectId, setNodes],
     );
+
+    const retrieveTaskResult = useCallback(async (task: GenerationTask) => {
+        if (retrievalRef.current) return;
+        const retrieval = {};
+        retrievalRef.current = retrieval;
+        const signal = consumerControllerRef.current.signal;
+        setRetrievingTaskId(task.id);
+        try {
+            const result = await queryFailedVideoProviderTask(task.id);
+            if (signal.aborted) return;
+            // 我们的任务详情是本地 state（没有 useTaskDetails 查询缓存），取回后直接刷新详情面板。
+            setTaskDetail(result.task);
+            if (result.recovered) {
+                const node = nodesRef.current.find((item) => item.metadata?.taskId === task.id);
+                if (!node) throw new Error("视频已取回，请在生成历史中查看");
+                await applyGenerationTaskResult(node.id, result.task);
+                if (signal.aborted) return;
+                message.success("视频已取回并放回画布，未重新生成");
+            } else {
+                message.info("原任务仍在处理中，请稍后再取回结果");
+            }
+        } catch (error) {
+            if (!signal.aborted) message.error(error instanceof Error ? error.message : "暂时无法取回结果，请稍后再试");
+        } finally {
+            if (retrievalRef.current === retrieval) {
+                retrievalRef.current = null;
+                setRetrievingTaskId(null);
+            }
+        }
+    }, [applyGenerationTaskResult, message, nodesRef]);
 
     const observeSubscribedGenerationTask = useCallback(
         (taskId: string, signal: AbortSignal, onUpdate?: (task: GenerationTask) => void) =>
@@ -586,6 +618,8 @@ export function useCanvasGeneration({ projectId, domainProjectId, projectLoaded,
         bindGenerationTask,
         finishGenerationRequest,
         openNodeTaskDetails,
+        retrieveTaskResult,
+        retrievingTaskId,
         runningNodeId,
         setRunningNodeId,
         setTaskDetail,
