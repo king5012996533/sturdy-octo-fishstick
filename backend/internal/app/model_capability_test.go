@@ -302,6 +302,23 @@ func TestAigenSeedanceCapabilityAllowsMultiImageReference(t *testing.T) {
 	if normalized.Video.References.MaxVideos != 0 || normalized.Video.References.MaxAudios != 0 {
 		t.Fatalf("references videos/audios = %d/%d, want 0/0", normalized.Video.References.MaxVideos, normalized.Video.References.MaxAudios)
 	}
+
+	// 准入用的是同一份合同投影出来的规格：修好读模型但漏掉规格，用户仍会在提交时被拒。
+	intent := ModelRequestIntent{Capability: "video", Operation: "reference_to_video", Inputs: map[string]int{"image": 4, "video": 0, "audio": 0}}
+	spec, err := CapabilitySpecFromModelCapabilityConfig(normalized, "video")
+	if err != nil {
+		t.Fatalf("CapabilitySpecFromModelCapabilityConfig() error = %v", err)
+	}
+	if match := MatchCapability(spec, intent); !match.Matched {
+		t.Fatalf("patched match = %v", match.Reasons)
+	}
+	legacySpec, err := CapabilitySpecFromModelCapabilityConfig(&ModelCapabilityConfig{Version: 1, Video: stored}, "video")
+	if err != nil {
+		t.Fatalf("CapabilitySpecFromModelCapabilityConfig(legacy) error = %v", err)
+	}
+	if match := MatchCapability(legacySpec, intent); match.Matched {
+		t.Fatal("未打补丁的合同不应接受全模态参考，回归测试失去意义")
+	}
 }
 
 func TestCapabilitySpecFromModelCapabilityConfigRestoresLegacyWildcardImageSizes(t *testing.T) {
