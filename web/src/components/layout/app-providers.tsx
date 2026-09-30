@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { lazy, Suspense, useLayoutEffect, type ComponentType } from "react";
+import { lazy, Suspense, useLayoutEffect, useSyncExternalStore, type ComponentType } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { App, ConfigProvider } from "antd";
 import zhCN from "antd/locale/zh_CN";
@@ -9,6 +9,7 @@ import { FullScreenLoader } from "@/components/ui/aceternity/full-screen-loader"
 import { getAntThemeConfig } from "@/lib/app-theme";
 import { applySkinTheme } from "@/lib/skin-themes";
 import { appQueryClient } from "@/lib/query-client";
+import { router } from "@/router";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import { applyAppearanceMetadata, useAppearanceStore } from "@/stores/use-appearance-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -49,17 +50,33 @@ function ClientRootBoundary({ children }: { children: ReactNode }) {
     );
 }
 
+/**
+ * 首页在路由树内部，AppProviders 包着 RouterProvider，拿不到 useLocation；
+ * 直接订阅 router 自己的状态即可，导航时同步重渲染。
+ * 订阅函数放模块级：每次渲染新建一个会让 useSyncExternalStore 反复退订重订。
+ */
+const subscribeRouterPathname = (onChange: () => void) => router.subscribe(onChange);
+const readRouterPathname = () => router.state.location.pathname;
+
+function useRouterPathname(): string {
+    return useSyncExternalStore(subscribeRouterPathname, readRouterPathname);
+}
+
 export function AppProviders({ children }: { children: ReactNode }) {
     const theme = useActiveTheme();
-    const dark = theme === "dark";
+    const pathname = useRouterPathname();
+    // 首页是沉浸式剧照站，整页固定深色：剧照、压在上面的输入卡和灵感卡都是图像内容，
+    // 浅色主题下白底会把它们切成两半，没有能自洽的浅色配色。主题偏好照常保留，
+    // 离开首页立刻恢复用户选的那套。
+    const dark = pathname === "/" || theme === "dark";
     const appearance = useAppearanceStore((state) => state.appearance);
 
     useLayoutEffect(() => {
         document.documentElement.classList.toggle("dark", dark);
-        document.documentElement.style.colorScheme = theme;
-        applySkinTheme(appearance.activeSkin, theme);
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        applySkinTheme(appearance.activeSkin, dark ? "dark" : "light");
         applyAppearanceMetadata(appearance);
-    }, [appearance, dark, theme]);
+    }, [appearance, dark]);
 
     // DEV 复现台必须是同源本地确定性场景：WorkspaceBootstrapHydrator 会打 /api/workspace/bootstrap，
     // ClientRootInit 会打 /api/model-catalog，没有后端时产生真实 502，与导演台无关却会污染判据。

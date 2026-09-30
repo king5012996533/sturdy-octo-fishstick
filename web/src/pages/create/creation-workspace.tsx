@@ -525,14 +525,6 @@ export function CreationComposer(props: ComposerProps) {
         }
         return undefined;
     };
-    // 引导 chip 只看"输入框有没有内容"：空则显示、有内容就让位，避免一聚焦就整块抖动。
-    const composerIsEmpty = !props.prompt.trim() && !props.attachments.length && !props.references.some((reference) => reference.active);
-    const startStarter = (item: CreationStarterSuggestion) => {
-        props.onModeChange(item.mode);
-        if (item.prompt) props.setPrompt(item.prompt);
-        if (item.openLibrary) props.onOpenLibrary();
-        else window.requestAnimationFrame(() => props.composerFocusRef.current?.focus());
-    };
     const composer = <HoverBorderGradient as="div" duration={2.2} containerClassName="creation-composer-shell" className="creation-composer-shell-inner">
         <SpotlightSurface
             className={`creation-chat-composer is-${props.variant}`}
@@ -608,7 +600,6 @@ export function CreationComposer(props: ComposerProps) {
                 </div> : null}
             </div>
         </div>
-        {props.variant === "empty" && composerIsEmpty && !interactionBusy ? <CreationStarterChips onStart={startStarter} /> : null}
         <footer className="creation-chat-dock">
             <div className="creation-chat-controls">
                 <CreationModeMenu mode={props.mode} agentActive={Boolean(props.agentActive)} onModeChange={props.onModeChange} onAgentSelect={props.onAgentSelect} />
@@ -688,15 +679,6 @@ function inspirationCredit(item: CreationInspiration) {
     if (item.sourceUrl) return item.author ? `示例素材 · ${item.author}` : "示例素材";
     return item.source ? "开源改编 · CC0" : "原创提示词";
 }
-
-type CreationStarterSuggestion = { mode: CreationMode; icon: typeof Clapperboard; title: string; hint: string; prompt: string; openLibrary?: boolean };
-
-const creationStarters: CreationStarterSuggestion[] = [
-    { mode: "video", icon: Clapperboard, title: "生成第一个镜头", hint: "描述画面、镜头运动与光线", prompt: "雨夜天台，镜头缓缓推近霓虹灯牌下的主角，她回眸看向镜头，强对比电影感布光" },
-    { mode: "image", icon: ImageIcon, title: "从参考图开始", hint: "上传风格图，生成同风格画面", prompt: "", openLibrary: true },
-    { mode: "text", icon: FileText, title: "续写故事", hint: "和 AI 讨论剧情、角色与对白", prompt: "帮我续写一个短剧故事，先聊聊剧情走向：" },
-    { mode: "video", icon: Sparkles, title: "引用技能增强", hint: "@技能 调用分镜与配音", prompt: "调用分镜技能，帮我规划这个镜头的拍摄方案：" },
-];
 
 /** 模式收进输入框：收起时只占一个控件的宽度，展开才列出四个入口，避免空态被一整行胶囊占掉。 */
 export function CreationModeMenu({ mode, agentActive = false, onModeChange, onAgentSelect }: { mode: CreationMode; agentActive?: boolean; onModeChange: (mode: CreationMode) => void; onAgentSelect?: () => void }) {
@@ -781,17 +763,6 @@ function DurationMenu({ profile, seconds, onChange }: { profile: VideoCapability
         <button type="button" className="creation-chat-control is-duration" aria-label={`视频时长：${value}秒`}><Clock3 /><span>{value}s</span><ChevronDown className={open ? "is-open" : ""} /></button>
     </Popover>;
 }
-
-/** 空态引导：只在内层输入框为空时出现，开始打字就自动让位，不需要额外的手动收起。 */
-function CreationStarterChips({ onStart }: { onStart: (item: CreationStarterSuggestion) => void }) {
-    return <div className="creation-starter-chips" aria-label="快捷创作入口">
-        {creationStarters.map((item) => {
-            const Icon = item.icon;
-            return <button key={item.title} type="button" className="creation-starter-chip" title={item.hint} onClick={() => onStart(item)}><Icon aria-hidden="true" /><span>{item.title}</span></button>;
-        })}
-    </div>;
-}
-
 
 const creationSkillWorks = [
     { title: "东方巨构美学短剧", description: "一站式生成东方巨构美学短剧", image: "/short-drama-styles/ink-narrative.jpg", prompt: "@xianxia-drama-planner 规划一个东方巨构美学短剧的第一幕", author: "鲍鱼chill", uses: "4.4k" },
