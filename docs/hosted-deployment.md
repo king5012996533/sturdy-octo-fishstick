@@ -75,6 +75,35 @@ CANVAS_PUBLIC_BASE_URL=https://kinotv.xingtudesign.com
 - `CANVAS_AUTH_DEV_ECHO_CODE=1` 让验证码回显在接口响应里，便于短信/邮件网关接通前联调。
   接入真实网关后必须去掉。
 
+## 上游出网（换机器后先验这一条）
+
+境外上游（Replicate 这一类，域名落在 Cloudflare 上）从境内机器直连会被**间歇性阻断**：
+同一台机器、同一个域名，TCP 443 连着测五次可能只通两次。更麻烦的是它会在
+"连接已建立、响应还没回来"的窗口里断开——请求其实已经送达、上游已经受理并出图，
+而我们这边只看到 read 超时，于是任务记成失败、成品丢在上游、预扣也退不回来。
+
+所以换服务器或换上游之后，先跑这两条：
+
+```bash
+# 境外上游：必须五次都拿到状态码，出现 000 就是出口不可用
+for i in 1 2 3 4 5; do
+  curl -4 -sS -o /dev/null --max-time 8 -w '%{http_code} %{time_total}\n' https://api.replicate.com/
+done
+
+# 境内上游：作为对照，应当是 100~200ms 的 200/401
+curl -4 -sS -o /dev/null --max-time 8 -w '%{http_code} %{time_total}\n' https://api.deepseek.com/
+```
+
+出口不通时不要靠重试兜底（重试会重复付费，见 `taskRefundVerdict`），而是给后端配出海代理：
+
+```bash
+HTTPS_PROXY=http://<可出海的代理>:<端口>
+```
+
+追加进 `/etc/kinotv.env` 后 `systemctl restart kinotv`。代理地址支持 `http://` 与
+`socks5://`；后端已经把它接进出站传输（`internal/outbound`），配了就会走代理，
+代理主机本身也不会被自建的 SSRF 规则拦下。
+
 ## 日常操作
 
 ```bash
