@@ -30,7 +30,7 @@
 
 ## 产品演示
 
-<video src="assets/readme/kinotv-demo.mp4" poster="assets/readme/kinotv-demo-poster.jpg" controls muted></video>
+[![KinoTV 产品演示：从一句提示词到成片](assets/readme/kinotv-demo-poster.jpg)](assets/readme/kinotv-demo.mp4)
 
 [下载产品演示视频](assets/readme/kinotv-demo.mp4)
 
