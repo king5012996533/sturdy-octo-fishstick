@@ -1186,8 +1186,8 @@ export default function CreatePage() {
                                 <img className="creation-home-hero-art" src="/home/hero.webp" alt="" aria-hidden="true" draggable={false} />
                                 <div className="creation-home-hero-copy">
                                     <p className="creation-home-hero-brand"><span>{brandName}</span> <em>Agent</em></p>
-                                    <h1>让你的想象，秒变成电影</h1>
-                                    <p className="creation-home-hero-sub">输入一句话，AI 自动生成分镜、画面、配音与剪辑，一站式完成你的创意视频。</p>
+                                    <h1>{brandName} <span>Agent</span></h1>
+                                    <p className="creation-home-hero-sub">用想象力，生成属于你的电影</p>
                                 </div>
                             </section>
                             <section ref={launchpadRef} className="creation-launchpad" aria-label="开始创作">

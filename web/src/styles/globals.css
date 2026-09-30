@@ -19785,9 +19785,9 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     width: 100%;
     height: 100%;
     object-fit: cover;
-    /* 构图：人物在右三分之一、日出在右侧，左半边是暗岩石与雾，正好留给标题压字。
-       横幅只有 3.4:1，纵向要裁掉大半，靠百分比把地平线锁在画面中部偏上。 */
-    object-position: 50% 30%;
+    /* 构图：人物在中右、巨型行星与银河在上半，左半边是暗岩石与雾，留给标题压字。
+       横幅只有 3.4:1，纵向要裁掉一半，靠百分比把人物和行星同时锁进画面。 */
+    object-position: 50% 58%;
     user-select: none;
 }
 /* 横幅是照片，压字与压字底固定用深色渐变，不跟随浅色/深色主题翻转：
@@ -19816,7 +19816,7 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     max-width: none !important;
     flex-direction: column;
     justify-content: center;
-    gap: 12px;
+    gap: 18px;
     padding: 96px 24px 88px;
 }
 .app-user-workspace .creation-home-hero-brand {
@@ -19825,36 +19825,38 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     margin: 0 !important;
     align-items: baseline;
     gap: 7px;
-    color: rgba(255, 255, 255, .72);
-    font-size: 13px;
+    color: rgba(255, 255, 255, .4);
+    font-size: 11px;
     font-weight: 500;
-    letter-spacing: .22em;
+    letter-spacing: .35em;
     line-height: 1.1;
     text-transform: uppercase;
 }
 .app-user-workspace .creation-home-hero-brand em {
-    background: linear-gradient(96deg, #a08cff, #22d3ee);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    /* 参考稿眉标是一行等重的字：Agent 不再单独上渐变，紫色只留给主按钮。 */
+    color: inherit;
     font-style: normal;
 }
 .app-user-workspace .creation-home-hero h1 {
     margin: 0 !important;
     max-width: 22ch;
     color: #fff !important;
-    font-size: clamp(30px, 4vw, 58px) !important;
+    font-size: clamp(38px, 5.4vw, 76px) !important;
     /* 这种页面靠"细"出高级感，粗黑体一眼就是后台模板。 */
     font-weight: 300 !important;
-    letter-spacing: -.03em !important;
-    line-height: 1.14 !important;
+    letter-spacing: -.045em !important;
+    line-height: .95 !important;
     text-shadow: 0 2px 30px rgba(0, 0, 0, .45);
 }
+/* Agent 压一级灰度，字标读起来是"品牌 + 能力"，不是一整个产品名。 */
+.app-user-workspace .creation-home-hero h1 span { color: rgba(255, 255, 255, .6); }
 .app-user-workspace .creation-home-hero-sub {
-    margin: 0 !important;
+    margin: 6px 0 0 !important;
     max-width: 40ch;
-    color: rgba(255, 255, 255, .65) !important;
-    font-size: 15px !important;
+    color: rgba(255, 255, 255, .6) !important;
+    font-size: 19px !important;
+    font-weight: 300 !important;
+    letter-spacing: .12em !important;
     line-height: 1.7 !important;
     text-shadow: 0 1px 18px rgba(0, 0, 0, .5);
 }
@@ -19862,8 +19864,8 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     .app-user-workspace .creation-home-hero { min-height: 300px; }
     .app-user-workspace .creation-home-hero-copy { padding: 72px 18px 64px; }
     .app-user-workspace .creation-home-hero-brand { font-size: 11px; letter-spacing: .16em; }
-    .app-user-workspace .creation-home-hero h1 { font-size: 26px !important; }
-    .app-user-workspace .creation-home-hero-sub { font-size: 13px !important; }
+    .app-user-workspace .creation-home-hero h1 { font-size: 30px !important; }
+    .app-user-workspace .creation-home-hero-sub { font-size: 14px !important; }
 }
 .creation-launchpad {
     width: min(100%, 960px);
@@ -19877,7 +19879,7 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
    沿用主题表面色会在浅色主题下把画面切一刀。弹层走 portal，仍是主题色。 */
 .app-user-workspace .creation-home .creation-empty-composer {
     --creation-submit-gradient: linear-gradient(142deg, #7c5cff 0%, #4f7dff 55%, #22b6ff 100%);
-    --user-surface: rgba(20, 25, 35, .55);
+    --user-surface: rgba(17, 25, 35, .45);
     --user-surface-muted: rgba(255, 255, 255, .09);
     --user-surface-hover: rgba(255, 255, 255, .16);
     --user-border: rgba(255, 255, 255, .14);
@@ -19893,14 +19895,14 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 }
 .app-user-workspace .creation-home .creation-empty-composer .creation-composer-shell {
     border-radius: 26px !important;
-    backdrop-filter: blur(30px) saturate(150%);
-    -webkit-backdrop-filter: blur(30px) saturate(150%);
-    box-shadow: 0 30px 70px rgba(0, 0, 0, .5) !important;
+    backdrop-filter: blur(40px) saturate(150%);
+    -webkit-backdrop-filter: blur(40px) saturate(150%);
+    box-shadow: 0 30px 100px rgba(0, 0, 0, .35) !important;
 }
 .app-user-workspace .creation-home .creation-empty-composer .creation-chat-composer {
-    /* 表面色只由外壳那一层画：内外两层各刷一遍 .55，叠起来就是 .8 的黑板，
+    /* 表面色只由外壳那一层画：内外两层各刷一遍，叠起来就是一块黑板，
        毛玻璃的透光全被吃掉了。 */
-    border: 1px solid rgba(255, 255, 255, .12) !important;
+    border: 1px solid rgba(255, 255, 255, .13) !important;
     border-radius: 25px !important;
     background: transparent !important;
 }
@@ -20080,7 +20082,8 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 }
 .app-user-workspace .creation-featured-more:hover { color: var(--user-ink); }
 .app-user-workspace .creation-featured-more svg { width: 14px; height: 14px; }
-.app-user-workspace .creation-featured-heading span { color: var(--user-ink-soft) !important; font-size: 11px !important; letter-spacing: .24em !important; text-transform: uppercase; }
+/* 栏目小标（INSPIRATION）按参考稿：10px、0.35em 字距、压到 white/28。 */
+.app-user-workspace .creation-featured-heading span { color: rgba(255, 255, 255, .28) !important; font-size: 10px !important; letter-spacing: .35em !important; text-transform: uppercase; }
 .app-user-workspace .creation-featured-heading h2 { color: var(--user-ink) !important; font-size: 22px !important; letter-spacing: -.025em !important; }
 .app-user-workspace .creation-featured-heading p { color: var(--user-ink-muted) !important; }
 
@@ -20148,12 +20151,20 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 .app-user-workspace .creation-featured-card:not(.creation-skill-card) .creation-featured-copy em {
     order: -1;
     margin: 0 0 2px !important;
-    color: rgba(255, 255, 255, .58) !important;
-    font-size: 10px !important;
+    color: rgba(255, 255, 255, .45) !important;
+    font-size: 9px !important;
     font-weight: 500;
-    letter-spacing: .1em;
+    letter-spacing: .25em;
+    text-transform: uppercase;
 }
-.app-user-workspace .creation-featured-copy strong { color: #fff !important; }
+.app-user-workspace .creation-featured-copy strong { color: #fff !important; font-weight: 500 !important; }
+.app-user-workspace .creation-featured-card:not(.creation-skill-card):not(.is-featured-hero) .creation-featured-copy strong { font-size: 18px !important; }
+.app-user-workspace .creation-featured-card:not(.creation-skill-card) .creation-featured-copy strong {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal !important;
+}
 .app-user-workspace .creation-featured-copy > span { color: rgba(255, 255, 255, .66) !important; }
 .app-user-workspace .creation-featured-card:not(.is-featured-hero):not(.creation-skill-card) .creation-featured-copy > span { display: none; }
 .app-user-workspace .creation-featured-card:not(.creation-skill-card) .creation-inspiration-overlay { inset: 14px 14px auto auto; }
@@ -20166,8 +20177,15 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 }
 .app-user-workspace .creation-featured-card.is-featured-hero { grid-column: span 2; grid-row: span 2; aspect-ratio: auto; }
 .app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-copy { gap: 7px; padding: 26px 28px 28px !important; }
-.app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-copy strong { font-size: 22px !important; }
-.app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-copy > span { display: block !important; font-size: 13px !important; }
+.app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-copy strong { font-size: 28px !important; }
+.app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-copy > span {
+    display: block !important;
+    max-width: 430px;
+    color: rgba(255, 255, 255, .45) !important;
+    font-size: 13px !important;
+    line-height: 1.85 !important;
+    white-space: normal !important;
+}
 
 /* 对话记录统一成窄而有层次的工作区，不让输入区吞掉首屏。 */
 .app-user-workspace .creation-thread-toolbar,
