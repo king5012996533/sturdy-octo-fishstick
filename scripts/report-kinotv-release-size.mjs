@@ -23,7 +23,7 @@ const total = files.reduce((sum, file) => sum + file.bytes, 0);
 const totalMiB = total / 1024 / 1024;
 const top = files.slice(0, 12).map((file) => `${(file.bytes / 1024 / 1024).toFixed(2)} MiB  ${file.path}`);
 
-console.log(`BeefTV web release: ${totalMiB.toFixed(2)} MiB / ${budgetMiB.toFixed(2)} MiB budget`);
+console.log(`Kinotv web release: ${totalMiB.toFixed(2)} MiB / ${budgetMiB.toFixed(2)} MiB budget`);
 console.log(top.join("\n"));
 if (totalMiB > budgetMiB) {
     console.error(`Release size exceeds budget by ${(totalMiB - budgetMiB).toFixed(2)} MiB`);

@@ -149,7 +149,7 @@ jobs:
           bun install --frozen-lockfile
 
       - name: Local release contract gate
-        run: ./scripts/verify-beeftv-local-release.sh
+        run: ./scripts/verify-kinotv-local-release.sh
 
       - name: Create draft GitHub release
         env:
@@ -221,7 +221,7 @@ jobs:
           BEEFTV_SKIP_LOCAL_VERIFY: "1"
           BEEFTV_WAILS_PLATFORM: ${{ matrix.wails_platform }}
           BEEFTV_UPDATER_PUBLIC_KEY: ${{ vars.BEEFTV_UPDATER_PUBLIC_KEY }}
-        run: ./scripts/build-beeftv-release.sh
+        run: ./scripts/build-kinotv-release.sh
 
       - name: Build Windows desktop
         if: runner.os == 'Windows'
@@ -229,7 +229,7 @@ jobs:
           BEEFTV_UPDATER_PUBLIC_KEY: ${{ vars.BEEFTV_UPDATER_PUBLIC_KEY }}
           CGO_ENABLED: "1"
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-beeftv-windows-release.ps1
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-kinotv-windows-release.ps1
 
       - name: Package updater zip
         working-directory: backend

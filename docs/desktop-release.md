@@ -4,20 +4,20 @@
 
 带自动更新的生产包还要注入更新源地址和 Ed25519 公钥。密钥、草稿发布、签名清单和回滚语义见下方「桌面自动更新」。`v1.5.2` 及以前的安装包不含更新器，不能靠补发清单给已经装好的二进制补上自动更新。
 
-本地合同检查仍由 `scripts/verify-beeftv-local-release.sh` 负责。macOS 发布脚本会先跑该门禁；Windows 发布脚本只做本机打包，不重复整套门禁。
+本地合同检查仍由 `scripts/verify-kinotv-local-release.sh` 负责。macOS 发布脚本会先跑该门禁；Windows 发布脚本只做本机打包，不重复整套门禁。
 
 前端未压缩产物的默认体积上限为 105 MiB，可通过 `BEEFTV_WEB_BUDGET_MIB` 调整。包含 FFmpeg、MediaPipe 和预设资源的主线基线约为 99.24 MiB；自动更新增量约 25 KiB。此上限不是 zip 下载大小。
 
 ## macOS
 
 ```bash
-./scripts/build-beeftv-release.sh
+./scripts/build-kinotv-release.sh
 ```
 
 如果系统没有全局 Go，可通过 `BEEFTV_GO_DIR` 指定本地工具链目录：
 
 ```bash
-BEEFTV_GO_DIR=/tmp/beeftv-go.rpIfVN/go ./scripts/build-beeftv-release.sh
+BEEFTV_GO_DIR=/tmp/kinotv-go.rpIfVN/go ./scripts/build-kinotv-release.sh
 ```
 
 生产自动更新包需要额外环境变量：
@@ -50,7 +50,7 @@ backend/cmd/desktop/build/bin/BeefTV.app/Contents/Resources/plugin-packages/*.be
 在仓库根目录执行：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-beeftv-windows-release.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-kinotv-windows-release.ps1
 ```
 
 产物：
@@ -169,7 +169,7 @@ GitHub 仓库配置：
 
 ```bash
 export BEEFTV_UPDATER_PUBLIC_KEY="$(tr -d '[:space:]' < /path/to/beeftv-updater.public)"
-./scripts/build-beeftv-release.sh
+./scripts/build-kinotv-release.sh
 ```
 
 脚本会把下面两个链接期变量写进二进制：

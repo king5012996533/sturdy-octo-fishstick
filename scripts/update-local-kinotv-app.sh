@@ -13,7 +13,7 @@ cleanup_staged_app() {
 }
 trap cleanup_staged_app EXIT
 
-"$ROOT_DIR/scripts/build-beeftv-release.sh"
+"$ROOT_DIR/scripts/build-kinotv-release.sh"
 
 if [[ ! -x "$STAGED_APP/Contents/MacOS/BeefTV" ]]; then
   echo "Built BeefTV.app is incomplete: $STAGED_APP" >&2

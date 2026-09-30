@@ -27,7 +27,7 @@ backend\cmd\desktop\build\bin\BeefTV.exe
 统一浏览器预览与 Wails dev（共用 `web/src`、Vite `3000` 和本地 Go API `8080`）：
 
 ```bash
-./scripts/beeftv-shared-dev.sh
+./scripts/kinotv-shared-dev.sh
 ```
 
 脚本会为本次开发会话生成一个临时桌面令牌，并让 Vite 代理自动转发到同一个 Go 后端；生产包仍使用随机令牌和动态 loopback 端口。

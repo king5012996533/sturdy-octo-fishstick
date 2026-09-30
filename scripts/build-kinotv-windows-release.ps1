@@ -1,15 +1,15 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Native Windows amd64 release entrypoint for the BeefTV Wails desktop app.
+    Native Windows amd64 release entrypoint for the Kinotv Wails desktop app.
 
 .DESCRIPTION
-    Builds the same desktop source as scripts/build-beeftv-release.sh, packages
+    Builds the same desktop source as scripts/build-kinotv-release.sh, packages
     official *.beeftv-plugin archives next to BeefTV.exe, and fails loudly when
     CGO/go-sqlite3 compiler prerequisites are missing.
 
     This script does not install compilers, Bun, Go, Git, WebView2, or NSIS.
-    It does not run scripts/verify-beeftv-local-release.sh (that gate still owns
+    It does not run scripts/verify-kinotv-local-release.sh (that gate still owns
     local contract checks). Native compile and launch acceptance stay on Windows.
 
     Official docs used for tool assumptions:
@@ -34,7 +34,7 @@ $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 
 if ($env:OS -ne "Windows_NT") {
-    throw "scripts/build-beeftv-windows-release.ps1 is the native Windows entrypoint. On macOS/Linux use scripts/build-beeftv-release.sh. Cross-compiling from another OS is not native acceptance."
+    throw "scripts/build-kinotv-windows-release.ps1 is the native Windows entrypoint. On macOS/Linux use scripts/build-kinotv-release.sh. Cross-compiling from another OS is not native acceptance."
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -387,7 +387,7 @@ if (-not [string]::IsNullOrWhiteSpace($env:BEEFTV_EXTRA_LDFLAGS)) {
     $ldflags = "$ldflags $($env:BEEFTV_EXTRA_LDFLAGS.Trim())"
 }
 
-Write-Step "Building BeefTV $versionValue ($commitValue) for windows/amd64"
+Write-Step "Building Kinotv $versionValue ($commitValue) for windows/amd64"
 Push-Location $desktopDir
 try {
     $wailsArgs = @(

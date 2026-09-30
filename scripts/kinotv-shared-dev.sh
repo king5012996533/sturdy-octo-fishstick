@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GO_DIR="${GO_DIR:-/tmp/beeftv-go.rpIfVN}"
+GO_DIR="${GO_DIR:-/tmp/kinotv-go.rpIfVN}"
 BACKEND_ADDR="${CANVAS_DESKTOP_BACKEND_ADDR:-127.0.0.1:8080}"
 LAUNCH_TOKEN="${CANVAS_DESKTOP_LAUNCH_TOKEN:-$(openssl rand -hex 32)}"
 

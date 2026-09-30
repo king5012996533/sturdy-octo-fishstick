@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DESKTOP_DIR="$ROOT_DIR/backend/cmd/desktop"
-GO_DIR="${BEEFTV_GO_DIR:-/tmp/beeftv-go.rpIfVN/go}"
+GO_DIR="${BEEFTV_GO_DIR:-/tmp/kinotv-go.rpIfVN/go}"
 
 if [[ ! -f "$ROOT_DIR/VERSION" ]]; then
   echo "VERSION file is required" >&2
@@ -30,7 +30,7 @@ fi
 # applies consistently to local and CI builds.
 
 if [[ "${BEEFTV_SKIP_LOCAL_VERIFY:-}" != "1" ]]; then
-  "$ROOT_DIR/scripts/verify-beeftv-local-release.sh"
+  "$ROOT_DIR/scripts/verify-kinotv-local-release.sh"
 fi
 
 COMMIT_VALUE="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -70,7 +70,7 @@ if [[ -n "${BEEFTV_WAILS_PLATFORM:-}" ]]; then
   esac
 fi
 
-echo "Building BeefTV $VERSION_VALUE ($COMMIT_VALUE)"
+echo "Building Kinotv $VERSION_VALUE ($COMMIT_VALUE)"
 
 (
   cd "$DESKTOP_DIR"

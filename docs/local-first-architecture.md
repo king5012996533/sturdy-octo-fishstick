@@ -50,8 +50,8 @@ Wails
 ## 验证
 
 ```bash
-BEEFTV_GO_DIR=/path/to/go ./scripts/verify-beeftv-local-release.sh
-BEEFTV_GO_DIR=/path/to/go ./scripts/build-beeftv-release.sh
+BEEFTV_GO_DIR=/path/to/go ./scripts/verify-kinotv-local-release.sh
+BEEFTV_GO_DIR=/path/to/go ./scripts/build-kinotv-release.sh
 ```
 
 浏览器验收脚本位于 `web/scripts/beeftv-local-*-audit.mjs`，覆盖路由网络边界、素材上传、刷新/重启恢复、Agent 启动和模型配置。

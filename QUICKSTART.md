@@ -9,7 +9,7 @@ BeefTV 桌面版是无需登录的本地优先工作区。项目、画布、素�
 在仓库根目录执行：
 
 ```bash
-BEEFTV_GO_DIR=/path/to/go ./scripts/build-beeftv-release.sh
+BEEFTV_GO_DIR=/path/to/go ./scripts/build-kinotv-release.sh
 ```
 
 macOS 应用输出到 `backend/cmd/desktop/build/bin/BeefTV.app`。
@@ -17,7 +17,7 @@ macOS 应用输出到 `backend/cmd/desktop/build/bin/BeefTV.app`。
 Windows amd64 必须在 Windows 本机构建（需要 PATH 中的 Go、Bun，以及编译 go-sqlite3 的 GCC）：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-beeftv-windows-release.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-kinotv-windows-release.ps1
 ```
 
 输出为 `backend\cmd\desktop\build\bin\BeefTV.exe`，官方插件在旁边的 `plugin-packages\`。前提与数据目录见 `docs/desktop-release.md`。
@@ -32,10 +32,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-beeftv-windo
 
 ## 本地开发与验证
 
-需要同时调试前后端时，可参考 `scripts/beeftv-shared-dev.sh`。验证本地发行边界：
+需要同时调试前后端时，可参考 `scripts/kinotv-shared-dev.sh`。验证本地发行边界：
 
 ```bash
-BEEFTV_GO_DIR=/path/to/go ./scripts/verify-beeftv-local-release.sh
+BEEFTV_GO_DIR=/path/to/go ./scripts/verify-kinotv-local-release.sh
 ```
 
 ## 数据位置与备份
