@@ -184,6 +184,9 @@ export function getAntThemeConfig(dark: boolean, skinID: unknown = "classic"): T
             borderRadius: skin.borderRadius || 6,
             borderRadiusLG: skin.borderRadiusLG || 8,
             borderRadiusSM: skin.borderRadiusSM || 5,
+            // antd 默认字系是 -apple-system/system-ui，会把 .ant-app 子树整体
+            // 拽回系统字体；不显式给 token，品牌字系只在非 antd 元素上生效。
+            fontFamily: "var(--font-sans)",
             lineWidth: skin.borderWidth || 1,
             controlHeight: skin.controlHeight || 36,
             controlHeightLG: skin.controlHeightLarge || 42,

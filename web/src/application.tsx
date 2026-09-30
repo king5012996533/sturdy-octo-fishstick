@@ -11,7 +11,10 @@ import { RouterProvider } from "react-router";
 import { AppProviders } from "@/components/layout/app-providers";
 import { router } from "@/router";
 
-document.body.style.fontFamily = '"SF Pro Display","SF Pro Text","PingFang SC","Microsoft YaHei","Helvetica Neue",sans-serif';
+// 上游在这里硬写了一条 SF Pro 内联字体，优先级高于任何样式表，KinoTV 的
+// Geist / Space Grotesk 字系被整条盖掉。正文交给 --font-sans 令牌，
+// antd 浮层走 ConfigProvider 的 fontFamily token，两边同一个字系。
+document.body.style.fontFamily = "var(--font-sans)";
 
 createRoot(document.getElementById("root")!).render(
     <React.StrictMode>

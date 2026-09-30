@@ -19803,7 +19803,7 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     position: absolute;
     inset: 0;
     z-index: 1;
-    background: linear-gradient(94deg, rgba(6, 7, 10, .72) 0%, rgba(6, 7, 10, .34) 42%, rgba(6, 7, 10, 0) 70%);
+    background: linear-gradient(92deg, rgba(5, 8, 15, .92) 0%, rgba(5, 8, 15, .56) 34%, rgba(5, 8, 15, .14) 62%, rgba(5, 8, 15, 0) 78%);
     /* 只压中上部：底部那条得留给压字底图渐隐，否则左下角会留下一道硬边。 */
     mask-image: linear-gradient(180deg, #000 0%, #000 62%, transparent 88%);
     -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 62%, transparent 88%);
@@ -19821,6 +19821,7 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 }
 .app-user-workspace .creation-home-hero-brand {
     display: flex;
+    font-family: var(--font-display);
     margin: 0 !important;
     align-items: baseline;
     gap: 7px;
@@ -19843,15 +19844,16 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     max-width: 22ch;
     color: #fff !important;
     font-size: clamp(30px, 4vw, 58px) !important;
-    font-weight: 500 !important;
-    letter-spacing: -.022em !important;
+    /* 这种页面靠"细"出高级感，粗黑体一眼就是后台模板。 */
+    font-weight: 300 !important;
+    letter-spacing: -.03em !important;
     line-height: 1.14 !important;
     text-shadow: 0 2px 30px rgba(0, 0, 0, .45);
 }
 .app-user-workspace .creation-home-hero-sub {
     margin: 0 !important;
     max-width: 40ch;
-    color: rgba(255, 255, 255, .7) !important;
+    color: rgba(255, 255, 255, .65) !important;
     font-size: 15px !important;
     line-height: 1.7 !important;
     text-shadow: 0 1px 18px rgba(0, 0, 0, .5);
@@ -19875,7 +19877,7 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
    沿用主题表面色会在浅色主题下把画面切一刀。弹层走 portal，仍是主题色。 */
 .app-user-workspace .creation-home .creation-empty-composer {
     --creation-submit-gradient: linear-gradient(142deg, #7c5cff 0%, #4f7dff 55%, #22b6ff 100%);
-    --user-surface: rgba(15, 17, 23, .5);
+    --user-surface: rgba(20, 25, 35, .55);
     --user-surface-muted: rgba(255, 255, 255, .09);
     --user-surface-hover: rgba(255, 255, 255, .16);
     --user-border: rgba(255, 255, 255, .14);
@@ -19891,13 +19893,16 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 }
 .app-user-workspace .creation-home .creation-empty-composer .creation-composer-shell {
     border-radius: 26px !important;
-    backdrop-filter: blur(24px) saturate(150%);
-    -webkit-backdrop-filter: blur(24px) saturate(150%);
+    backdrop-filter: blur(30px) saturate(150%);
+    -webkit-backdrop-filter: blur(30px) saturate(150%);
     box-shadow: 0 30px 70px rgba(0, 0, 0, .5) !important;
 }
 .app-user-workspace .creation-home .creation-empty-composer .creation-chat-composer {
-    border: 1px solid rgba(255, 255, 255, .14) !important;
+    /* 表面色只由外壳那一层画：内外两层各刷一遍 .55，叠起来就是 .8 的黑板，
+       毛玻璃的透光全被吃掉了。 */
+    border: 1px solid rgba(255, 255, 255, .12) !important;
     border-radius: 25px !important;
+    background: transparent !important;
 }
 .app-user-workspace .creation-home .creation-empty-composer .creation-chat-editor textarea::placeholder,
 .app-user-workspace .creation-home .creation-empty-composer .creation-chat-mention-editor:empty::before {
@@ -19981,17 +19986,24 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 .app-user-workspace .creation-launchpad .creation-chat-composer {
     border-radius: 22px !important;
 }
+/* 参考素材轨道在空态只剩 46px 的空壳 + 8px 外边距，全是白占的高度；
+   真正有素材时 is-empty 消失，轨道自己回来。 */
+.app-user-workspace .creation-launchpad .creation-chat-composer.is-empty .creation-reference-panel:has(.creation-reference-track.is-empty) {
+    display: none;
+}
+/* 卡高按参考稿收：写作区只留两行起步，输入多少长多少。
+   之前 152px 的写作区在横幅下面就是四行纯空白，把玻璃卡撑成一块黑板。 */
 .app-user-workspace .creation-launchpad .creation-chat-composer.is-empty .creation-chat-writing-surface {
-    min-height: 152px !important;
-    padding: 22px 24px 10px !important;
+    min-height: 96px !important;
+    padding: 20px 24px 6px !important;
 }
 .app-user-workspace .creation-launchpad .creation-chat-composer.is-empty .creation-chat-mention-editor {
-    min-height: 64px !important;
+    min-height: 58px !important;
     font-size: 18px !important;
 }
 .app-user-workspace .creation-launchpad .creation-chat-dock {
-    min-height: 64px !important;
-    padding: 8px 16px 16px !important;
+    min-height: 56px !important;
+    padding: 4px 16px 12px !important;
     border-top: 0 !important;
 }
 .app-user-workspace .creation-launchpad .creation-chat-controls .creation-chat-control,
@@ -20104,7 +20116,7 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 .app-user-workspace .creation-featured-card:not(.creation-skill-card) .creation-featured-media::after {
     inset: 0 !important;
     height: auto !important;
-    background: linear-gradient(180deg, rgba(6, 7, 10, .34) 0%, rgba(6, 7, 10, 0) 34%, rgba(6, 7, 10, .6) 68%, rgba(6, 7, 10, .92) 100%) !important;
+    background: linear-gradient(180deg, rgba(10, 16, 26, .42) 0%, rgba(8, 12, 22, .12) 34%, rgba(6, 10, 18, .62) 68%, rgba(4, 7, 14, .94) 100%) !important;
     opacity: 1 !important;
 }
 .app-user-workspace .creation-featured-card:not(.creation-skill-card) .creation-featured-media img {
@@ -20113,6 +20125,16 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     width: 100% !important;
     height: 100% !important;
     object-fit: cover;
+    /* 广场封面来自各家，红车绿树黄房子混在一屏就是图库。统一压成低饱和的
+       黑蓝灰调，整页才像同一部片子的截图；悬停时再把颜色还回来一点作为反馈。
+       这里必须 !important：product-image-reveal 的 to 关键帧把 filter 钉在
+       blur(0)，动画填充值压过普通声明，不加 !important 这层调色永远不生效。 */
+    filter: saturate(.62) contrast(1.08) brightness(.9) !important;
+}
+.app-user-workspace .creation-featured-card:not(.creation-skill-card):hover .creation-featured-media img,
+.app-user-workspace .creation-featured-card:not(.creation-skill-card):focus-visible .creation-featured-media img {
+    filter: saturate(.84) contrast(1.06) brightness(.96) !important;
+    transform: scale(1.035);
 }
 .app-user-workspace .creation-featured-card:not(.creation-skill-card) .creation-featured-copy {
     position: absolute !important;
