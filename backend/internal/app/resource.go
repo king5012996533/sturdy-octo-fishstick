@@ -618,7 +618,7 @@ func (s *Service) persistGeneratedMediaResultMode(userID string, result map[stri
 	if err := json.Unmarshal(encoded, &normalized); err != nil {
 		return nil, err
 	}
-	value, err := s.persistGeneratedMediaValueMode(userID, normalized, skipInvalidDataURL, enforceQuota)
+	value, err := s.persistGeneratedMediaValueMode(userID, normalized, "", skipInvalidDataURL, enforceQuota)
 	if err != nil {
 		return nil, err
 	}
@@ -626,14 +626,16 @@ func (s *Service) persistGeneratedMediaResultMode(userID string, result map[stri
 }
 
 func (s *Service) persistGeneratedMediaValue(userID string, value interface{}) (interface{}, error) {
-	return s.persistGeneratedMediaValueMode(userID, value, false, true)
+	return s.persistGeneratedMediaValueMode(userID, value, "", false, true)
 }
 
-func (s *Service) persistGeneratedMediaValueMode(userID string, value interface{}, skipInvalidDataURL bool, enforceQuota bool) (interface{}, error) {
+// kindHint 是结果里的位置给出的素材种类证据：video / audio / images 字段下的产物，
+// 即使上游只报传输层占位类型，也必须归到对应种类和容器。
+func (s *Service) persistGeneratedMediaValueMode(userID string, value interface{}, kindHint string, skipInvalidDataURL bool, enforceQuota bool) (interface{}, error) {
 	switch item := value.(type) {
 	case []interface{}:
 		for index, child := range item {
-			stored, err := s.persistGeneratedMediaValueMode(userID, child, skipInvalidDataURL, enforceQuota)
+			stored, err := s.persistGeneratedMediaValueMode(userID, child, kindHint, skipInvalidDataURL, enforceQuota)
 			if err != nil {
 				return nil, err
 			}
@@ -647,6 +649,7 @@ func (s *Service) persistGeneratedMediaValueMode(userID string, value interface{
 				return nil, err
 			}
 			if err == nil {
+				mimeType = generatedMediaMimeType(mimeType, data, kindHint)
 				kind := normalizeResourceKind("", mimeType)
 				width, height := intValue(item["width"]), intValue(item["height"])
 				durationMs := int64(intValue(item["durationMs"]))
@@ -704,7 +707,7 @@ func (s *Service) persistGeneratedMediaValueMode(userID string, value interface{
 			}
 		}
 		for key, child := range item {
-			stored, err := s.persistGeneratedMediaValueMode(userID, child, skipInvalidDataURL, enforceQuota)
+			stored, err := s.persistGeneratedMediaValueMode(userID, child, generatedMediaKindHint(key, kindHint), skipInvalidDataURL, enforceQuota)
 			if err != nil {
 				return nil, err
 			}
@@ -718,11 +721,65 @@ func (s *Service) persistGeneratedMediaValueMode(userID string, value interface{
 
 func inlineMediaValue(item map[string]interface{}) string {
 	for _, key := range []string{"dataUrl", "content", "url", "coverUrl"} {
-		if text, ok := item[key].(string); ok && (strings.HasPrefix(text, "data:image/") || strings.HasPrefix(text, "data:video/") || strings.HasPrefix(text, "data:audio/")) {
+		if text, ok := item[key].(string); ok && isInlineMediaDataURL(text) {
 			return text
 		}
 	}
 	return ""
+}
+
+// isInlineMediaDataURL 判断一个 data URL 是否必须转存成资源。
+// 传输层占位类型（application/octet-stream、binary/octet-stream）与实际媒体类型同样处理：
+// 具体是不是媒体由内容嗅探决定，不能因为上游没给对 Content-Type 就把 base64 留在任务结果里。
+func isInlineMediaDataURL(value string) bool {
+	header, _, ok := strings.Cut(value, ",")
+	if !ok || !strings.HasPrefix(header, "data:") || !strings.HasSuffix(strings.ToLower(header), ";base64") {
+		return false
+	}
+	mimeType := strings.ToLower(strings.TrimSuffix(strings.TrimPrefix(header, "data:"), ";base64"))
+	if strings.HasPrefix(mimeType, "image/") || strings.HasPrefix(mimeType, "video/") || strings.HasPrefix(mimeType, "audio/") {
+		return true
+	}
+	return isGenericOctetStream(mimeType)
+}
+
+// generatedMediaMimeType 决定生成产物落库的 MIME。具体类型原样保留（错配要在素材合同
+// 里显式暴露）；传输层占位类型先按内容嗅探，嗅探不出具体媒体时用结果里的位置提示收口。
+func generatedMediaMimeType(declared string, data []byte, kindHint string) string {
+	mimeType := normalizedMediaMimeType(declared, data)
+	if !isGenericOctetStream(mimeType) {
+		return mimeType
+	}
+	if fallback := defaultMediaMimeTypeForKind(kindHint); fallback != "" {
+		return fallback
+	}
+	return mimeType
+}
+
+func defaultMediaMimeTypeForKind(kind string) string {
+	switch kind {
+	case "image":
+		return "image/png"
+	case "video":
+		return "video/mp4"
+	case "audio":
+		return "audio/mpeg"
+	}
+	return ""
+}
+
+// generatedMediaKindHint 用结果里的字段名推断素材种类。只有字段名明确表达种类时才
+// 覆盖父级提示：history 一类的容器字段不改变种类。
+func generatedMediaKindHint(key string, parent string) string {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "image", "images":
+		return "image"
+	case "video", "videos":
+		return "video"
+	case "audio", "audios":
+		return "audio"
+	}
+	return parent
 }
 
 func (s *Service) decodeDataURL(value string) (string, []byte, error) {

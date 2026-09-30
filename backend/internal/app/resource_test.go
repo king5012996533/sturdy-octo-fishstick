@@ -342,6 +342,43 @@ func TestPersistGeneratedVideoRepairsMissingDimensionsAndDuration(t *testing.T) 
 	}
 }
 
+func TestPersistGeneratedMediaStoresTransportPlaceholderVideoAsResource(t *testing.T) {
+	svc := newResourceTestService(t)
+	svc.localResourceStorage = true
+	clip := syntheticVideoMP4(1280, 720, 5042)
+	result, err := svc.persistGeneratedMediaResult("user-1", map[string]interface{}{
+		"mode": "video",
+		"video": map[string]interface{}{
+			"dataUrl":  "data:binary/octet-stream;base64," + base64.StdEncoding.EncodeToString(clip),
+			"mimeType": "binary/octet-stream",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	video, ok := result["video"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("video = %#v", result["video"])
+	}
+	if strings.Contains(stringField(video, "dataUrl"), "base64") {
+		t.Fatalf("结果仍然内联视频字节：%#v", video["dataUrl"])
+	}
+	if stringField(video, "mimeType") != "video/mp4" {
+		t.Fatalf("video mimeType = %q, want video/mp4", stringField(video, "mimeType"))
+	}
+	resourceID := strings.TrimPrefix(stringField(video, "storageKey"), "resource:")
+	if resourceID == "" || resourceID == stringField(video, "storageKey") {
+		t.Fatalf("video storageKey = %q", stringField(video, "storageKey"))
+	}
+	resource, err := svc.repo.ResourceForUser("user-1", resourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resource.Kind != "video" || resource.MimeType != "video/mp4" || resource.Size != int64(len(clip)) {
+		t.Fatalf("generated resource = %#v", resource)
+	}
+}
+
 func TestResourceFileExtensionMapsWaveMIMEAliasesToWav(t *testing.T) {
 	for _, mimeType := range []string{"audio/wave", "audio/wav", "audio/x-wav", "audio/vnd.wave"} {
 		if got := resourceFileExtension("", mimeType, "audio"); got != ".wav" {

@@ -144,6 +144,18 @@ func (r *Repository) AllCanvasProjects() ([]model.CanvasProject, error) {
 	return projects, r.db.Find(&projects).Error
 }
 
+// TasksWithInlineResultMedia 只取结果里仍内联媒体的任务，避免维护扫描把整库任务载入内存。
+func (r *Repository) TasksWithInlineResultMedia() ([]model.Task, error) {
+	var tasks []model.Task
+	err := r.db.Select("id", "user_id", "result_json").Where("result_json LIKE ?", "%data:%").Find(&tasks).Error
+	return tasks, err
+}
+
+// UpdateTaskResultJSON 只改写结果列：维护任务不能覆盖并发写入的任务状态与进度。
+func (r *Repository) UpdateTaskResultJSON(id string, resultJSON string) error {
+	return r.db.Model(&model.Task{}).Where("id = ?", id).Update("result_json", resultJSON).Error
+}
+
 func (r *Repository) CleanupDuplicateTaskPayloads() error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&model.TaskLog{}).Where("length(payload) > ?", 4000).Update("payload", "").Error; err != nil {
