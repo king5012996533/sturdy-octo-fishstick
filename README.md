@@ -32,7 +32,7 @@
 
 https://github.com/user-attachments/assets/94fe6a39-6933-44b3-a9a9-dbc28b2d284c
 
-[下载产品演示视频](https://github.com/glanderness/Kinotv/releases/download/v1.5.5/kinotv-demo.mp4)
+[下载产品演示视频](assets/readme/kinotv-demo.mp4)
 
 ## Why Kinotv
 
