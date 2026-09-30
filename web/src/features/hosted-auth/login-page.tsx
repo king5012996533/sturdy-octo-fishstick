@@ -401,39 +401,43 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
         return showGithub ? "使用 GitHub 账号登录" : "使用账号登录";
     })();
 
-    // 登录页固定在浅色场景里渲染。皮肤跟随系统会让左侧那张主视觉与右侧表单一时有一时无，
-    // 而这里是产品门面，光线必须稳定；品牌色只出现在标题里的 AI、聚焦环与主按钮三处。
+    // 登录页固定在深色场景里渲染，和工作台连成一体。跟随系统亮暗会让左侧那张主视觉
+    // 与右侧表单一时有一时无，而这里是产品门面，光线必须稳定；品牌色只出现在标题里的
+    // AI、聚焦环与主按钮三处。
     return (
         <ConfigProvider
             theme={{
-                // 登录页自己声明浅色算法：根配置带着用户的明暗选择，深色下主按钮是白底黑字，
-                // 那张白按钮落在白卡里就没了边界。这里连同主按钮的三态一起钉死。
-                algorithm: antdTheme.defaultAlgorithm,
+                // 深色算法与主按钮的三态一起钉死：根配置带着用户自己的明暗选择，只靠继承
+                // 会让这张卡在浅色账号上变成白底黑字，和左栏的主视觉直接打架。
+                algorithm: antdTheme.darkAlgorithm,
                 token: {
                     fontFamily: "var(--font-sans)",
                     fontSize: 13,
                     borderRadius: 12,
                     controlHeightLG: 46,
-                    colorPrimary: "#4f46e5",
-                    colorLink: "#4f46e5",
-                    colorLinkHover: "#4338ca",
-                    colorText: "#0f172a",
-                    colorTextPlaceholder: "#9aa4b2",
-                    colorBorder: "#e2e8f0",
-                    colorBgContainer: "#ffffff",
+                    colorPrimary: "#6366f1",
+                    colorLink: "#a5b4fc",
+                    colorLinkHover: "#c7d2fe",
+                    colorText: "#f2f3f8",
+                    colorTextPlaceholder: "rgba(242,243,248,0.32)",
+                    colorBorder: "rgba(255,255,255,0.12)",
+                    colorBgContainer: "rgba(255,255,255,0.05)",
                 },
                 components: {
                     // 主按钮是全页唯一的高对比动作，antd 默认的投影会把它压低成普通控件。
                     Button: {
                         fontWeight: 600,
                         primaryShadow: "none",
-                        colorPrimary: "#4f46e5",
-                        colorPrimaryHover: "#4338ca",
-                        colorPrimaryActive: "#3730a3",
+                        colorPrimary: "#6366f1",
+                        colorPrimaryHover: "#4f46e5",
+                        colorPrimaryActive: "#4338ca",
                         primaryColor: "#ffffff",
+                        defaultBg: "rgba(255,255,255,0.04)",
+                        defaultBorderColor: "rgba(255,255,255,0.14)",
+                        defaultColor: "#f2f3f8",
                     },
-                    Input: { activeShadow: "0 0 0 3px rgba(79,70,229,0.12)" },
-                    Checkbox: { colorPrimary: "#4f46e5" },
+                    Input: { activeShadow: "0 0 0 3px rgba(99,102,241,0.2)" },
+                    Checkbox: { colorPrimary: "#6366f1" },
                 },
             }}
         >
@@ -465,7 +469,7 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                                 className="grid size-9 shrink-0 place-items-center"
                                 logoClassName="size-9"
                                 alt=""
-                                theme="light"
+                                theme="dark"
                                 fallback={<span className="grid size-9 place-items-center rounded-[var(--r-sm)] bg-slate-900 text-[14px] font-semibold text-white">K</span>}
                             />
                             <span className="auth-brand-text">
@@ -506,7 +510,7 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                             className="grid size-8 shrink-0 place-items-center"
                             logoClassName="size-8"
                             alt=""
-                            theme="light"
+                            theme="dark"
                             fallback={<span className="grid size-8 place-items-center rounded-[var(--r-sm)] bg-slate-900 text-[13px] font-semibold text-white">K</span>}
                         />
                         <span className="auth-brand-text">

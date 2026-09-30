@@ -11,24 +11,24 @@
  */
 
 .auth-scene {
-    /* 全局那套 --auth-* 是深色管理台复用的令牌，登录页在这里按浅色场景覆写：
-       改这里只影响登录场景，不会把管理台一起照亮。 */
-    --auth-page-bg: #f5f6fb;
-    --auth-panel-bg: #ffffff;
-    --auth-card-bg: rgba(255, 255, 255, 0.86);
-    --auth-accent: #4f46e5;
-    --auth-muted: #64748b;
+    /* 登录页自己带一套深色令牌：全局那套 --auth-* 是给管理台复用的，跟着它走会让
+       改管理台配色时顺手把登录页也改了，而这里是产品门面。 */
+    --auth-page-bg: #0a0b10;
+    --auth-panel-bg: #0b0c11;
+    --auth-card-bg: rgba(20, 21, 28, 0.72);
+    --auth-accent: #8b93ff;
+    --auth-muted: rgba(242, 243, 248, 0.46);
 
-    --auth-accent-soft: rgba(79, 70, 229, 0.1);
-    --auth-ink: #0f172a;
-    --auth-ink-soft: #475569;
-    --auth-ink-faint: rgba(15, 23, 42, 0.42);
+    --auth-accent-soft: rgba(99, 102, 241, 0.16);
+    --auth-ink: #f2f3f8;
+    --auth-ink-soft: rgba(242, 243, 248, 0.62);
+    --auth-ink-faint: rgba(242, 243, 248, 0.4);
 }
 
-/* 选中态跟随浅色场景：全局那套选中色是按深底配的，落在白输入框里会变成
-   一块黑底黑字，光标拖过自己输入的内容就什么都看不见。 */
+/* 选中态在深卡上单独给一层：默认的选中感来自站点主题，卡片是半透明的，
+   拖选自己输入的内容时容易和卡底糊在一起。 */
 .auth-scene ::selection {
-    background: rgba(79, 70, 229, 0.22);
+    background: rgba(99, 102, 241, 0.36);
     color: var(--auth-ink);
 }
 
@@ -37,7 +37,7 @@
 .auth-hero {
     position: relative;
     isolation: isolate;
-    background: #e8eaf4;
+    background: #0a0b10;
 }
 
 .auth-hero-art {
@@ -56,8 +56,10 @@
     position: absolute;
     inset: 0;
     background:
-        linear-gradient(96deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.7) 34%, rgba(255, 255, 255, 0.2) 66%, rgba(255, 255, 255, 0) 100%),
-        linear-gradient(0deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0) 42%);
+        linear-gradient(96deg, rgba(10, 11, 16, 0.95) 0%, rgba(10, 11, 16, 0.76) 32%, rgba(10, 11, 16, 0.28) 64%, rgba(10, 11, 16, 0) 100%),
+        linear-gradient(0deg, rgba(10, 11, 16, 0.78) 0%, rgba(10, 11, 16, 0) 46%),
+        /* 右缘往表单栏的底色上收一道，两栏交界处不留一条硬边。 */
+        linear-gradient(270deg, rgba(11, 12, 17, 0.96) 0%, rgba(11, 12, 17, 0) 22%);
 }
 
 .auth-brand-text {
@@ -141,9 +143,9 @@
     width: 34px;
     height: 34px;
     border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    background: rgba(255, 255, 255, 0.72);
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.07);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
     color: var(--auth-accent);
     font-size: 15px;
 }
@@ -190,8 +192,8 @@
 .auth-scene .auth-scene-form-pane {
     background:
         radial-gradient(120% 60% at 100% 0%, rgba(99, 102, 241, 0.16), transparent 60%),
-        radial-gradient(90% 40% at 0% 100%, rgba(79, 70, 229, 0.08), transparent 60%),
-        linear-gradient(180deg, #f8f9fe 0%, #ecedf7 100%);
+        radial-gradient(90% 40% at 0% 100%, rgba(79, 70, 229, 0.1), transparent 60%),
+        linear-gradient(180deg, #0c0d13 0%, #0a0b10 100%);
 }
 
 .auth-card {
@@ -199,12 +201,12 @@
     max-width: 460px;
     padding: 34px 32px 28px;
     border-radius: 24px;
-    border: 1px solid rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.09);
     background: var(--auth-card-bg);
     box-shadow:
-        0 24px 60px rgba(15, 23, 42, 0.1),
-        0 2px 6px rgba(15, 23, 42, 0.04);
-    backdrop-filter: blur(18px) saturate(140%);
+        0 30px 70px rgba(0, 0, 0, 0.46),
+        0 2px 6px rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(20px) saturate(140%);
 }
 
 .auth-card-head {
@@ -234,7 +236,7 @@
     margin-bottom: 20px;
     padding: 4px;
     border-radius: 999px;
-    background: rgba(15, 23, 42, 0.05);
+    background: rgba(255, 255, 255, 0.05);
 }
 
 .auth-factor-tab {
@@ -258,9 +260,9 @@
 }
 
 .auth-factor-tab.is-active {
-    background: #ffffff;
+    background: rgba(255, 255, 255, 0.1);
     color: var(--auth-accent);
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
 }
 
 .auth-factor-tab:focus-visible {
@@ -283,16 +285,16 @@
 }
 
 /* 全局用 :where(...) + !important 把聚焦态统一成站点焦点环，那是给深色工作区配的；
-   登录卡在浅底上要的是品牌色光圈，所以这里也用 !important 顶回同一层。 */
+   登录卡要的是品牌色光圈，所以这里也用 !important 顶回同一层。 */
 .auth-form .ant-input-affix-wrapper:focus-within,
 .auth-form .ant-input:focus {
     border-color: var(--auth-accent) !important;
-    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14) !important;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22) !important;
 }
 
 .auth-form .ant-input-prefix {
     margin-inline-end: 10px;
-    color: #94a3b8;
+    color: rgba(242, 243, 248, 0.34);
 }
 
 .auth-field-label {
@@ -315,12 +317,12 @@
 }
 
 .auth-inline-send:hover:not(:disabled) {
-    background: rgba(79, 70, 229, 0.16);
+    background: rgba(99, 102, 241, 0.26);
 }
 
 .auth-inline-send:disabled {
-    background: rgba(15, 23, 42, 0.05);
-    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(242, 243, 248, 0.3);
     cursor: not-allowed;
 }
 
@@ -333,7 +335,7 @@
 .auth-divider {
     margin: 20px 0 16px;
     font-size: 12px;
-    color: #94a3b8;
+    color: rgba(242, 243, 248, 0.34);
 }
 
 .auth-mode-switch {
