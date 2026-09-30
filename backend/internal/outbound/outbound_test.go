@@ -3,6 +3,7 @@ package outbound
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -240,6 +241,48 @@ func TestOutboundTransportTriesEveryResolvedAddress(t *testing.T) {
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", response.StatusCode)
+	}
+}
+
+// TestOutboundTransportBoundsStalledResponseHeaders 覆盖"连接活着、响应头永远不来"。
+// 没有这条上限时只能等内核放弃：生产机上实测卡满 179 秒，而上游这段时间早就受理、
+// 出图、把成品丢了。所以这里把上限压到毫秒级，确认它确实作用在传输层上。
+func TestOutboundTransportBoundsStalledResponseHeaders(t *testing.T) {
+	original := outboundResponseHeaderTimeout
+	outboundResponseHeaderTimeout = 200 * time.Millisecond
+	defer func() { outboundResponseHeaderTimeout = original }()
+
+	stalled := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		// 故意不回响应头：模拟上游把连接吊住。
+		<-request.Context().Done()
+	}))
+	defer stalled.Close()
+	stalledURL, err := url.Parse(stalled.URL)
+	if err != nil {
+		t.Fatalf("解析测试服务地址失败: %v", err)
+	}
+	_, port, err := net.SplitHostPort(stalledURL.Host)
+	if err != nil {
+		t.Fatalf("解析测试服务地址失败: %v", err)
+	}
+
+	transport := newOutboundTransport(func(context.Context, string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("127.0.0.1")}, nil
+	})
+	client := &http.Client{Transport: transport}
+	startedAt := time.Now()
+	response, err := client.Get("http://outbound-test.invalid:" + port + "/")
+	if err == nil {
+		_ = response.Body.Close()
+		t.Fatal("响应头超时未生效：吊住的连接没有报错")
+	}
+	elapsed := time.Since(startedAt)
+	if elapsed > 5*time.Second {
+		t.Fatalf("响应头超时未生效：等了 %s 才失败", elapsed)
+	}
+	var timeoutError net.Error
+	if !errors.As(err, &timeoutError) || !timeoutError.Timeout() {
+		t.Fatalf("错误应该来自响应头超时，实际: %v", err)
 	}
 }
 

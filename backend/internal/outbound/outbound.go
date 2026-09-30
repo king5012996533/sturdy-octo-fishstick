@@ -247,6 +247,17 @@ func blockedOutboundHeader(name string) bool {
 	return strings.HasPrefix(name, "x-canvas-") || strings.HasPrefix(name, "x-forwarded-")
 }
 
+// outboundResponseHeaderTimeout 是"请求体写完到收到响应头"的上限。
+//
+// 缺了这条上限，连接被上游黑洞之后只能等内核的重传预算：生产机
+// net.ipv4.tcp_retries2=8，一次图片 create 因此卡满 179 秒才报 read timeout，
+// 而上游其实已经受理并且出图了——响应丢在路上，任务被记成失败，成品和用户的
+// 预扣一起留在平台。这些接口的响应头都在毫秒级返回，一分钟足够区分"这次慢"
+// 和"这条连接已经废了"。
+//
+// 用变量而不是常量：测试要把它压到毫秒级来覆盖这条约束。
+var outboundResponseHeaderTimeout = 60 * time.Second
+
 func newOutboundTransport(resolveHost func(context.Context, string) ([]net.IP, error)) *http.Transport {
 	dialer := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
 	return &http.Transport{
@@ -271,6 +282,7 @@ func newOutboundTransport(resolveHost func(context.Context, string) ([]net.IP, e
 		MaxIdleConnsPerHost:   20,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: outboundResponseHeaderTimeout,
 		ExpectContinueTimeout: time.Second,
 	}
 }
