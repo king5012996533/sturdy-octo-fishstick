@@ -57,7 +57,7 @@
     .app-product-workspace .creation-home .creation-submit.ant-btn:not(:disabled):active .creation-submit-action { transform: scale(.97); }
     .app-product-workspace .creation-home .creation-chat-composer.is-thread .creation-submit.ant-btn .creation-submit-action { height: 34px; padding: 0 14px; }
 }
-.creation-inspiration-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.creation-inspiration-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 26px; }
 .creation-inspiration-filters button { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; min-height: 36px; border: 0; border-radius: 999px; color: var(--user-ink-muted); background: transparent; font-size: 13px; transition: background var(--user-motion), color var(--user-motion); }
 .creation-inspiration-filters button span { font-size: 11px; opacity: .65; font-variant-numeric: tabular-nums; }
 .creation-inspiration-filters button:hover { background: var(--user-surface-hover); }

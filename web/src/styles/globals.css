@@ -19774,7 +19774,7 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     display: flex;
     align-items: center;
     width: 100% !important;
-    min-height: clamp(320px, 44vh, 500px);
+    min-height: clamp(348px, 48vh, 560px);
     margin: 0 !important;
     overflow: hidden;
     border-radius: 0;
@@ -19816,8 +19816,8 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     max-width: none !important;
     flex-direction: column;
     justify-content: center;
-    gap: 18px;
-    padding: 96px 24px 88px;
+    gap: 22px;
+    padding: 104px 24px 96px;
 }
 .app-user-workspace .creation-home-hero-brand {
     display: flex;
@@ -19861,8 +19861,8 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     text-shadow: 0 1px 18px rgba(0, 0, 0, .5);
 }
 @media (max-width: 800px) {
-    .app-user-workspace .creation-home-hero { min-height: 300px; }
-    .app-user-workspace .creation-home-hero-copy { padding: 72px 18px 64px; }
+    .app-user-workspace .creation-home-hero { min-height: 320px; }
+    .app-user-workspace .creation-home-hero-copy { padding: 76px 18px 68px; }
     .app-user-workspace .creation-home-hero-brand { font-size: 11px; letter-spacing: .16em; }
     .app-user-workspace .creation-home-hero h1 { font-size: 30px !important; }
     .app-user-workspace .creation-home-hero-sub { font-size: 14px !important; }
@@ -20065,9 +20065,9 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 .dark .app-user-workspace .creation-model-picker-menu .canvas-model-picker-option .dark\:text-amber-300 { color: #f0a943 !important; background: color-mix(in srgb, #e28a17 18%, var(--user-surface)) !important; }
 
 /* Featured works are part of the home page rhythm, not an afterthought. */
-.app-user-workspace .creation-featured-works { width: min(100%, 1440px); margin: 40px auto 0 !important; padding: 0 clamp(16px, 3vw, 44px); }
-.app-user-workspace .creation-featured-heading { margin-bottom: 20px !important; }
-.app-user-workspace .creation-featured-heading-main { display: flex; min-width: 0; align-items: baseline; gap: 14px; }
+.app-user-workspace .creation-featured-works { width: min(100%, 1440px); margin: 72px auto 0 !important; padding: 0 clamp(16px, 3vw, 44px); }
+.app-user-workspace .creation-featured-heading { margin-bottom: 28px !important; }
+.app-user-workspace .creation-featured-heading-main { display: flex; min-width: 0; align-items: baseline; gap: 16px; }
 .app-user-workspace .creation-featured-more {
     display: inline-flex;
     align-items: center;
@@ -20082,14 +20082,21 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 }
 .app-user-workspace .creation-featured-more:hover { color: var(--user-ink); }
 .app-user-workspace .creation-featured-more svg { width: 14px; height: 14px; }
+/* 未选中的集合页签（Skill）此前和栏目名同号同字重，两个"标题"并排抢视线；
+   压到常规字重 + 低对比，它才退回成页签，栏目名独自占住层级。 */
+.app-user-workspace .creation-featured-heading .creation-collection-tab:not(.is-active) {
+    color: rgba(255, 255, 255, .32) !important;
+    font-weight: 400 !important;
+    letter-spacing: -.01em !important;
+}
 /* 栏目小标（INSPIRATION）按参考稿：10px、0.35em 字距、压到 white/28。 */
 .app-user-workspace .creation-featured-heading span { color: rgba(255, 255, 255, .28) !important; font-size: 10px !important; letter-spacing: .35em !important; text-transform: uppercase; }
-.app-user-workspace .creation-featured-heading h2 { color: var(--user-ink) !important; font-size: 22px !important; letter-spacing: -.025em !important; }
+.app-user-workspace .creation-featured-heading h2 { color: var(--user-ink) !important; font-size: 24px !important; letter-spacing: -.025em !important; }
 .app-user-workspace .creation-featured-heading p { color: var(--user-ink-muted) !important; }
 
 /* 灵感卡改成"整图 + 图上压字"：首页只有这一块图像内容，白底卡片会把电影感切碎。
    Skill 卡自带横向图文结构，这里一律排除，避免两套布局互相打架。 */
-.app-user-workspace .creation-featured-layout { gap: 14px !important; }
+.app-user-workspace .creation-featured-layout { gap: 18px !important; }
 .app-user-workspace .creation-featured-card:not(.creation-skill-card) {
     position: relative !important;
     display: block !important;
@@ -20145,8 +20152,8 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     inset: auto 0 0 !important;
     display: flex !important;
     flex-direction: column;
-    gap: 4px;
-    padding: 16px 18px 18px !important;
+    gap: 6px;
+    padding: 20px 22px 22px !important;
 }
 .app-user-workspace .creation-featured-card:not(.creation-skill-card) .creation-featured-copy em {
     order: -1;
@@ -20176,7 +20183,7 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     align-items: stretch;
 }
 .app-user-workspace .creation-featured-card.is-featured-hero { grid-column: span 2; grid-row: span 2; aspect-ratio: auto; }
-.app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-copy { gap: 7px; padding: 26px 28px 28px !important; }
+.app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-copy { gap: 10px; padding: 30px 32px 34px !important; }
 .app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-copy strong { font-size: 28px !important; }
 .app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-copy > span {
     display: block !important;
@@ -20231,7 +20238,7 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 @media (max-width: 720px) {
     .app-user-workspace .creation-featured-layout { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; grid-auto-rows: auto; }
     .app-user-workspace .creation-featured-card.is-featured-hero { grid-column: 1 / -1; grid-row: auto; aspect-ratio: 16 / 10; }
-    .app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-copy { padding: 18px 18px 20px !important; }
+    .app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-copy { padding: 22px 20px 24px !important; }
     .app-user-workspace .creation-thread-toolbar,
     .app-user-workspace .creation-thread-stage,
     .app-user-workspace .creation-thread-composer { width: calc(100% - 28px); }
