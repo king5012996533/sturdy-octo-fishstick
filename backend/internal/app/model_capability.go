@@ -650,6 +650,28 @@ func applyModelSpecificVideoCapability(profile *VideoCapabilityConfig, protocol 
 		value.Operations = appendUniqueString(value.Operations, "reference_to_video")
 		return &value
 	}
+	// aigenvideo-seedance 声明式插件的请求模板直接把 images[] 铺给上游（插件自己声明最多 10 张
+	// 参考图），但通用视频合同只声明了文生视频/图生视频。画布挂 3 张以上参考图时操作会被推断成
+	// reference_to_video，合同里没有这个操作，整组模型就在模型下拉里被判成不兼容而无法选中。
+	// 这里按插件真实能力补齐操作；视频/音频参考压回 0，因为该协议的模板只映射 images[]，
+	// 放开音视频参考只会让用户的上传被静默丢弃。
+	if strings.HasPrefix(normalizedProtocol, "aigenvideo-seedance") && strings.Contains(normalizedModel, "seedance-2") {
+		value := *profile
+		value.References = profile.References
+		value.References.MinImages = 0
+		value.References.MaxImages = 10
+		value.References.MaxVideos = 0
+		value.References.MaxVideoBytes = 0
+		value.References.MaxVideoDuration = 0
+		value.References.MinVideoDuration = 0
+		value.References.MaxAudios = 0
+		value.References.MaxAudioBytes = 0
+		value.References.MaxAudioDuration = 0
+		value.References.MinAudioDuration = 0
+		value.References.MaxAudioTotalDuration = 0
+		value.Operations = appendUniqueString(value.Operations, "reference_to_video")
+		return &value
+	}
 	if model.ChannelInterfaceType(normalizedProtocol) != model.ChannelInterfaceAgnesVideo {
 		return profile
 	}

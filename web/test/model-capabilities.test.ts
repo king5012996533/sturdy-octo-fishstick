@@ -143,3 +143,53 @@ test("replicate video capability falls back to the minimal shape for unknown mod
     assert.equal(unknown.references.maxImages, 0);
     assert.deepEqual(unknown.duration.values, [5]);
 });
+
+// aigenvideo-seedance 插件的请求模板只映射 images[]（自己声明最多 10 张参考图），
+// 但通用视频合同只声明文生/图生。画布挂 3 张以上参考图会被推断成 reference_to_video，
+// 合同里缺这个操作会让整组视频模型在下拉里被判成不兼容 —— 灰掉且点不动。
+test("Aigen Seedance 通道放开多图参考，但不放开音视频参考", () => {
+    const model = "CHANNEL_000007::seedance-2.0";
+    const config = {
+        channels: [{
+            id: "CHANNEL_000007",
+            name: "Aigen Seedance · 主账号",
+            baseUrl: "/api/ai/system/CHANNEL_000007",
+            apiKey: "system",
+            apiFormat: "aigenvideo-seedance-v20",
+            interfaceType: "aigenvideo-seedance-v20",
+            models: ["seedance-2.0"],
+            modelProfiles: [{
+                model: "seedance-2.0",
+                displayName: "Seedance 2.0",
+                capability: "video",
+                protocol: "aigenvideo-seedance-v20",
+                capabilityConfig: {
+                    version: 1,
+                    video: {
+                        references: { promptMaxChars: 8000, minImages: 0, maxImages: 10, maxImageBytes: 31457280, maxVideos: 0, maxVideoBytes: 0, maxVideoDurationSeconds: 0, maxAudios: 0, maxAudioBytes: 0, maxAudioDurationSeconds: 0 },
+                        duration: { selection: "enum", values: [5, 10, 15], default: 5 },
+                        ratios: ["16:9"],
+                        defaultRatio: "16:9",
+                        resolutions: ["720p"],
+                        defaultResolution: "720p",
+                        generateAudio: { supported: false, default: false },
+                        watermark: { supported: false, default: false },
+                        operations: ["text_to_video", "image_to_video"],
+                        defaultOperation: "text_to_video",
+                    },
+                },
+            }],
+        }],
+    } as unknown as AiConfig;
+
+    const profile = modelCapabilityConfigFor(config, model).video!;
+    assert.ok(profile.operations.includes("reference_to_video"));
+    assert.equal(profile.references.maxImages, 10);
+    assert.equal(profile.references.maxVideos, 0);
+    assert.equal(profile.references.maxAudios, 0);
+
+    const fourImages = { textCount: 0, imageCount: 4, videoCount: 0, audioCount: 0, characterCount: 0 };
+    assert.equal(modelCompatibilityError(config, model, { capability: "video", input: fourImages }), "");
+    const withVideoReference = { textCount: 0, imageCount: 1, videoCount: 1, audioCount: 0, characterCount: 0 };
+    assert.equal(modelCompatibilityError(config, model, { capability: "video", input: withVideoReference }), "最多支持 0 个参考视频");
+});

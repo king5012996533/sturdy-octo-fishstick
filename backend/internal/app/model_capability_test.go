@@ -281,6 +281,29 @@ func TestNormalizeBeefAPISeedanceFullModalReferenceCapability(t *testing.T) {
 	}
 }
 
+func TestAigenSeedanceCapabilityAllowsMultiImageReference(t *testing.T) {
+	stored := DefaultModelCapabilityConfigForModel("aigenvideo-seedance-v20", "seedance-2.0").Video
+	// 生产库里这条渠道模型就是这样：通用视频模板只声明了两个操作。
+	stored.Operations = []string{"text_to_video", "image_to_video"}
+	stored.References.MaxVideos = 0
+	stored.References.MaxAudios = 0
+
+	normalized, err := NormalizeModelCapabilityConfigForModel("video", "aigenvideo-seedance-v20", "seedance-2.0", &ModelCapabilityConfig{Version: 1, Video: stored})
+	if err != nil {
+		t.Fatalf("NormalizeModelCapabilityConfigForModel() error = %v", err)
+	}
+	if !containsCapabilityString(normalized.Video.Operations, "reference_to_video") {
+		t.Fatalf("operations = %v, want reference_to_video", normalized.Video.Operations)
+	}
+	if normalized.Video.References.MaxImages != 10 {
+		t.Fatalf("max images = %d, want 10", normalized.Video.References.MaxImages)
+	}
+	// 插件模板只映射 images[]：音视频参考必须保持关闭，否则用户上传会被静默丢弃。
+	if normalized.Video.References.MaxVideos != 0 || normalized.Video.References.MaxAudios != 0 {
+		t.Fatalf("references videos/audios = %d/%d, want 0/0", normalized.Video.References.MaxVideos, normalized.Video.References.MaxAudios)
+	}
+}
+
 func TestCapabilitySpecFromModelCapabilityConfigRestoresLegacyWildcardImageSizes(t *testing.T) {
 	config := &ModelCapabilityConfig{
 		Version: 1,

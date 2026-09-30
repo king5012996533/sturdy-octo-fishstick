@@ -652,6 +652,30 @@ function applySeedance2ReferenceCapability(video: VideoCapabilityConfig, protoco
     // Match backend applyModelSpecificVideoCapability, including persisted
     // OpenAI profiles and provider-prefixed model aliases.
     const normalizedModel = String(modelName).trim().toLowerCase();
+    // aigenvideo-seedance 声明式插件的请求模板只映射 images[]（插件自己声明最多 10 张参考图），
+    // 通用合同却只声明了文生视频/图生视频。画布挂 3 张以上参考图时操作会被推断成
+    // reference_to_video，合同里没有它，整组模型会在下拉里被判成不兼容而无法选中。
+    // 这里按插件真实能力补齐操作，并把音视频参考压回 0：该协议没有对应字段，放开只会静默丢弃。
+    if (String(protocol || "").startsWith("aigenvideo-seedance") && normalizedModel.includes("seedance-2")) {
+        return {
+            ...video,
+            references: {
+                ...video.references,
+                minImages: 0,
+                maxImages: 10,
+                maxVideos: 0,
+                maxVideoBytes: 0,
+                maxVideoDurationSeconds: 0,
+                minVideoDurationSeconds: 0,
+                maxAudios: 0,
+                maxAudioBytes: 0,
+                maxAudioDurationSeconds: 0,
+                minAudioDurationSeconds: 0,
+                maxAudioTotalDurationSeconds: 0,
+            },
+            operations: Array.from(new Set([...video.operations, "reference_to_video"])),
+        };
+    }
     if (!(protocol === "openai" || protocol === "newapi" || protocol === "newapi-channel-2") || !normalizedModel.includes("seedance-2")) return video;
     const is25 = /(?:^|\/)seedance-2\.5(?:-self-developed)?$/.test(normalizedModel);
     return {
