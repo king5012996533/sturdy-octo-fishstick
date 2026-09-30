@@ -22,6 +22,82 @@ type taskAdmission struct {
 // 这是常规模型生成任务的写入口：客户端只提交创作意图，模型、渠道和协议信息必须由本地目录重新解析，
 // 以保证“可展示的模型”与“实际执行的模型”来自同一份有效配置。
 func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task, error) {
+	staged, err := s.stageTaskForSubmission(userID, req)
+	if err != nil {
+		return nil, err
+	}
+	// 文本持久化任务不排队、不调用模型，因此也没有可预扣的费用，直接建它。
+	if staged.textReplay {
+		return s.createTextReplayTask(userID, req, staged.input)
+	}
+	task := staged.task
+	normalizedInput := staged.input
+	policy, err := s.RuntimePolicy()
+	if err != nil {
+		return nil, err
+	}
+	activeTasks, err := s.repo.ActiveTaskCountForUser(userID)
+	if err != nil {
+		return nil, err
+	}
+	if activeTasks >= int64(policy.Task.ActiveTaskLimit) {
+		return nil, BadAuthRequest(fmt.Sprintf("同时排队或运行的任务最多 %d 个，请等待已有任务完成", policy.Task.ActiveTaskLimit))
+	}
+	if req.creationPrepare != nil {
+		encoded, encodeErr := json.Marshal(normalizedInput)
+		if encodeErr != nil {
+			return nil, encodeErr
+		}
+		task.InputJSON = string(encoded)
+		return task, nil
+	}
+	if err := s.protectTaskSecrets(normalizedInput); err != nil {
+		return nil, err
+	}
+	inputJSON, err := json.Marshal(normalizedInput)
+	if err != nil {
+		return nil, fmt.Errorf("序列化任务输入失败：%w", err)
+	}
+	task.InputJSON = string(inputJSON)
+	// 先扣费再落库：反过来做的话，扣费失败时任务已经入队，worker 可能已经调上游了。
+	// 扣费在落库前失败只会让这次提交整体失败，用户重试即可，不存在半成品任务。
+	if err := s.chargeTaskCredits(task, normalizedInput); err != nil {
+		return nil, err
+	}
+	err = s.createTaskWithinStorageQuota(task, policy)
+	if err != nil {
+		// 扣了费却没落库：这条任务不存在，没有任何后续路径会替它退款，必须当场退。
+		s.refundTaskCredits(task, err, "任务创建失败退回预扣")
+	}
+	if errors.Is(err, repository.ErrActiveTaskLimit) {
+		return nil, BadAuthRequest(fmt.Sprintf("同时排队或运行的任务最多 %d 个，请等待已有任务完成", policy.Task.ActiveTaskLimit))
+	}
+	if errors.Is(err, repository.ErrLogicalModelUnavailable) {
+		return nil, BadAuthRequest("所选模型已停用、归档或配置已更新，请重新选择")
+	}
+	if err != nil {
+		return nil, err
+	}
+	s.recordActivity(userID, "task", 1)
+	_ = s.log(userID, task.ID, "info", "任务已进入队列", "")
+	return taskForOutput(*task), nil
+}
+
+// stagedTask 是一次提交在"校验与路由完成、尚未预扣与落库"时的中间态。
+type stagedTask struct {
+	task  *model.Task
+	input map[string]any
+	// textReplay 表示这是前端自管的文本持久化任务：不排队、不调用模型，也不计费。
+	textReplay bool
+}
+
+// stageTaskForSubmission 收敛提交与试算共用的前半段：输入标准化、模型解析、能力校验。
+//
+// 阶段一（这里）只读：它不写库、不预扣、不占并发额度。阶段二（CreateTask 的剩余部分）
+// 才是准入与写入。拆开的唯一目的是让"生成前试算"复用同一段解析——试算若另走一套模型
+// 解析，报出来的价与实扣的价会在取渠道模型、取档位这两步分叉，而这类偏差不会报错，
+// 只会让用户看到两个不一样的数。
+func (s *Service) stageTaskForSubmission(userID string, req CreateTaskRequest) (*stagedTask, error) {
 	if req.admission == nil && (strings.HasPrefix(req.Operation, "cloud_agent") || req.Input["cloudAgent"] != nil) {
 		return nil, BadAuthRequest("Agent 任务必须通过 Agent 接口创建")
 	}
@@ -77,7 +153,7 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 	}
 	// 前端自管的文本持久化任务：直连模型生成、增量上报 text-deltas，不排入 worker 队列生成。
 	if isTextReplayTaskRequest(normalizedInput) {
-		return s.createTextReplayTask(userID, req, normalizedInput)
+		return &stagedTask{input: normalizedInput, textReplay: true}, nil
 	}
 	if err := s.requireCustomChannelsForTaskInput(normalizedInput); err != nil {
 		return nil, err
@@ -87,17 +163,6 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 	}
 	if containsInlineMediaDataURL(normalizedInput) {
 		return nil, BadAuthRequest("任务输入不能包含内嵌媒体，请先上传到资源存储")
-	}
-	policy, err := s.RuntimePolicy()
-	if err != nil {
-		return nil, err
-	}
-	activeTasks, err := s.repo.ActiveTaskCountForUser(userID)
-	if err != nil {
-		return nil, err
-	}
-	if activeTasks >= int64(policy.Task.ActiveTaskLimit) {
-		return nil, BadAuthRequest(fmt.Sprintf("同时排队或运行的任务最多 %d 个，请等待已有任务完成", policy.Task.ActiveTaskLimit))
 	}
 	task := model.Task{ID: newID(), UserID: userID, TraceID: req.TraceID, RequestID: req.RequestID, ProjectID: req.ProjectID, Type: taskType, Status: model.TaskStatusQueued, Stage: "等待队列调度", Progress: 5, Prompt: prompt, Operation: req.Operation, Provider: req.Provider, Model: req.Model}
 	if req.admission != nil {
@@ -115,44 +180,29 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 	if err := s.ensureTaskProjectActive(userID, req.ProjectID); err != nil {
 		return nil, err
 	}
-	if req.creationPrepare != nil {
-		encoded, encodeErr := json.Marshal(normalizedInput)
-		if encodeErr != nil {
-			return nil, encodeErr
-		}
-		task.InputJSON = string(encoded)
-		return &task, nil
+	return &stagedTask{task: &task, input: normalizedInput}, nil
+}
+
+// QuoteTaskCharge 试算一次提交要扣多少积分，供用户端在按下生成之前展示。
+//
+// 与提交共用 stageTaskForSubmission，因此报价用的模型标识、能力、档位和用量与实扣同源；
+// 模型未定价时返回与提交时相同的 409，前端据此提示"尚未定价"，而不是显示一个 0 让用户
+// 以为这次免费。这里刻意不做并发额度与存储校验：试算的用途是回答"这次要花多少"，
+// 队列满了不该让价格从界面上消失。
+func (s *Service) QuoteTaskCharge(userID string, req CreateTaskRequest) (*TaskChargeOutcome, error) {
+	if s == nil || s.taskCreditLedger == nil {
+		return nil, &AppError{Status: 503, Code: 503, Message: "当前实例未启用计费，无法试算消耗"}
 	}
-	if err := s.protectTaskSecrets(normalizedInput); err != nil {
-		return nil, err
-	}
-	inputJSON, err := json.Marshal(normalizedInput)
-	if err != nil {
-		return nil, fmt.Errorf("序列化任务输入失败：%w", err)
-	}
-	task.InputJSON = string(inputJSON)
-	// 先扣费再落库：反过来做的话，扣费失败时任务已经入队，worker 可能已经调上游了。
-	// 扣费在落库前失败只会让这次提交整体失败，用户重试即可，不存在半成品任务。
-	if err := s.chargeTaskCredits(&task, normalizedInput); err != nil {
-		return nil, err
-	}
-	err = s.createTaskWithinStorageQuota(&task, policy)
-	if err != nil {
-		// 扣了费却没落库：这条任务不存在，没有任何后续路径会替它退款，必须当场退。
-		s.refundTaskCredits(&task, err, "任务创建失败退回预扣")
-	}
-	if errors.Is(err, repository.ErrActiveTaskLimit) {
-		return nil, BadAuthRequest(fmt.Sprintf("同时排队或运行的任务最多 %d 个，请等待已有任务完成", policy.Task.ActiveTaskLimit))
-	}
-	if errors.Is(err, repository.ErrLogicalModelUnavailable) {
-		return nil, BadAuthRequest("所选模型已停用、归档或配置已更新，请重新选择")
-	}
+	staged, err := s.stageTaskForSubmission(userID, req)
 	if err != nil {
 		return nil, err
 	}
-	s.recordActivity(userID, "task", 1)
-	_ = s.log(userID, task.ID, "info", "任务已进入队列", "")
-	return taskForOutput(task), nil
+	if staged.textReplay {
+		// 文本持久化任务不调用模型，费用恒为 0。这里不能回"未定价"：那会把一次不花钱的
+		// 保存显示成配置错误。
+		return &TaskChargeOutcome{Priced: true, Quantity: 1}, nil
+	}
+	return s.quoteTaskCredits(staged.task, staged.input)
 }
 
 // resolveTaskModelSelection 根据请求实际携带的模型选择决定路由方式。

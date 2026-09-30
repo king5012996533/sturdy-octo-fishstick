@@ -1,4 +1,6 @@
 import { ImageSizePicker } from "@/components/image-size-picker";
+import { CreationCreditEstimate } from "@/pages/create/creation-credit-estimate";
+import type { TaskChargeEstimate } from "@/hooks/use-task-charge-quote";
 import { imageResolutionUsesQuality } from "@/lib/image-size-presets";
 import { createPortal } from "react-dom";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type RefObject } from "react";
@@ -378,6 +380,8 @@ type ComposerProps = {
     textThinking: boolean;
     setTextThinking: (value: boolean) => void;
     promptOptimizerProvider: PromptOptimizerProvider | null;
+    /** 生成前的积分试算，由页面层持有（提交用的配置也来自那里）。 */
+    creditEstimate: TaskChargeEstimate;
     composerFocusRef: RefObject<HTMLTextAreaElement | null>;
     onPromptFocus: () => void;
     placeholderOverride?: string;
@@ -624,6 +628,7 @@ export function CreationComposer(props: ComposerProps) {
                 </> : null}
                 {props.prompt.trim() || props.attachments.length || props.references.some((reference) => reference.active) ? <Tooltip title="清空提示词和参考内容"><button type="button" className="creation-chat-control is-clear" onClick={props.onClearComposer} disabled={interactionBusy} aria-label="清空提示词和参考内容"><Trash2 /><span>清空</span></button></Tooltip> : null}
             </div>
+            <CreationCreditEstimate estimate={props.creditEstimate} />
             <Button
                 type="text"
                 className="creation-submit is-icon-only"

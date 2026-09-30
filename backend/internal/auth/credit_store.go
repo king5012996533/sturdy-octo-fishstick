@@ -90,6 +90,12 @@ func (s *Store) CreditLedgerEntries(filter CreditLedgerFilter) ([]CreditLedgerEn
 	if kind := strings.TrimSpace(filter.Kind); kind != "" {
 		query = query.Where("kind = ?", kind)
 	}
+	if refID := strings.TrimSpace(filter.RefID); refID != "" {
+		query = query.Where("ref_id = ?", refID)
+		if refType := strings.TrimSpace(filter.RefType); refType != "" {
+			query = query.Where("ref_type = ?", refType)
+		}
+	}
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("auth: 统计积分流水失败: %w", err)

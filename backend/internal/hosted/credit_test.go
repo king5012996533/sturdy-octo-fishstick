@@ -99,6 +99,52 @@ func TestHostedCreditTopUpReachesWallet(t *testing.T) {
 	}
 }
 
+// TestHostedCreditLedgerFiltersByTaskRef 覆盖"按任务查这次扣了多少"。
+//
+// 这是生成结果页上"本次消耗 N 积分"的唯一数据来源：金额不能由前端按报价推算，
+// 报价与实扣之间还隔着一次真实的扣费，只有流水能回答实际扣了多少、有没有退。
+func TestHostedCreditLedgerFiltersByTaskRef(t *testing.T) {
+	extension, router, authDB, _ := newAdminRouter(t)
+	defer extension.Close()
+
+	cookie, userID := registerAccount(t, router, authDB, "credit-ref@example.com")
+	credits := extension.(*Extension).service
+	if _, err := credits.AdjustCredits(userID, 1000, "测试充值"); err != nil {
+		t.Fatalf("充值失败: %v", err)
+	}
+	if _, _, err := credits.ChargeTaskCredits(userID, "task-refunded", 45, "gpt-image-2 45分/张 × 1"); err != nil {
+		t.Fatalf("写预扣流水失败: %v", err)
+	}
+	if _, _, err := credits.RefundTaskCredits(userID, "task-refunded", 45, "任务创建失败退回预扣"); err != nil {
+		t.Fatalf("写退回流水失败: %v", err)
+	}
+	if _, _, err := credits.ChargeTaskCredits(userID, "task-other", 30, "seedance-2.0 30分/秒 × 1"); err != nil {
+		t.Fatalf("写另一条流水失败: %v", err)
+	}
+
+	recorder := perform(router, http.MethodGet, "/api/finance/ledger?refId=task-refunded", "", cookie)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("按任务读流水失败：%d %s", recorder.Code, recorder.Body.String())
+	}
+	var ledger struct {
+		Data struct {
+			Entries []auth.CreditLedgerEntryView `json:"entries"`
+			Total   int64                        `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &ledger); err != nil {
+		t.Fatalf("解析流水响应失败: %v %s", err, recorder.Body.String())
+	}
+	if ledger.Data.Total != 2 || len(ledger.Data.Entries) != 2 {
+		t.Fatalf("应只回这条任务的扣款与退款，实际 %#v", ledger.Data)
+	}
+	for _, entry := range ledger.Data.Entries {
+		if entry.RefID != "task-refunded" {
+			t.Fatalf("不应串到其他任务的流水，实际 %#v", entry)
+		}
+	}
+}
+
 // TestHostedCreditLedgerIgnoresForeignUserID 确认查询串里的 userId 不是凭据。
 //
 // 一旦能被指定，查流水就变成了"遍历别人的账单"，而余额可以换算出这个人充过多少钱。

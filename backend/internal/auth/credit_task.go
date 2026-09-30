@@ -174,18 +174,34 @@ func (s *Service) quoteTextStartPrice(modelKey string, capability string, quanti
 	}, nil
 }
 
+// QuoteTask 试算一次任务的消耗，未定价时返回与提交相同的 409。
+//
+// 生成前的"预计消耗"必须与真正预扣走同一条取价路径：各写一份的话，报价会在取价档位、
+// 倍率或单位上与实扣分叉，而"面板说 30 积分、扣款却扣 45"是用户最不能接受的一类错误。
+// 未定价在这里同样报 409 而不是回一个 0：让用户以为这次免费，比让他直接看到配价缺失更糟。
+//
+// 与 QuoteTaskCharge 的区别只有一点——它把"未定价"也变成一个错误，因此调用方（提交与
+// 试算接口）不需要各自再判一次 priced。
+func (s *Service) QuoteTask(input TaskChargeInput) (*TaskChargeQuote, error) {
+	quote, err := s.QuoteTaskCharge(input)
+	if err != nil {
+		return nil, err
+	}
+	if !quote.Priced {
+		return nil, pricingMissing(strings.TrimSpace(input.ModelKey), input.Tier)
+	}
+	return quote, nil
+}
+
 // ChargeTask 预扣一次任务，返回试算结果、流水与"是否新建"。
 //
 // 未定价直接拒绝，不放行也不免费：静默按 0 元出货，等到对账时才发现某批模型一直在白送，
 // 是这类系统里最难追溯的一种损失。运营想让某个模型免费，就把它的售价显式配成 0——
 // 定价域里"未定价"与"免费"本来就是两个可区分的状态。
 func (s *Service) ChargeTask(input TaskChargeInput) (*TaskChargeQuote, *CreditLedgerEntryView, bool, error) {
-	quote, err := s.QuoteTaskCharge(input)
+	quote, err := s.QuoteTask(input)
 	if err != nil {
 		return nil, nil, false, err
-	}
-	if !quote.Priced {
-		return nil, nil, false, pricingMissing(strings.TrimSpace(input.ModelKey), input.Tier)
 	}
 	// 售价为 0 是"免费"，但零额变动本身被积分域拒绝（它不改变余额，只会污染流水），
 	// 因此这里直接返回免费结果，不落流水。

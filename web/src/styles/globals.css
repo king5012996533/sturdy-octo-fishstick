@@ -11904,6 +11904,35 @@ html:not(.dark) .creation-chat-reference:hover:not(:disabled) { background: rgba
 /* 录音条自身可压缩，避免波形 + 胶囊同时出现时把右侧控件挤到第二行。 */
 .creation-chat-controls:has(> .voice-recording-inline) { flex-wrap: nowrap; }
 
+/* 生成前的积分消耗读数。
+   数字用等宽字形，改一张图或多一秒时长时整行不会跟着左右抖动；
+   金额与"余额不足"共用同一条，只有颜色与文案不同，避免两种提示在布局上互相挤。 */
+.creation-credit-estimate {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 4px;
+    max-width: min(48cqw, 280px);
+    overflow: hidden;
+    color: var(--user-ink-muted, var(--creation-muted));
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.creation-credit-estimate strong { color: var(--user-ink, var(--creation-text)); font-size: 13px; font-weight: 600; }
+.creation-credit-estimate-label { color: var(--user-ink-soft, var(--creation-faint)); }
+.creation-credit-estimate-balance { color: var(--user-ink-soft, var(--creation-faint)); font-style: normal; }
+.creation-credit-estimate.is-loading { color: var(--user-ink-soft, var(--creation-faint)); }
+/* 余额不足与未定价是两种必须被看见的状态，给一个在浅色与深色底上都够亮的红。 */
+.creation-credit-estimate.is-error,
+.creation-credit-estimate.is-error strong { color: #d4483b; }
+
+@media (max-width: 720px) {
+    .creation-credit-estimate { max-width: 40cqw; }
+}
+
 .creation-chat-control,
 .creation-chat-composer .creation-model-picker.canvas-composer-model-picker {
     display: inline-flex;

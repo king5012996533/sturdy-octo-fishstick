@@ -31,17 +31,34 @@ type TaskChargeRequest struct {
 	Note     string
 }
 
-// TaskChargeOutcome 是计费结果。
+// TaskChargeOutcome 是一次计费的金额，以及这笔钱是怎么算出来的。
+//
+// 单价与用量不是为了在任务域里复算金额——金额只有账号域算得对——而是为了让生成前的
+// 试算能写出"450 积分 = 15 秒 × 30 积分/秒"这种用户能自己复核的算式。ChargeTask 只
+// 用得到 Credits，其余字段由试算接口原样透出。
 type TaskChargeOutcome struct {
-	Credits int64
+	Credits int64 `json:"credits"`
+	// Unit 是计价单位（IMAGE / SECOND / TOKEN_1M / REQUEST），Quantity 是本次用量。
+	Unit     string `json:"unit"`
+	Quantity int64  `json:"quantity"`
+	// SellUnitPrice 为 nil 表示没有可展示的单价（未定价）。
+	SellUnitPrice    *int64 `json:"sellUnitPrice"`
+	MultiplierBp     int    `json:"multiplierBp"`
+	MultiplierSource string `json:"multiplierSource"`
+	// Priced 为 false 表示这个模型（或这个档位）还没定价。
+	Priced bool `json:"priced"`
 }
 
 // TaskCreditLedger 是任务计费端口。
 //
 // RefundTask 不接收金额：退多少由流水决定，调用方只负责说"这个任务没跑成"。
 // 让失败路径自己算金额，上游一调价就会退成一个不再等于当初扣款的值。
+//
+// QuoteTask 与 ChargeTask 收同一份入参、走同一条取价路径，区别只有一个写不写账：
+// 试算要是另走一套算价逻辑，"面板上的价"和"实扣的价"迟早会对不上。
 type TaskCreditLedger interface {
 	ChargeTask(request TaskChargeRequest) (TaskChargeOutcome, error)
+	QuoteTask(request TaskChargeRequest) (TaskChargeOutcome, error)
 	RefundTask(userID string, taskID string, note string) (int64, bool, error)
 }
 
@@ -71,16 +88,7 @@ func (s *Service) chargeTaskCredits(task *model.Task, normalizedInput map[string
 	if s == nil || s.taskCreditLedger == nil || task == nil {
 		return nil
 	}
-	intent := ModelRequestIntentFromTaskInput(normalizedInput, task.Type, task.Operation)
-	outcome, err := s.taskCreditLedger.ChargeTask(TaskChargeRequest{
-		UserID:     task.UserID,
-		TaskID:     task.ID,
-		ModelKey:   taskChargeModelKey(normalizedInput, task),
-		Capability: intent.Capability,
-		Tier:       taskChargeTier(intent),
-		Quantity:   taskChargeQuantity(intent),
-		Note:       taskChargeNoteText(normalizedInput),
-	})
+	outcome, err := s.taskCreditLedger.ChargeTask(taskChargeRequest(task, normalizedInput))
 	if err != nil {
 		return err
 	}
@@ -90,6 +98,38 @@ func (s *Service) chargeTaskCredits(task *model.Task, normalizedInput map[string
 		_ = s.log(task.UserID, task.ID, "info", "已预扣积分 "+strconv.FormatInt(outcome.Credits, 10), "")
 	}
 	return nil
+}
+
+// quoteTaskCredits 试算一次任务消耗，不写流水也不改余额。
+//
+// 走的是与 chargeTaskCredits 完全相同的取价入参：模型标识、能力、档位与用量四项都从
+// taskChargeRequest 出。少传其中任何一项，试算都会按另一个价目行取价，而那种偏差不会报错，
+// 只会让用户看到两个不一样的数。
+func (s *Service) quoteTaskCredits(task *model.Task, normalizedInput map[string]any) (*TaskChargeOutcome, error) {
+	if s == nil || s.taskCreditLedger == nil || task == nil {
+		// 只有托管形态会注入计费端口；走到这里说明装配漏了，不能回一个 0 让前端
+		// 显示"本次免费"。
+		return nil, &AppError{Status: 503, Code: 503, Message: "当前实例未启用计费，无法试算消耗"}
+	}
+	outcome, err := s.taskCreditLedger.QuoteTask(taskChargeRequest(task, normalizedInput))
+	if err != nil {
+		return nil, err
+	}
+	return &outcome, nil
+}
+
+// taskChargeRequest 从任务本身与它的输入推导出计费入参，提交与试算共用。
+func taskChargeRequest(task *model.Task, normalizedInput map[string]any) TaskChargeRequest {
+	intent := ModelRequestIntentFromTaskInput(normalizedInput, task.Type, task.Operation)
+	return TaskChargeRequest{
+		UserID:     task.UserID,
+		TaskID:     task.ID,
+		ModelKey:   taskChargeModelKey(normalizedInput, task),
+		Capability: intent.Capability,
+		Tier:       taskChargeTier(intent),
+		Quantity:   taskChargeQuantity(intent),
+		Note:       taskChargeNoteText(normalizedInput),
+	}
 }
 
 // refundTaskCredits 退回一次任务预扣。

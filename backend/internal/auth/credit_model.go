@@ -134,8 +134,12 @@ type CreditLedgerEntryView struct {
 
 // CreditLedgerFilter 是流水分页与筛选参数。
 type CreditLedgerFilter struct {
-	UserID   string
-	Kind     string
+	UserID string
+	Kind   string
+	// RefType/RefID 按业务引用定位流水，用于回答"这一条任务到底扣了多少"。
+	// 两者都不做凭据：它们只在当前账号的流水里筛选，跨账号查不到任何东西。
+	RefType  string
+	RefID    string
 	Page     int
 	PageSize int
 }

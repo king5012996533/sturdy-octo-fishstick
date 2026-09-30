@@ -12,6 +12,7 @@ import { getActiveUserScope } from "@/lib/user-scope";
 import { continueCreationConversationOnCanvas } from "@/services/creation-canvas-conversation";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { useExternalAssetSources } from "@/hooks/use-external-asset-sources";
+import { useTaskChargeQuote } from "@/hooks/use-task-charge-quote";
 import { modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, videoDurationAllowed, videoDurationOptions } from "@/lib/model-capabilities";
 import { inferVideoOperation, resolveCompatibleModel, mergedImageCapabilityConfig, type ModelRequirements } from "@/lib/model-selection";
 import type { BackendGenerationResult } from "@/services/api/generation-task";
@@ -200,10 +201,40 @@ export default function CreatePage() {
         }),
         [attachments, config.transparentBackground, config.videoGenerateAudio, config.videoWatermark, count, hasPrompt, mode, quality, ratio, seconds, videoQuality],
     );
+    // 能力摘要可能缺省；试算需要的是"有没有参考素材"，缺省即当作没有。
+    const modelInputSummary = useMemo(() => modelRequirements.input ?? { textCount: hasPrompt ? 1 : 0, imageCount: 0, videoCount: 0, audioCount: 0, characterCount: 0 }, [hasPrompt, modelRequirements.input]);
     const selectedModel = resolveCompatibleModel(config, preferredModel, modelRequirements) || preferredModel;
     const imageProfile = useMemo(() => modelCapabilityConfigFor(config, selectedModel).image!, [config, selectedModel]);
     const videoProfile = useMemo(() => modelCapabilityConfigFor(config, selectedModel).video!, [config, selectedModel]);
     const maxReferences = mode === "video" ? (videoProfile.operations.includes("image_to_video") ? videoProfile.references.maxImages : 0) : mode === "image" ? imageProfile.references.maxImages : 6;
+    // 提交与试算共用同一份请求配置：两边各拼一次，报价会在档位或张数上与实扣分叉，
+    // 而这类偏差不会报错，只会让用户看到两个不一样的数。
+    const requestConfig = useMemo(() => {
+        const normalizedImage = mode === "image" ? normalizeImageValue(imageProfile, { size: ratio, quality, count }) : undefined;
+        const normalizedVideo = mode === "video" ? normalizeVideoValue(videoProfile, { seconds, ratio, resolution: videoQuality }) : undefined;
+        return {
+            ...config,
+            model: selectedModel,
+            imageModel: selectedModel,
+            videoModel: selectedModel,
+            textModel: selectedModel,
+            ...(mode === "image"
+                ? { size: normalizedImage?.size || ratio, quality: normalizedImage?.quality || quality, count: normalizedImage?.count || count, videoSeconds: config.videoSeconds }
+                : mode === "video"
+                  ? { size: normalizedVideo?.ratio ?? ratio, videoSeconds: normalizedVideo?.seconds || seconds, vquality: (normalizedVideo?.resolution ?? videoQuality).replace(/p$/i, "") }
+                  : {}),
+        };
+    }, [config, count, imageProfile, mode, quality, ratio, seconds, selectedModel, videoProfile, videoQuality]);
+    // 生成前的试算。桌面/本地构建里没有账号库也没有计费，编译期就把这条通道关掉，
+    // 免得界面上出现一句与用户无关的报错。
+    const creditEstimate = useTaskChargeQuote({
+        enabled: __BEEFTV_HOSTED_AUTH__ && Boolean(selectedModel),
+        mode,
+        config: requestConfig,
+        prompt,
+        inputSummary: modelInputSummary,
+        videoEditOperation: mode === "video" ? inferVideoOperation(modelInputSummary) : undefined,
+    });
     const referenceImageSize = useMemo(() => {
         const imageAttachments = attachments.filter(isImageAttachment);
         if (imageAttachments.length !== 1) return undefined;
@@ -713,20 +744,6 @@ export default function CreatePage() {
         const controller = new AbortController();
         const requestLifecycle = runtime.beginGenerationConsumer(controller.signal);
         abortRef.current = controller;
-        const normalizedImage = mode === "image" ? normalizeImageValue(imageProfile, { size: ratio, quality, count }) : undefined;
-        const normalizedVideo = mode === "video" ? normalizeVideoValue(videoProfile, { seconds, ratio, resolution: videoQuality }) : undefined;
-        const requestConfig = {
-            ...config,
-            model: selectedModel,
-            imageModel: selectedModel,
-            videoModel: selectedModel,
-            textModel: selectedModel,
-            ...(mode === "image"
-                ? { size: normalizedImage?.size || ratio, quality: normalizedImage?.quality || quality, count: normalizedImage?.count || count, videoSeconds: config.videoSeconds }
-                : mode === "video"
-                  ? { size: normalizedVideo?.ratio ?? ratio, videoSeconds: normalizedVideo?.seconds || seconds, vquality: (normalizedVideo?.resolution ?? videoQuality).replace(/p$/i, "") }
-                  : {}),
-        };
         try {
             if (mode === "text") {
                 const result = await runtime.runGenerationOperationOnce(retryContext?.clientOperationId, () =>
@@ -1110,6 +1127,7 @@ export default function CreatePage() {
         textThinking,
         setTextThinking,
         promptOptimizerProvider,
+        creditEstimate,
         composerFocusRef,
         onPromptFocus: loadAddedSkills,
         onSubmit: () => void submit(),

@@ -2,6 +2,7 @@ package hosted
 
 import (
 	"errors"
+	"net/http"
 
 	"infinite-canvas/backend/internal/app"
 	"infinite-canvas/backend/internal/auth"
@@ -23,6 +24,43 @@ import (
 func (e *Extension) registerCreditRoutes(api *gin.RouterGroup) {
 	api.GET("/finance/wallet", e.handleCreditWallet)
 	api.GET("/finance/ledger", e.handleCreditLedger)
+	// 生成前试算：与提交任务同形、只读、不落账。前端在选好模型与参数后实时调用它，
+	// 把"这次要花多少积分"显示在生成按钮旁边。
+	api.POST("/finance/tasks/quote", e.handleTaskChargeQuote)
+}
+
+// handleTaskChargeQuote 试算一次提交要扣多少积分。
+//
+// 请求体与 POST /api/tasks 完全同形：报价必须由服务端按同一份目录重新解析模型，
+// 让前端自己算价（或让浏览器传来一个价）都会在渠道、档位或倍率上出现"提示的价"与
+// "实扣的价"不一致，而那类偏差只会以客诉的形式暴露。
+//
+// 余额与报价一起回传：两个数若分两次取，会出现"报价按新价、余额按旧值"的中间态，
+// 前端据此判断余额是否够扣就会给出错误结论。
+func (e *Extension) handleTaskChargeQuote(c *gin.Context) {
+	user, ok := e.billingSessionUser(c)
+	if !ok {
+		return
+	}
+	var input app.CreateTaskRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		respondFailure(c, http.StatusBadRequest, "请求参数格式错误")
+		return
+	}
+	quote, err := e.canvas.QuoteTaskCharge(user.ID, input)
+	if err != nil {
+		respondServiceError(c, err)
+		return
+	}
+	wallet, err := e.service.CreditWallet(user.ID)
+	if err != nil {
+		respondServiceError(c, err)
+		return
+	}
+	respondOK(c, gin.H{
+		"quote":  quote,
+		"wallet": gin.H{"balance": wallet.Balance, "sufficient": wallet.Balance >= quote.Credits},
+	})
 }
 
 func (e *Extension) handleCreditWallet(c *gin.Context) {
@@ -47,6 +85,8 @@ func (e *Extension) handleCreditLedger(c *gin.Context) {
 	entries, total, err := e.service.CreditLedger(auth.CreditLedgerFilter{
 		UserID:   user.ID,
 		Kind:     c.Query("kind"),
+		RefType:  c.Query("refType"),
+		RefID:    c.Query("refId"),
 		Page:     page,
 		PageSize: pageSize,
 	})
@@ -85,7 +125,42 @@ func (a creditLedgerAdapter) ChargeTask(request app.TaskChargeRequest) (app.Task
 	if err != nil {
 		return app.TaskChargeOutcome{}, creditLedgerError(err)
 	}
-	return app.TaskChargeOutcome{Credits: quote.Credits}, nil
+	return taskChargeOutcome(quote), nil
+}
+
+// QuoteTask 试算一次任务消耗，不写账。
+//
+// 与 ChargeTask 共用账号域的取价函数：两个方法唯一的差别是"要不要真的动余额"。
+func (a creditLedgerAdapter) QuoteTask(request app.TaskChargeRequest) (app.TaskChargeOutcome, error) {
+	quote, err := a.service.QuoteTask(auth.TaskChargeInput{
+		UserID:     request.UserID,
+		TaskID:     request.TaskID,
+		ModelKey:   request.ModelKey,
+		Capability: request.Capability,
+		Tier:       request.Tier,
+		Quantity:   request.Quantity,
+		Note:       request.Note,
+	})
+	if err != nil {
+		return app.TaskChargeOutcome{}, creditLedgerError(err)
+	}
+	return taskChargeOutcome(quote), nil
+}
+
+// taskChargeOutcome 把账号域的报价搬成任务域的形状，只搬不换算。
+func taskChargeOutcome(quote *auth.TaskChargeQuote) app.TaskChargeOutcome {
+	if quote == nil {
+		return app.TaskChargeOutcome{}
+	}
+	return app.TaskChargeOutcome{
+		Credits:          quote.Credits,
+		Unit:             quote.Unit,
+		Quantity:         quote.Quantity,
+		SellUnitPrice:    quote.SellUnitPrice,
+		MultiplierBp:     quote.MultiplierBp,
+		MultiplierSource: quote.MultiplierSource,
+		Priced:           quote.Priced,
+	}
 }
 
 // creditLedgerError 把账号域错误翻译成任务域能识别的错误。

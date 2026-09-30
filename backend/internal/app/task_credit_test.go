@@ -28,6 +28,16 @@ func (f *fakeCreditLedger) ChargeTask(request TaskChargeRequest) (TaskChargeOutc
 	return TaskChargeOutcome{Credits: f.charges}, nil
 }
 
+// QuoteTask 试算复用与 ChargeTask 同一份假数据：试算用例关心的是"编排层有没有把同一组
+// 入参交出去"，金额由账号域决定，这里没有可分辨的差异。
+func (f *fakeCreditLedger) QuoteTask(request TaskChargeRequest) (TaskChargeOutcome, error) {
+	if f.chargeErr != nil {
+		return TaskChargeOutcome{}, f.chargeErr
+	}
+	f.requests = append(f.requests, request)
+	return TaskChargeOutcome{Credits: f.charges, Priced: true, Quantity: 1}, nil
+}
+
 func (f *fakeCreditLedger) RefundTask(userID string, taskID string, note string) (int64, bool, error) {
 	if f.refundErr != nil {
 		return 0, false, f.refundErr
@@ -105,6 +115,50 @@ func TestChargeTaskCreditsCountsImagesByOutputCount(t *testing.T) {
 	}
 	if ledger.requests[0].ModelKey != "CHANNEL_000009::gpt-image-2" || ledger.requests[0].Quantity != 4 {
 		t.Fatalf("图片应扣 4 张的价，实际 %#v", ledger.requests[0])
+	}
+}
+
+// TestQuoteTaskCreditsSharesChargeInputs 覆盖"试算与预扣交出同一组入参"。
+//
+// 生成前的预计消耗与实际扣款必须是同一笔账。两条路径各写一份取价入参，报价会在
+// 渠道、档位或用量上与实扣分叉，而这类偏差不会报错，只会让用户看到两个不一样的数。
+func TestQuoteTaskCreditsSharesChargeInputs(t *testing.T) {
+	svc, ledger := newTaskCreditTestService(t)
+	task := &model.Task{ID: "task-6", UserID: "user-1", Type: "canvas_video", Operation: "image_to_video"}
+	input := map[string]any{
+		"mode":              "video",
+		"config":            map[string]any{"channelId": "CHANNEL_000007", "channelModelKey": "seedance-2.5", "model": "seedance-2.5", "videoSeconds": "15"},
+		"capabilityOptions": map[string]any{"videoSeconds": "15", "size": "16:9"},
+	}
+
+	if err := svc.chargeTaskCredits(task, input); err != nil {
+		t.Fatalf("预扣失败: %v", err)
+	}
+	quote, err := svc.quoteTaskCredits(task, input)
+	if err != nil {
+		t.Fatalf("试算失败: %v", err)
+	}
+	if quote == nil || quote.Credits != 450 {
+		t.Fatalf("试算应透出计费域给的金额，实际 %#v", quote)
+	}
+	if len(ledger.requests) != 2 {
+		t.Fatalf("预扣与试算各应调用一次端口，实际 %d 次", len(ledger.requests))
+	}
+	if ledger.requests[0] != ledger.requests[1] {
+		t.Fatalf("两个入口的计费入参应完全一致，实际 %#v 与 %#v", ledger.requests[0], ledger.requests[1])
+	}
+}
+
+// TestQuoteTaskChargeRequiresBillingLedger 覆盖未接计费端口时不报价。
+//
+// 返回一个 0 会让前端显示"本次免费"，而真相是这个实例根本没有计费能力；
+// "不知道价格"与"价格是零"必须可区分。
+func TestQuoteTaskChargeRequiresBillingLedger(t *testing.T) {
+	svc, _ := newFeatureAvailabilityTestService(t)
+	_, err := svc.QuoteTaskCharge("user-1", CreateTaskRequest{Type: "canvas_image", Prompt: "一只猫", Input: map[string]any{"mode": "image"}})
+	var appErr *AppError
+	if !errors.As(err, &appErr) || appErr.Status != 503 {
+		t.Fatalf("未接计费端口应回 503，实际 %v", err)
 	}
 }
 

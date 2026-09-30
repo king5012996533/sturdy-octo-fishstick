@@ -55,6 +55,75 @@ func TestQuoteTaskChargeAppliesMultiplierAndQuantity(t *testing.T) {
 	}
 }
 
+// TestQuoteTaskRejectsUnpricedModelLikeCharge 覆盖"试算与提交对未定价给同一个结论"。
+//
+// 试算是用户在按下生成之前看到的唯一价格来源。它要是把未定价回成 0，用户会以为这次免费，
+// 直到提交被 409 拒掉才明白过来——两个入口对同一件事给出不同的说法，比都不给还糟。
+func TestQuoteTaskRejectsUnpricedModelLikeCharge(t *testing.T) {
+	env := newCreditTaskEnv(t)
+	input := TaskChargeInput{UserID: "user-1", TaskID: "task-1", ModelKey: "not-priced", Capability: "IMAGE"}
+
+	_, quoteErr := env.service.QuoteTask(input)
+	_, _, _, chargeErr := env.service.ChargeTask(input)
+	if quoteErr == nil || chargeErr == nil {
+		t.Fatalf("两个入口都应拒绝未定价的模型，实际 quote=%v charge=%v", quoteErr, chargeErr)
+	}
+	var quoteAppErr *Error
+	var chargeAppErr *Error
+	if !errors.As(quoteErr, &quoteAppErr) || !errors.As(chargeErr, &chargeAppErr) {
+		t.Fatalf("应回结构化错误，实际 quote=%v charge=%v", quoteErr, chargeErr)
+	}
+	if quoteAppErr.Status != http.StatusConflict || chargeAppErr.Status != http.StatusConflict {
+		t.Fatalf("未定价应是 409，实际 quote=%d charge=%d", quoteAppErr.Status, chargeAppErr.Status)
+	}
+	if quoteAppErr.Message != chargeAppErr.Message {
+		t.Fatalf("两个入口的文案应一致，实际 quote=%q charge=%q", quoteAppErr.Message, chargeAppErr.Message)
+	}
+}
+
+// TestQuoteTaskDoesNotTouchBalance 覆盖试算不写账：报价是只读的。
+//
+// 试算会被前端在每次改参数时调用，一旦它落了流水，用户的账单会被一串 0 元变动淹没。
+func TestQuoteTaskDoesNotTouchBalance(t *testing.T) {
+	env := newCreditTaskEnv(t)
+	upstream := int64(300)
+	if err := env.store.SaveModelPrice(&ModelPrice{
+		ModelKey:          "seedance-2.5",
+		Capability:        string(CapabilityVideo),
+		Unit:              string(UnitPerSecond),
+		UpstreamUnitPrice: &upstream,
+		Enabled:           true,
+	}); err != nil {
+		t.Fatalf("写入单价失败: %v", err)
+	}
+	if _, err := env.service.AdjustCredits("user-1", 5000, "测试充值"); err != nil {
+		t.Fatalf("充值失败: %v", err)
+	}
+	before, err := env.service.CreditWallet("user-1")
+	if err != nil {
+		t.Fatalf("读取余额失败: %v", err)
+	}
+
+	if _, err := env.service.QuoteTask(TaskChargeInput{UserID: "user-1", TaskID: "task-2", ModelKey: "seedance-2.5", Capability: "VIDEO", Quantity: 30}); err != nil {
+		t.Fatalf("试算失败: %v", err)
+	}
+
+	after, err := env.service.CreditWallet("user-1")
+	if err != nil {
+		t.Fatalf("读取余额失败: %v", err)
+	}
+	if before.Balance != after.Balance || after.LifetimeOut != 0 {
+		t.Fatalf("试算不该改变余额或累计消耗，实际 %d -> %d，lifetimeOut=%d", before.Balance, after.Balance, after.LifetimeOut)
+	}
+	entries, total, err := env.service.CreditLedger(CreditLedgerFilter{UserID: "user-1"})
+	if err != nil {
+		t.Fatalf("读取流水失败: %v", err)
+	}
+	if total != 1 || len(entries) != 1 || entries[0].Kind != CreditKindAdmin {
+		t.Fatalf("试算不该留下流水，实际 total=%d entries=%#v", total, entries)
+	}
+}
+
 // TestQuoteTaskChargeFallsBackToOneUnit 覆盖用量未知时按一个单位计费。
 //
 // 退回 0 会让"没传时长"变成一次免费调用，而这类参数缺失在实际调用里并不少见。

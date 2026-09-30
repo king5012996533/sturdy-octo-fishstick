@@ -319,6 +319,42 @@ function backendGenerationTaskInput(options: BackendGenerationTaskOptions, prepa
     };
 }
 
+/**
+ * 组装"生成前试算"的请求体：与 backendGenerationTaskInput 同形，但不准备参考素材。
+ *
+ * 试算只回答"这次要花多少积分"，不该因为参考图还在上传、或素材尚未落库就报不出价，
+ * 所以这里只带上决定价格的那几项：模型、渠道、能力参数（质量档位、张数、视频秒数）。
+ * 模型与能力参数的取法刻意与提交共用同一组函数（backendProviderConfig /
+ * logicalCapabilityOptions），两边各写一份就等于把"报价"和"实扣"拆成两套口径。
+ */
+export function taskChargeQuoteInput(options: { mode: BackendGenerationMode; prompt: string; config: AiConfig; inputSummary?: { imageCount?: number; videoCount?: number; audioCount?: number }; videoEditOperation?: string }): CreateTaskInput {
+    const { mode, prompt, config } = options;
+    const workflow = resolveGenerationWorkflowExecution(config, mode);
+    const logicalModelId = workflow ? "" : logicalModelIDForConfig(config);
+    // 视频操作影响路由能否匹配，因此不能固定成"文生视频"：一份带参考图的请求被报成
+    // 文生视频，报价取的可能是另一条线路的价。素材种类与提交侧使用同一份输入摘要。
+    const operation =
+        mode === "video"
+            ? resolveVideoOperation({ textCount: 0, imageCount: options.inputSummary?.imageCount ?? 0, videoCount: options.inputSummary?.videoCount ?? 0, audioCount: options.inputSummary?.audioCount ?? 0, characterCount: 0 }, options.videoEditOperation)
+            : mode;
+    // 提示词只用于通过提交侧的非空校验，不参与定价，也不该被写进任何地方。
+    const normalizedPrompt = prompt.trim() || "生成前试算";
+    return {
+        type: `canvas_${mode}`,
+        operation,
+        prompt: normalizedPrompt,
+        ...(workflow ? { provider: workflow.provider } : {}),
+        model: workflow?.taskModel || config.model,
+        ...(logicalModelId ? { logicalModelId } : {}),
+        input: {
+            mode,
+            prompt: normalizedPrompt,
+            config: backendProviderConfig(config, mode),
+            capabilityOptions: logicalModelId ? logicalCapabilityOptions(config, mode) : undefined,
+        },
+    };
+}
+
 function generationMetadata(config: AiConfig, metadata?: Record<string, unknown>) {
     const channel = resolveModelChannel(config, config.model);
     const model = modelOptionName(config.model);
@@ -397,15 +433,20 @@ export function backendProviderConfig(config: AiConfig, mode: BackendGenerationM
     const requestConfig = resolveModelRequestConfig(config, config.model);
     const workflow = resolveGenerationWorkflowExecution(config, mode);
     if (workflow) return workflowProviderConfig(config, requestConfig, workflow);
+    const capability = modelCapabilityConfigFor(config, requestConfig.model);
     const generationOptions = {
         size: config.size,
         quality: omittedImageQuality(config.quality),
-        transparentBackground: config.transparentBackground,
+        // 三个布尔能力参数必须按当前模型的能力声明收敛。全局配置里可能留着上一个模型的
+        // 取值（支持同步音频的模型把 videoGenerateAudio 设成 true），换成不支持它的模型后，
+        // 后端的能力校验会拒掉整次生成，而界面上根本没有这个开关可以关掉——用户能看到的
+        // 只有一句"参数 同步音频超出支持范围"。
+        transparentBackground: declaredBooleanOption(capability.image?.transparentBackground, config.transparentBackground),
         count: config.count,
         videoSeconds: config.videoSeconds,
         vquality: config.vquality,
-        videoGenerateAudio: config.videoGenerateAudio,
-        videoWatermark: config.videoWatermark,
+        videoGenerateAudio: declaredBooleanOption(capability.video?.generateAudio, config.videoGenerateAudio),
+        videoWatermark: declaredBooleanOption(capability.video?.watermark, config.videoWatermark),
         videoArkPrivateAssetUpload: config.videoArkPrivateAssetUpload,
         audioVoice: config.audioVoice,
         audioFormat: config.audioFormat,
@@ -429,6 +470,19 @@ export function backendProviderConfig(config: AiConfig, mode: BackendGenerationM
         capabilityConfig: modelCapabilityConfigFor(config, requestConfig.model),
         systemPrompt: config.systemPrompt,
     };
+}
+
+/**
+ * declaredBooleanOption 把布尔能力参数收敛到模型自己声明的范围内。
+ *
+ * 模型声明 supported:false 时，请求里只能出现它的默认值：这个参数对当前模型不存在，
+ * 传上去只会被后端的能力校验当作"超出范围"整单拒绝，而用户在界面上找不到它的开关。
+ * 没有能力声明（未受管模型）时原样透传，避免把用户真正想传的取值改掉。
+ */
+function declaredBooleanOption(declaration: { supported: boolean; default: boolean } | undefined, value: string | undefined) {
+    if (!declaration) return value;
+    if (!declaration.supported) return String(declaration.default);
+    return value;
 }
 
 function workflowProviderConfig(config: AiConfig, requestConfig: ReturnType<typeof resolveModelRequestConfig>, workflow: GenerationWorkflowExecution) {

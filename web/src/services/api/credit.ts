@@ -1,5 +1,6 @@
 import { getBillingPlans, type BillingPlan } from "@/services/api/billing";
 import { ApiError, http } from "@/services/api/request";
+import type { CreateTaskInput } from "@/services/api/task-center";
 
 /**
  * 用户端积分接口（余额、流水、充值货架）。
@@ -54,10 +55,68 @@ export async function getCreditWallet() {
     return payload.wallet;
 }
 
-export async function getCreditLedger(options: { page?: number; pageSize?: number; kind?: CreditLedgerKind } = {}) {
+export async function getCreditLedger(options: { page?: number; pageSize?: number; kind?: CreditLedgerKind; refId?: string } = {}) {
     return http.get<CreditLedgerPage>("/finance/ledger", {
-        params: { page: options.page, pageSize: options.pageSize, kind: options.kind },
+        params: { page: options.page, pageSize: options.pageSize, kind: options.kind, refId: options.refId },
     });
+}
+
+/**
+ * 一次任务在生成前的试算结果。
+ *
+ * credits 是本次要扣的总额，unit/quantity 是算式里的单位与用量——回传这两项是为了让界面
+ * 能写出"15 秒 × 30 积分/秒"这种用户自己就能复核的算式，而不是一个孤零零的数字。
+ * priced 为 false 表示模型还没定价，此时界面必须说明原因，不能显示成 0。
+ */
+export type TaskChargeQuote = {
+    credits: number;
+    unit: string;
+    quantity: number;
+    sellUnitPrice: number | null;
+    multiplierBp: number;
+    multiplierSource: string;
+    priced: boolean;
+};
+
+export type TaskChargeQuoteResult = {
+    quote: TaskChargeQuote;
+    wallet: {
+        balance: number;
+        /** 余额是否够扣这次的钱；由后端判断，前端不自己比大小。 */
+        sufficient: boolean;
+    };
+};
+
+/**
+ * 试算一次提交要扣多少积分。
+ *
+ * 入参与提交任务完全同形：价格必须由后端按同一份模型目录解析。让前端自己算，
+ * 或把算好的价带回来，都会在渠道、档位或倍率上与实扣分叉。
+ */
+export async function quoteTaskCharge(input: CreateTaskInput) {
+    return http.post<TaskChargeQuoteResult>("/finance/tasks/quote", input);
+}
+
+/**
+ * 读出某个任务的真实扣费流水。
+ *
+ * 界面上的"本次消耗"只能来自这里：报价是"将要扣多少"，流水才是"实际扣了多少、
+ * 有没有退"。两者都展示，用户才能看懂一次失败的任务为什么没收钱。
+ */
+export async function getTaskChargeEntries(taskId: string) {
+    const page = await getCreditLedger({ refId: taskId, kind: undefined, pageSize: 20 });
+    return page.entries;
+}
+
+/** summarizeTaskCharge 把流水折成"实际扣了多少、退了多少"。 */
+export function summarizeTaskCharge(entries: CreditLedgerEntry[]) {
+    let charged = 0;
+    let refunded = 0;
+    for (const entry of entries) {
+        if (entry.kind === "TASK_CHARGE" && entry.amount < 0) charged += -entry.amount;
+        if (entry.kind === "TASK_REFUND" && entry.amount > 0) refunded += entry.amount;
+    }
+    return { charged, refunded, net: charged - refunded };
 }
 
 function creditField(value: unknown) {

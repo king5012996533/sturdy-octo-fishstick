@@ -349,6 +349,15 @@ func respondServiceError(c *gin.Context, err error) {
 		respondFailureWithReason(c, authErr.Status, authErr.Message, string(authErr.Reason))
 		return
 	}
+	// 模型错误必须在这里单独判一次：*app.ModelError 嵌入的是 *app.AppError 而不是实现
+	// Unwrap，errors.As 到 *app.AppError 会漏掉它。漏掉的表现不是少一条文案，而是"所选
+	// 模型已停用"这类本该 400 的答复变成 500「系统处理失败」——用户看到的原因与真相无关，
+	// 也就无从修正自己的选择。业务侧的 handler.failService 走的是同一套判断。
+	var modelErr *app.ModelError
+	if errors.As(err, &modelErr) && modelErr.AppError != nil && modelErr.Status >= 400 {
+		respondFailureWithReason(c, modelErr.Status, modelErr.Message, string(modelErr.Reason))
+		return
+	}
 	var appErr *app.AppError
 	if errors.As(err, &appErr) && appErr.Status >= 400 {
 		respondFailureWithReason(c, appErr.Status, appErr.Message, string(appErr.Reason))
