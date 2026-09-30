@@ -1118,6 +1118,16 @@ func (s *Service) enqueueCloudAgentTask(run *model.CloudAgentExecution, state *c
 		}
 		return err
 	}
+	// 扣费必须显式做在这里。上面的 CreateTask 走的是 creationPrepare——它只做模型、
+	// 权限与参数的干跑校验，不落库也不扣费，而 Agent 的任务是在下面那个 CloudAgent
+	// 事务里连着画布节点与执行检查点一起落库的。少了这一步，Agent 触发的文本步与媒体
+	// 生成全都免费：线上一条 15 秒的 Seedance 任务扣了 0 积分，就是这个缺口。
+	if err := s.chargeTaskCredits(task, input); err != nil {
+		if media != nil {
+			return s.cloudAgentMediaError(run, state, "admission", false, false, err)
+		}
+		return s.failCloudAgent(run, state, cloudAgentSafeToolError(err))
+	}
 	s.storageMu.Lock()
 	defer s.storageMu.Unlock()
 	err = s.repo.MutateCloudAgent(run.UserID, run.ID, run.Revision, func(current *model.CloudAgentExecution, repo *repository.Repository) error {
@@ -1141,6 +1151,10 @@ func (s *Service) enqueueCloudAgentTask(run *model.CloudAgentExecution, state *c
 		}
 		return cloudAgentSave(current, state)
 	})
+	if err != nil {
+		// 扣了费却没落库：这条任务不存在，没有任何后续路径会替它退款，必须当场退。
+		s.refundTaskCredits(task, err, "任务创建失败退回预扣")
+	}
 	if err != nil && media != nil {
 		// Rollback may have happened after checkpoint edits. Reload before recording
 		// a tool failure; never turn a stale worker revision into a second result.

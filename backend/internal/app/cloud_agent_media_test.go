@@ -812,3 +812,65 @@ func TestCloudAgentCanvasUpdatesExistingVideoDraftThroughCapabilityContract(t *t
 		t.Fatalf("video task state or submission snapshot was overwritten: %#v", metadata)
 	}
 }
+
+// TestCloudAgentMediaTaskChargesCredits 守住"Agent 触发的媒体生成也要预扣"。
+//
+// Agent 的任务不走 CreateTask 的落库路径：那边用 creationPrepare 只做干跑校验，
+// 落库发生在 CloudAgent 事务里，所以扣费必须显式做在 enqueueCloudAgentTask。
+// 少了这一步，整条 Agent 链路都是免费的——线上实测一条 15 秒视频扣了 0 积分。
+func TestCloudAgentMediaTaskChargesCredits(t *testing.T) {
+	s, _, a := agentMediaFixture(t)
+	ledger := &fakeCreditLedger{charges: 360}
+	s.UseTaskCreditLedger(ledger)
+	run, state := agentMediaRun(t, s, a, "auto")
+	req, plan, err := s.prepareCloudAgentMedia(run, &state, agentMediaCall(a))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.enqueueCloudAgentTask(run, &state, req, plan); err != nil {
+		t.Fatal(err)
+	}
+	// Agent 启动时那条文本任务也会扣一次（走 CreateTask 主路径），所以这里按能力
+	// 挑出媒体那一笔：断言总次数会把"文本被重复计费"这类错误一起放过去。
+	var mediaCharges []TaskChargeRequest
+	for _, request := range ledger.requests {
+		if request.Capability == "video" {
+			mediaCharges = append(mediaCharges, request)
+		}
+	}
+	if len(mediaCharges) != 1 {
+		t.Fatalf("Agent 媒体任务应恰好预扣一次，实际 %d 次（计费调用共 %d 次）", len(mediaCharges), len(ledger.requests))
+	}
+	charge := mediaCharges[0]
+	if charge.ModelKey != "channel::seedance-test" {
+		t.Fatalf("计费的模型标识不对：%#v", charge)
+	}
+	// 时长必须原样进计费：按秒计费的全部收入都来自这个字段。
+	if charge.Quantity != int64(a.Duration) {
+		t.Fatalf("计费用量应为 %d 秒，实际 %d", a.Duration, charge.Quantity)
+	}
+}
+
+// TestCloudAgentMediaTaskRefundsWhenPersistenceFails 守住"扣了费却没落库要当场退"。
+//
+// 画布在准入后被改动会让整个 CloudAgent 事务回滚，任务行不存在；这条路径没有任何
+// 后续事件会替它退款，不退就是净损失。
+func TestCloudAgentMediaTaskRefundsWhenPersistenceFails(t *testing.T) {
+	s, db, a := agentMediaFixture(t)
+	ledger := &fakeCreditLedger{charges: 360, refundCredits: 360, refunded: true}
+	s.UseTaskCreditLedger(ledger)
+	run, state := agentMediaRun(t, s, a, "auto")
+	req, plan, err := s.prepareCloudAgentMedia(run, &state, agentMediaCall(a))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.CanvasProject{}).Where("id = ?", "agent-canvas").Update("payload_json", `{"nodes":[],"connections":[]}`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.enqueueCloudAgentTask(run, &state, req, plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(ledger.refunds) != 1 {
+		t.Fatalf("落库失败应退回预扣，实际退款 %d 次", len(ledger.refunds))
+	}
+}
