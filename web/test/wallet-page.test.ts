@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
+const lines = (path: string) => read(path).split("\n").length;
 
 /**
  * 积分中心是唯一的充值入口。
@@ -62,5 +63,27 @@ describe("积分中心", () => {
         expect(topUp).toBeGreaterThan(-1);
         expect(orders).toBeGreaterThan(topUp);
         expect(ledger).toBeGreaterThan(orders);
+    });
+
+    test("四个 Zone 各占一个文件，页面只做编排", () => {
+        const page = read("src/pages/wallet/index.tsx");
+        expect(page).toContain('from "./wallet-balance"');
+        // 余额卡曾经整段写在页面文件里：页面既是编排又是实现，改一处排版要通读四种数据流。
+        expect(page).not.toContain("wallet-metric");
+        for (const file of ["index", "wallet-balance", "wallet-top-up", "wallet-orders", "wallet-ledger"]) {
+            expect(lines(`src/pages/wallet/${file}.tsx`)).toBeLessThan(400);
+        }
+    });
+
+    test("余额卡是一张卡，卡里不再套第二个盒子", () => {
+        const balance = read("src/pages/wallet/wallet-balance.tsx");
+        const css = read("src/pages/wallet/wallet-product.css");
+        for (const label of ["剩余积分", "累计获得", "累计消耗", "充值", "查看积分流水"]) {
+            expect(balance).toContain(label);
+        }
+        // 累计数与读数靠一道 hairline 分栏，而不是在卡里再画一个带描边的框——
+        // 盒子套盒子正是这一块看起来像后台表单的原因。
+        expect(css).toContain(".wallet-balance-stats");
+        expect(css).not.toContain(".wallet-metrics");
     });
 });

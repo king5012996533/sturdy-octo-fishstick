@@ -175,25 +175,17 @@
 
 /* ---------- 余额：整页唯一的主角读数 ---------- */
 
-.wallet-balance-panel {
-    position: relative;
-    overflow: hidden;
-    isolation: isolate;
-}
-/* 一层很淡的品牌色辉光垫在读数后方，玻璃面因此有厚度，而不是一块平天花板。 */
-.wallet-balance-panel::before {
-    position: absolute;
-    z-index: -1;
-    top: -140px;
-    left: -90px;
-    width: 460px;
-    height: 340px;
-    background: radial-gradient(50% 50% at 50% 50%, rgba(124, 92, 255, .16), transparent 70%);
-    content: "";
-    pointer-events: none;
+/* 两栏：左读数 + 动作，右台账 + 更新时间。宽屏下两栏各自成块，读数与充值之间不再隔着
+   半张卡的空行；累计数也不需要在卡里再裹一个盒子来撑宽度。 */
+.wallet-balance-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+    align-items: stretch;
+    gap: 22px 48px;
 }
 
-.wallet-balance-row { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.wallet-balance-lead { display: flex; flex-direction: column; min-width: 0; }
+
 .wallet-balance-label {
     margin: 0;
     color: color-mix(in srgb, var(--foreground) 50%, transparent);
@@ -205,36 +197,61 @@
     margin: 10px 0 0;
     color: var(--foreground);
     font-family: var(--font-display);
-    font-size: clamp(38px, 4.2vw, 56px);
+    font-size: clamp(38px, 4vw, 54px);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     letter-spacing: -.035em;
     line-height: 1;
 }
-.wallet-balance-meta {
-    margin: 12px 0 0;
-    color: color-mix(in srgb, var(--foreground) 45%, transparent);
-    font-size: var(--fs-label);
-}
 
-/* 累计读数铺满整卡宽度并用分隔线分区：之前两个小方块挤在左下角，右侧整片是空的。 */
-.wallet-metrics {
-    display: grid;
-    margin-top: 24px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    overflow: hidden;
-    border: 1px solid var(--workspace-border);
-    border-radius: var(--r-lg);
+/* 动作落在读数正下方并与卡底对齐：主 CTA 与它服务的那笔读数同属一栏，鼠标不用横穿整卡。 */
+.wallet-balance-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 22px;
+    margin-top: auto;
+    padding-top: 24px;
 }
-.wallet-metric { padding: 14px 18px; }
-.wallet-metric + .wallet-metric { border-left: 1px solid var(--workspace-border); }
-.wallet-metric-label {
+/* 次级入口不抢主 CTA：无底色无描边，只在悬停时提亮文字。 */
+.wallet-balance-secondary {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    border: 0;
+    background: none;
+    padding: 0;
+    color: color-mix(in srgb, var(--foreground) 58%, transparent);
+    font-size: var(--fs-caption);
+    line-height: 1.4;
+    cursor: pointer;
+    transition: color var(--motion-state) var(--ease-product-enter);
+}
+.wallet-balance-secondary:hover { color: var(--foreground); }
+
+.wallet-balance-stats {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 12px;
+    padding-left: 40px;
+    border-left: 1px solid var(--workspace-border);
+}
+/* 标签在上、数值在下：两个累计数各自成格，标签和它自己的数字贴在一起。
+   拉成"左边标签——右边数字"的话，一到宽屏就要横跨七八百像素去找对应关系。 */
+.wallet-stat-list {
+    display: grid;
     margin: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 24px;
+}
+.wallet-stat { display: flex; min-width: 0; flex-direction: column; gap: 10px; }
+.wallet-stat-label {
     color: color-mix(in srgb, var(--foreground) 50%, transparent);
     font-size: var(--fs-label);
 }
-.wallet-metric-value {
-    margin: 7px 0 0;
+.wallet-stat-value {
+    margin: 0;
     color: var(--foreground);
     font-family: var(--font-display);
     font-size: var(--fs-title);
@@ -243,10 +260,26 @@
     letter-spacing: -.02em;
     line-height: 1.1;
 }
+/* 更新时间压到右栏底部：与左栏的充值动作同处一条基线，两栏都"顶部标签、底部注脚"。 */
+.wallet-stat-freshness {
+    margin: auto 0 0;
+    padding-top: 24px;
+    color: color-mix(in srgb, var(--foreground) 60%, transparent);
+    font-size: var(--fs-label);
+    font-variant-numeric: tabular-nums;
+}
 
-@media (max-width: 640px) {
-    .wallet-metrics { grid-template-columns: minmax(0, 1fr); }
-    .wallet-metric + .wallet-metric { border-top: 1px solid var(--workspace-border); border-left: 0; }
+/* 窄屏收起两栏：右栏的竖线换成横线，读数与台账仍然保持「先读数、后明细」的顺序。 */
+@media (max-width: 900px) {
+    .wallet-balance-grid { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+    .wallet-balance-actions { margin-top: 0; padding-top: 20px; }
+    .wallet-balance-stats {
+        padding-top: 18px;
+        padding-left: 0;
+        border-top: 1px solid var(--workspace-border);
+        border-left: 0;
+    }
+    .wallet-stat-freshness { padding-top: 18px; }
 }
 
 /* ---------- 充值档位 ---------- */
