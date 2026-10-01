@@ -59,11 +59,16 @@ type CreationInspiration struct {
 	Title       string `json:"title" gorm:"size:120"`
 	Description string `json:"description" gorm:"type:text"`
 	CoverURL    string `json:"coverUrl" gorm:"size:1000"`
-	Prompt      string `json:"prompt" gorm:"type:text"`
-	Mode        string `json:"mode" gorm:"size:16;index"`
-	Category    string `json:"category" gorm:"size:80;index"`
-	Author      string `json:"author" gorm:"size:80"`
-	Likes       int    `json:"likes"`
+	// VideoURL 是成片的可播地址（上游 HLS 播放列表，没有 HLS 时回落 mp4），给广场的
+	// 播放入口用。它和 CoverURL 的处境完全不同：封面可以抓回本地（几十 KB），成片
+	// 中位 292MB、最大 1.5GB，80 条合计 32GB —— 平台存不下也不该存。所以这里只留
+	// 一个地址，播放由浏览器直连上游、按需拉分片，本站不代理、不占带宽。
+	VideoURL string `json:"videoUrl" gorm:"size:1000"`
+	Prompt   string `json:"prompt" gorm:"type:text"`
+	Mode     string `json:"mode" gorm:"size:16;index"`
+	Category string `json:"category" gorm:"size:80;index"`
+	Author   string `json:"author" gorm:"size:80"`
+	Likes    int    `json:"likes"`
 	// Duration 是卡片右下角的时长角标（形如 "01:42"）；图片类条目留空，前台整块不渲染。
 	// Tags 是主推荐卡底部那排题材标签，逗号分隔存一个列：标签都是 2–4 字的短词、不会自带
 	// 逗号，为最多四个短词开一张关联表换不来任何查询能力，对外视图仍还原成数组。

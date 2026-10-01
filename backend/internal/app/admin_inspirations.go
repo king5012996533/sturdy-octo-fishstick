@@ -41,6 +41,7 @@ type CreationInspirationView struct {
 	Title       string    `json:"title"`
 	Description string    `json:"description"`
 	CoverURL    string    `json:"coverUrl"`
+	VideoURL    string    `json:"videoUrl"`
 	Prompt      string    `json:"prompt"`
 	Mode        string    `json:"mode"`
 	Category    string    `json:"category"`
@@ -71,6 +72,7 @@ type CreationInspirationInput struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	CoverURL    string `json:"coverUrl"`
+	VideoURL    string `json:"videoUrl"`
 	Prompt      string `json:"prompt"`
 	Mode        string `json:"mode"`
 	Category    string `json:"category"`
@@ -166,6 +168,9 @@ func (s *Service) SaveCreationInspiration(input CreationInspirationInput) (*Crea
 		record.ResourceID = ""
 	}
 	record.CoverURL = coverURL
+	// 成片地址只做裁剪：它指向的是上游资源，本地没有对应的可校验对象，
+	// 空串就是"这条没有可播的成片"，前台据此整块不渲染播放按钮。
+	record.VideoURL = truncateRunes(strings.TrimSpace(input.VideoURL), 1000)
 	record.Prompt = truncateRunes(strings.TrimSpace(input.Prompt), creationInspirationPromptMaxLen)
 	record.Mode = mode
 	record.Category = creationInspirationCategory(input.Category)
@@ -219,6 +224,7 @@ func (s *Service) creationInspirationView(record *model.CreationInspiration) *Cr
 		Title:        record.Title,
 		Description:  record.Description,
 		CoverURL:     s.creationInspirationCoverURL(record),
+		VideoURL:     record.VideoURL,
 		Prompt:       record.Prompt,
 		Mode:         record.Mode,
 		Category:     record.Category,

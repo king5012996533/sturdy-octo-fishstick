@@ -127,6 +127,43 @@ CANVAS_BACKEND_DATA_DIR=/opt/kinotv/data CANVAS_DATABASE_DRIVER=sqlite /tmp/insp
 `cover_url` 列仍然保留原外链，只在签名不可用（没配 `CANVAS_PUBLIC_BASE_URL`）时兜底；
 运营在后台改封面地址会顺手清掉 `resource_id`，否则签名地址会一直压过新填的 URL。
 
+## 广场成片地址抓取
+
+播放入口和封面一样，缺的只是一个地址，但成片**不能自存**：池子里 80 条的中位体量是
+292MB、最大 1.5GB，合计 32.6GB，而机器只剩 20G。所以口径是"封面自持、成片热链"——
+数据库只存一个几百字节的 URL，实际字节永远留在上游 CDN，播放时由浏览器直接去取。
+
+```bash
+cd /tmp/kinotv-src/backend
+CGO_ENABLED=1 GOFLAGS=-mod=mod GOSUMDB=off GOPROXY=https://goproxy.cn,direct \
+  go build -o /tmp/inspiration-videos ./cmd/inspiration-videos
+cd /opt/kinotv
+CANVAS_BACKEND_DATA_DIR=/opt/kinotv/data CANVAS_DATABASE_DRIVER=sqlite /tmp/inspiration-videos -limit 20
+```
+
+要点：
+
+- 每条要打开一次作品页（几百 KB），命令是**串行**的；`-limit` 用来分批，**避开晚高峰**。
+- 优先存 HLS 播放列表（`master.m3u8`，带 1080p/720p/480p 三档），探测不到才回落原片。
+  播放列表地址由原片地址推导，不去页面里另找——页面上挂着相关推荐，抓错就是放别人片子。
+- 上游 CORS 是 `access-control-allow-origin: *`，因此播放走**浏览器直连上游**：服务端不中转、
+  不占出口带宽，`kinotv` 只负责发页面和接口。这是这条链能上的前提，改前端播放器时不要
+  退回成服务端代理。
+- 前端 `hls.js` 是**动态 import**，只在真要播 HLS 时才加载；列表里不挂 `<video>`，只在弹层
+  里创建、关掉即销毁。列表页并发打开几十张卡片不会拉起几十个解码器。
+- 没有地址的条目（`image` 类型）只是不显示播放入口，不是故障。
+
+## 磁盘维护
+
+每次发布会把旧前端挪成 `web.bak-<时间戳>`（每份约 103M）并保留旧二进制。它们只用于
+回滚最近一次，**不需要长期堆**：
+
+```bash
+cd /opt/kinotv && ls -1dt web.bak-* | tail -n +3 | xargs rm -rf   # 只留最近两份
+ls -1t kinotv-server.bak-* | tail -n +3 | xargs rm -rf
+df -h /
+```
+
 ## 日常操作
 
 ```bash
