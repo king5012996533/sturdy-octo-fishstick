@@ -37,6 +37,7 @@ export enum CanvasNodeType {
     ColorGrade = "colorgrade",
     MediaConversion = "media-conversion",
     BatchTable = "batch-table",
+    Director = "director",
 }
 
 /** Runtime IDs contributed by plugins share the persisted node type field. */
@@ -220,6 +221,11 @@ export type CanvasNodeMetadata = {
         height?: number;
         bytes?: number;
         mimeType?: string;
+        /** Poster capture contract version. Missing versions are regenerated lazily. */
+        captureVersion?: number;
+        /** Media identity used to prevent a poster surviving a source replacement. */
+        sourceKey?: string;
+        capturedAtMs?: number;
     };
     richText?: Record<string, unknown>;
     composerContent?: string;
@@ -342,6 +348,8 @@ export type CanvasNodeMetadata = {
     taskCompletedAt?: string;
     taskDurationMs?: number;
     taskErrorCode?: string;
+    generationErrorSummary?: string;
+    taskProviderRequestId?: string;
     taskOfficialStatus?: "pending" | "processing" | "completed" | "failed" | "cancelled";
     taskReceiptRecorded?: boolean;
     taskCreatedAt?: string;
@@ -407,6 +415,9 @@ export type CanvasNodeMetadata = {
     copiedFromNodeId?: string;
     generationResultPlacement?: "replace-node" | "new-version";
     directorSceneId?: string;
+    directorCoverStorageKey?: string;
+    directorCoverUrl?: string;
+    directorCoverSceneUpdatedAt?: string;
     directorShotId?: string;
     directorPreviewNodeId?: string;
     directorDepthNodeId?: string;
