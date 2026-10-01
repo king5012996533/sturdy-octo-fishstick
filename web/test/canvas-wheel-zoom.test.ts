@@ -27,17 +27,17 @@ describe("滚轮意图", () => {
     });
 
     test("鼠标整档才是缩放，Ctrl + 整档不会被当成捏合", () => {
-        expect(resolveCanvasWheelIntent(wheel({ deltaY: -100 }))).toEqual({ kind: "zoom", notches: -1 });
-        expect(resolveCanvasWheelIntent(wheel({ deltaY: -100, ctrlKey: true }))).toEqual({ kind: "zoom", notches: -1 });
+        expect(resolveCanvasWheelIntent(wheel({ deltaY: -100 }))).toEqual({ kind: "zoom", notches: -1, source: "notch" });
+        expect(resolveCanvasWheelIntent(wheel({ deltaY: -100, ctrlKey: true }))).toEqual({ kind: "zoom", notches: -1, source: "notch" });
     });
 
     test("触控板捏合走连续缩放，可以只有半档", () => {
-        expect(resolveCanvasWheelIntent(wheel({ deltaY: 12, ctrlKey: true }))).toEqual({ kind: "zoom", notches: 0.5 });
+        expect(resolveCanvasWheelIntent(wheel({ deltaY: 12, ctrlKey: true }))).toEqual({ kind: "zoom", notches: 0.5, source: "pinch" });
     });
 
     test("行模式按档取整，不受浏览器每行像素差异影响", () => {
-        expect(resolveCanvasWheelIntent(wheel({ deltaY: 3, deltaMode: 1 }))).toEqual({ kind: "zoom", notches: 1 });
-        expect(resolveCanvasWheelIntent(wheel({ deltaY: 6, deltaMode: 1 }))).toEqual({ kind: "zoom", notches: 2 });
+        expect(resolveCanvasWheelIntent(wheel({ deltaY: 3, deltaMode: 1 }))).toEqual({ kind: "zoom", notches: 1, source: "notch" });
+        expect(resolveCanvasWheelIntent(wheel({ deltaY: 6, deltaMode: 1 }))).toEqual({ kind: "zoom", notches: 2, source: "notch" });
     });
 });
 
@@ -63,12 +63,12 @@ describe("档距归一化", () => {
     });
 
     test("平滑滚动一次喷出上千像素也最多缩放三档", () => {
-        expect(resolveCanvasWheelIntent(wheel({ deltaY: -1000 }))).toEqual({ kind: "zoom", notches: -3 });
-        expect(resolveCanvasWheelIntent(wheel({ deltaY: 1000 }))).toEqual({ kind: "zoom", notches: 3 });
+        expect(resolveCanvasWheelIntent(wheel({ deltaY: -1000 }))).toEqual({ kind: "zoom", notches: -3, source: "notch" });
+        expect(resolveCanvasWheelIntent(wheel({ deltaY: 1000 }))).toEqual({ kind: "zoom", notches: 3, source: "notch" });
     });
 
     test("页模式一次算一档", () => {
-        expect(resolveCanvasWheelIntent(wheel({ deltaY: -1, deltaMode: 2 }))).toEqual({ kind: "zoom", notches: -1 });
+        expect(resolveCanvasWheelIntent(wheel({ deltaY: -1, deltaMode: 2 }))).toEqual({ kind: "zoom", notches: -1, source: "notch" });
     });
 
     test("缩放倍率受画布上下限约束", () => {

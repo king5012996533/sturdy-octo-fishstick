@@ -42,8 +42,20 @@ export function useCanvasViewportController({
     const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const renderedViewportRef = useRef(viewportRef.current);
     const lastVirtualizationRefreshAtRef = useRef(0);
+    /**
+     * 画布滚轮滑行的取消入口。
+     *
+     * 滚轮整档缩放会在画布里按帧追赶目标视口；面板按钮、小地图拖拽、过渡动画一旦开始写视口，
+     * 就必须先停掉滑行，否则两边会互相覆盖（表现为点一次放大被滑行"拉回去"）。
+     */
+    const glideCancelRef = useRef<(() => void) | null>(null);
+
+    const registerViewportGlideCancel = useCallback((cancel: (() => void) | null) => {
+        glideCancelRef.current = cancel;
+    }, []);
 
     const previewViewport = useCallback((next: ViewportTransform) => {
+        glideCancelRef.current?.();
         viewportRef.current = next;
         const container = containerRef.current;
         // 过渡动画每帧都会经过这里，重复写同一个属性会让整棵交互子树反复失效。
@@ -52,6 +64,7 @@ export function useCanvasViewportController({
     }, [containerRef, viewportRef]);
 
     const commitViewport = useCallback((next: ViewportTransform) => {
+        glideCancelRef.current?.();
         if (commitTimerRef.current) {
             clearTimeout(commitTimerRef.current);
             commitTimerRef.current = null;
@@ -198,6 +211,7 @@ export function useCanvasViewportController({
         handleViewportChange,
         handleViewportPreviewChange,
         previewViewport,
+        registerViewportGlideCancel,
         screenToCanvas,
         setZoomScale,
         zoomCanvasIn,

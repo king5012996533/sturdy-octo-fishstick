@@ -35,7 +35,12 @@ export const CANVAS_MAX_SCALE = 2;
 export type CanvasWheelIntent =
     | { kind: "none" }
     | { kind: "pan"; deltaX: number; deltaY: number }
-    | { kind: "zoom"; notches: number };
+    /**
+     * source 让调用方决定"要不要滑行"：
+     * - notch：鼠标滚轮的整档跳变，需要滑行成连续推镜；
+     * - pinch：触控板捏合是连续量，直接跟手，再滑一层只会变钝。
+     */
+    | { kind: "zoom"; notches: number; source: "notch" | "pinch" };
 
 export type CanvasWheelInput = {
     deltaX: number;
@@ -79,10 +84,10 @@ export function resolveCanvasWheelIntent(input: CanvasWheelInput): CanvasWheelIn
     const pinch = input.ctrlKey || input.metaKey;
     // 捏合：触控板给的是连续小量。鼠标 Ctrl+滚轮是整档，走下面的分支。
     if (pinch && input.deltaMode === 0 && absY < POINTER_NOTCH_MIN_PIXELS) {
-        return { kind: "zoom", notches: clampNotches(deltaY / PINCH_NOTCH_PIXELS) };
+        return { kind: "zoom", notches: clampNotches(deltaY / PINCH_NOTCH_PIXELS), source: "pinch" };
     }
     if (input.deltaMode !== 0 || absY >= POINTER_NOTCH_MIN_PIXELS) {
-        return { kind: "zoom", notches: wheelNotchCount(input.deltaY, input.deltaMode) };
+        return { kind: "zoom", notches: wheelNotchCount(input.deltaY, input.deltaMode), source: "notch" };
     }
     return { kind: "pan", deltaX, deltaY };
 }

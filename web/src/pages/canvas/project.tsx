@@ -1013,6 +1013,7 @@ function InfiniteCanvasPage() {
         handleViewportChange,
         handleViewportPreviewChange,
         previewViewport,
+        registerViewportGlideCancel,
         screenToCanvas,
         setZoomScale,
         zoomCanvasIn,
@@ -3073,6 +3074,7 @@ function InfiniteCanvasPage() {
                                     }
                                     onViewportChange={handleViewportChange}
                                     onViewportPreviewChange={handleViewportPreviewChange}
+                                    registerViewportGlideCancel={registerViewportGlideCancel}
                                     onCanvasMouseDown={handleCanvasMouseDown}
                                     boxSelectEnabled={canvasTool === "box-select"}
                                     onCanvasDoubleClick={handleCanvasDoubleClick}

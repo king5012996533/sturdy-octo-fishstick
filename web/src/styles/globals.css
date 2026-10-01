@@ -11449,9 +11449,14 @@ html:not(.dark) .creation-studio-control:hover,
         cursor: grabbing !important;
     }
 
-    /* 静止期用最终倍率重新排版 DOM，避免 Windows Chromium 复用交互期的低分辨率合成纹理。 */
+    /*
+     * 首帧兜底：世界层还没被 applyCanvasLiveViewport 写上内联变换时，用容器里的实时值与
+     * 光栅层倍率排版。之后的补偿倍率（实时 / 已提交）一直由内联变换携带，所以这里的 scale
+     * 固定是 1——世界层不再自带倍率，倍率全部落在 .canvas-world-raster-layer 上。
+     * 静止期重新排版以最终倍率画 DOM，避免 Windows Chromium 复用交互期的低分辨率合成纹理。
+     */
     .canvas-world-layer {
-        transform: translate(var(--canvas-live-x), var(--canvas-live-y)) scale(var(--canvas-live-scale-ratio));
+        transform: translate(var(--canvas-live-x), var(--canvas-live-y)) scale(1);
         transform-origin: 0 0;
     }
 
@@ -11462,7 +11467,7 @@ html:not(.dark) .creation-studio-control:hover,
     }
 
     [data-canvas-viewport-interacting="true"] .canvas-world-layer {
-        transform: translate3d(var(--canvas-live-x), var(--canvas-live-y), 0) scale(var(--canvas-live-scale-ratio));
+        transform: translate3d(var(--canvas-live-x), var(--canvas-live-y), 0) scale(1);
         will-change: transform;
     }
 

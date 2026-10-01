@@ -109,6 +109,31 @@ describe("canvas screen-space background", () => {
         expect(gridWrites).toEqual([]);
     });
 
+    test("silent 只重算世界层补偿，不广播事件", () => {
+        const properties = new Map<string, string>([["--canvas-committed-scale", "0.5"]]);
+        const world = { style: { transform: "", transformOrigin: "", willChange: "" } };
+        const container = Object.assign(new EventTarget(), {
+            style: {
+                getPropertyValue: (name: string) => properties.get(name) ?? "",
+                setProperty: (name: string, value: string) => properties.set(name, value),
+            },
+            dataset: { canvasViewportInteracting: "true" },
+            querySelector: (selector: string) => (selector === "[data-canvas-world-layer]" ? world : null),
+        });
+        let events = 0;
+        container.addEventListener(CANVAS_GRAPHICS_VIEWPORT_PREVIEW_EVENT, () => events++);
+        container.addEventListener(CANVAS_VIEWPORT_PREVIEW_EVENT, () => events++);
+        container.addEventListener("scroll", () => events++);
+
+        // 实时 0.75 / 已提交 0.5 → 补偿 1.5：这是 React 提交视口后必须重算的那一帧，
+        // 少了它就会渲染成 实时 × 补偿（滚一格 1.14×1.14），用户看到每格跳一下再弹回。
+        applyCanvasLiveViewport(container as unknown as HTMLDivElement, { x: 12, y: -34, k: 0.75 }, { silent: true });
+        expect(world.style.transform).toBe("translate3d(12px, -34px, 0) scale(1.5)");
+        expect(events).toBe(0);
+        // 静默只省略广播；它没有变回提交态，因此不写容器继承变量。
+        expect(properties.get("--canvas-live-scale")).toBeUndefined();
+    });
+
     test("supports the LibTV 800% precision zoom ceiling", () => {
         const current = { x: 120, y: -80, k: 1 };
         expect(viewportAtScale(current, { width: 1440, height: 900 }, 8).k).toBe(8);

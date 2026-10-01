@@ -5,8 +5,10 @@ import { resolveCanvasPointerIntent } from "@/lib/canvas/canvas-selection";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { applyCanvasLiveViewport, subscribeCanvasViewportPreview } from "@/lib/canvas/canvas-live-viewport";
 import { canvasWheelDeltaToPixels, canvasWheelZoomFactor, clampCanvasScale, resolveCanvasWheelIntent } from "@/lib/canvas/canvas-wheel-zoom";
+import { canvasZoomGlideEnabled } from "@/lib/canvas/canvas-zoom-glide";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import type { ViewportTransform } from "@/types/canvas";
+import { useCanvasWheelZoomGlide } from "./use-canvas-wheel-zoom-glide";
 
 type InfiniteCanvasProps = {
     interactive?: boolean;
@@ -16,6 +18,8 @@ type InfiniteCanvasProps = {
     backgroundMode?: CanvasBackgroundMode;
     onViewportChange: (viewport: ViewportTransform) => void;
     onViewportPreviewChange?: (viewport: ViewportTransform) => void;
+    /** 把"停掉滚轮滑行"交给页面控制器：面板/小地图/过渡开始驱动视口时要立刻停，避免两边抢写。 */
+    registerViewportGlideCancel?: (cancel: (() => void) | null) => void;
     onCanvasMouseDown?: (event: React.PointerEvent<HTMLDivElement>) => void;
     boxSelectEnabled?: boolean;
     onCanvasDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
@@ -43,7 +47,7 @@ type PinchState = {
     initialScale: number;
 };
 
-export function InfiniteCanvas({ interactive = true, containerRef, viewport, appearance, backgroundMode = "lines", onViewportChange, onViewportPreviewChange, onCanvasMouseDown, boxSelectEnabled = false, onCanvasDoubleClick, onCanvasDeselect, onContextMenu, onDrop, onFileDragEnter, onFileDragLeave, onFileDragOver, graphicsLayer, children }: InfiniteCanvasProps) {
+export function InfiniteCanvas({ interactive = true, containerRef, viewport, appearance, backgroundMode = "lines", onViewportChange, onViewportPreviewChange, registerViewportGlideCancel, onCanvasMouseDown, boxSelectEnabled = false, onCanvasDoubleClick, onCanvasDeselect, onContextMenu, onDrop, onFileDragEnter, onFileDragLeave, onFileDragOver, graphicsLayer, children }: InfiniteCanvasProps) {
     const colorTheme = useActiveTheme();
     const resolvedAppearance = resolveCanvasAppearance(appearance, colorTheme);
     const panState = useRef({
@@ -63,6 +67,8 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
     const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastPreviewNotifyRef = useRef(0);
     const interactingRef = useRef(false);
+    /** 滑行取消函数由下面的滑行 hook 提供；这里留一个 ref，供更早声明的 effect 调用。 */
+    const cancelGlideRef = useRef<(() => void) | null>(null);
     const touchPointsRef = useRef(new Map<number, TouchPoint>());
     const pinchStateRef = useRef<PinchState>({ active: false, pointerIds: [-1, -1], initialDistance: 1, worldX: 0, worldY: 0, initialScale: viewport.k });
     const spacePressedRef = useRef(false);
@@ -92,6 +98,7 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
         panState.current.isPanning = false;
         pinchStateRef.current.active = false;
         touchPointsRef.current.clear();
+        cancelGlideRef.current?.();
         endViewportInteraction();
         if (frameRef.current) cancelAnimationFrame(frameRef.current);
         if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
@@ -105,10 +112,23 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
     }, [interactive, containerRef]);
 
     useLayoutEffect(() => {
-        if (interactingRef.current) return;
+        const container = containerRef.current;
+        /**
+         * React 提交视口意味着光栅层倍率（--canvas-committed-scale）刚刚变化，世界层的
+         * 补偿倍率必须同一帧按实时视口重算。
+         *
+         * 补偿只在逐帧写入里更新的话，提交之后的那几帧会渲染成 实时倍率 × 补偿倍率：
+         * 滚一格（1.14×）实际画出 1.14×1.14，等于比预想大 30%，而且会一直停在这个倍率上，
+         * 直到下一次滚轮写入才纠正——用户看到的就是每滚一格放大一截再弹回去。鼠标滚轮是
+         * 整档跳变，最明显；触控板与面板缩放是连续小量、比值为 1.00x，所以只有滚轮用户看得出。
+         */
+        if (interactingRef.current) {
+            applyCanvasLiveViewport(container, viewportRef.current, { silent: true });
+            return;
+        }
         viewportRef.current = viewport;
         scaleRef.current = viewport.k;
-        applyCanvasLiveViewport(containerRef.current, viewport, { commit: true });
+        applyCanvasLiveViewport(container, viewport, { commit: true });
     }, [containerRef, viewport, viewportCommitEpoch]);
 
     useEffect(() => {
@@ -161,6 +181,25 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
         [containerRef, onViewportPreviewChange, syncViewport],
     );
 
+    const { glideTo, glideTarget, cancelGlide } = useCanvasWheelZoomGlide({
+        applyViewport: scheduleViewportChange,
+        readViewport: useCallback(() => viewportRef.current, []),
+        finish: useCallback(() => {
+            endViewportInteraction();
+            syncViewport();
+        }, [endViewportInteraction, syncViewport]),
+    });
+
+    useEffect(() => {
+        cancelGlideRef.current = cancelGlide;
+    }, [cancelGlide]);
+
+    useEffect(() => {
+        if (!registerViewportGlideCancel) return;
+        registerViewportGlideCancel(cancelGlide);
+        return () => registerViewportGlideCancel(null);
+    }, [cancelGlide, registerViewportGlideCancel]);
+
     useEffect(() => {
         if (!interactive) return;
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -212,6 +251,8 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
             const current = viewportRef.current;
 
             if (intent.kind === "pan") {
+                // 平移和缩放的滑行不能同时写视口：先停滑行，再按指针/滚轮的位置走。
+                cancelGlide();
                 scheduleViewportChange({
                     x: current.x - intent.deltaX,
                     y: current.y - intent.deltaY,
@@ -224,22 +265,28 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
             if (!rect) return;
             const mouseX = event.clientX - rect.left;
             const mouseY = event.clientY - rect.top;
+            // 连续滚动时以"滑行目标"为基准累积：画面还在追上一格时按实时视口算，会把刚滚的档位吃掉。
+            const base = glideTarget() ?? current;
             // 一档固定一个倍率：设备档距（100 / 120 / 80 / 53 像素、行模式 3 行）只决定"几档"。
-            const newScale = clampCanvasScale(current.k * canvasWheelZoomFactor(intent.notches));
-            const worldX = (mouseX - current.x) / current.k;
-            const worldY = (mouseY - current.y) / current.k;
+            const newScale = clampCanvasScale(base.k * canvasWheelZoomFactor(intent.notches));
+            const worldX = (mouseX - base.x) / base.k;
+            const worldY = (mouseY - base.y) / base.k;
 
-            scheduleViewportChange({
+            // 整档跳变滑行成连续推镜；捏合本来就是连续量，直接跟手。
+            glideTo({
                 x: mouseX - worldX * newScale,
                 y: mouseY - worldY * newScale,
                 k: newScale,
-            }, true);
+            }, { animated: intent.source === "notch" && canvasZoomGlideEnabled() });
         },
-        [containerRef, scheduleViewportChange],
+        [cancelGlide, containerRef, glideTarget, glideTo, scheduleViewportChange],
     );
 
     const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
         if (!interactive) return;
+        // 指针一旦落到画布上（拖拽、框选、双指捏合），滚轮滑行就要立刻让位，
+        // 否则滑行目标会继续按帧覆盖指针刚写下的视口。
+        cancelGlide();
         const target = event.target instanceof Element ? event.target : null;
         // AntD 浮层通过 Portal 渲染到节点 DOM 之外；若不统一排除，会被误判为画布空白并捕获指针。
         if (target?.closest(CANVAS_POINTER_IGNORE_SELECTOR)) return;
@@ -439,7 +486,6 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
                 "--canvas-live-scale": viewport.k,
                 "--canvas-live-inverse-scale": 1 / Math.max(viewport.k, 0.05),
                 "--canvas-committed-scale": viewport.k,
-                "--canvas-live-scale-ratio": 1,
             } as React.CSSProperties}
             onPointerDown={handlePointerDown}
             onDoubleClick={(event) => {

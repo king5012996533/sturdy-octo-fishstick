@@ -68,10 +68,17 @@ export type CanvasLiveViewportOptions = {
     notify?: boolean;
     /** 提交态：把视口写回容器变量，供静止期布局与非交互期 CSS 继承读取。 */
     commit?: boolean;
+    /**
+     * 只重算世界层补偿倍率，不广播预览事件。
+     *
+     * React 提交视口的那一帧必须重算补偿（光栅层倍率刚变化），但视口本身没变，
+     * 图形层不需要按新视口重画：广播会让 Leafer 每次虚拟化提交都整帧重绘。
+     */
+    silent?: boolean;
 };
 
 export function applyCanvasLiveViewport(container: HTMLDivElement | null, viewport: ViewportTransform, options: CanvasLiveViewportOptions = {}) {
-    const { notify = true, commit = false } = options;
+    const { notify = true, commit = false, silent = false } = options;
     if (!container) return;
     const committedScale = Number(container.style.getPropertyValue("--canvas-committed-scale")) || viewport.k;
     let elements = liveViewportElements.get(container);
@@ -109,6 +116,7 @@ export function applyCanvasLiveViewport(container: HTMLDivElement | null, viewpo
         container.style.setProperty("--canvas-live-scale", String(viewport.k));
         container.style.setProperty("--canvas-live-inverse-scale", inverseScale);
     }
+    if (silent) return;
     // 图形层必须逐帧跟随 DOM 世界层；浮层和滚动通知仍可按原频率节流。
     container.dispatchEvent(new CustomEvent<ViewportTransform>(CANVAS_GRAPHICS_VIEWPORT_PREVIEW_EVENT, { detail: viewport }));
     if (notify) {
