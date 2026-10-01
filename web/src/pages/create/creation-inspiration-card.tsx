@@ -27,12 +27,18 @@ function inspirationEyebrow(item: CreationInspiration) {
     return item.category || inspirationCredit(item);
 }
 
-export function CreationInspirationCard({ item, hero, onStart }: { item: CreationInspiration; hero: boolean; onStart: () => void }) {
+/**
+ * 有成片地址的条目，点击是"看这个作品"；没有地址的（图片条目、上游未转码）保持原来的
+ * "使用这个创意"。整张卡仍然只是一个按钮：把播放器嵌进卡片会让广场一次挂出几十个
+ * <video>，那是成片而不是封面，一条就是几百兆。
+ */
+export function CreationInspirationCard({ item, hero, onStart, onPlay }: { item: CreationInspiration; hero: boolean; onStart: () => void; onPlay?: () => void }) {
+    const playable = Boolean(item.videoUrl && onPlay);
     return (
-        <button type="button" className={`product-collection-card creation-featured-card ${hero ? "is-featured-hero" : ""}`} onClick={onStart}>
+        <button type="button" className={`product-collection-card creation-featured-card ${hero ? "is-featured-hero" : ""}`} onClick={playable ? onPlay : onStart} aria-label={playable ? `播放作品《${item.title}》` : undefined}>
             <span className="creation-featured-media">
                 <img src={item.image} alt="" loading="lazy" referrerPolicy={item.sourceUrl ? "no-referrer" : undefined} />
-                <span className="creation-inspiration-overlay"><ArrowUp />使用这个创意</span>
+                <span className="creation-inspiration-overlay">{playable ? <><Play />播放作品</> : <><ArrowUp />使用这个创意</>}</span>
             </span>
             {/* 小标（em）在 DOM 里排在标题之后，靠 CSS 的 order 提到最上：这样无障碍读出来
                 的是"标题 → 描述"，而不是先把分类念一遍。 */}

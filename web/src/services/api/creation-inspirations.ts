@@ -14,6 +14,8 @@ export type CreationInspirationRecord = {
     title: string;
     description: string;
     coverUrl: string;
+    /** 成片的可播地址（上游 HLS 播放列表，没有 HLS 时是 mp4）；没有成片时为空串。 */
+    videoUrl: string;
     prompt: string;
     mode: string;
     category: string;

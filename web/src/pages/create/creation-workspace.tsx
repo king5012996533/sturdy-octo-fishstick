@@ -52,6 +52,7 @@ import type { CreationInspiration } from "./creation-inspirations";
 import { loadCreationInspirations } from "./creation-inspirations-source";
 import { creationLibtvInspirations } from "./creation-inspirations-libtv";
 import { CreationInspirationCard } from "./creation-inspiration-card";
+import { CreationInspirationPlayer } from "./creation-inspiration-player";
 import { CreationInspirationFooter } from "./creation-inspiration-footer";
 
 const CanvasPromptOptimizerDrawer = lazy(() => import("@/components/canvas/canvas-prompt-optimizer-drawer").then((module) => ({ default: module.CanvasPromptOptimizerDrawer })));
@@ -779,6 +780,9 @@ export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode:
     const [mySkills, setMySkills] = useState<Skill[]>([]);
     const [mySkillsLoaded, setMySkillsLoaded] = useState(false);
     const [remoteInspirations, setRemoteInspirations] = useState<CreationInspiration[] | null>(null);
+    // 正在播放的作品。成片留在上游、动辄几百兆，只有这里为真时才会创建 <video>，
+    // 关闭即销毁 —— 广场列表本身永远不挂播放器。
+    const [playingInspiration, setPlayingInspiration] = useState<CreationInspiration | null>(null);
     // 平台后台维护的广场目录优先；取不到时回落到仓库内的本地列表（桌面端与离线预览
     // 没有这份目录），而不是留一个空广场。
     const creationInspirationPool = remoteInspirations?.length ? remoteInspirations : localCreationInspirationPool;
@@ -846,10 +850,15 @@ export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode:
                     <span className="creation-featured-media"><img src={item.image} alt="" loading="lazy" /><span className="creation-skill-type">视频</span><span className="creation-skill-hover-use"><Sparkles />使用</span></span>
                     <span className="creation-featured-copy"><strong>{item.title}</strong><span>{item.description}</span><em><Sparkles />{item.author} · {item.uses}</em>
                     </span>
-                </button>) : filtered.slice(0, limit).map((item, index) => <CreationInspirationCard key={item.title} item={item} hero={index === 0} onStart={() => onStartPrompt(item.mode, item.prompt)} />)}
+                </button>) : filtered.slice(0, limit).map((item, index) => <CreationInspirationCard key={item.title} item={item} hero={index === 0} onStart={() => onStartPrompt(item.mode, item.prompt)} onPlay={item.videoUrl ? () => setPlayingInspiration(item) : undefined} />)}
         </div>
         {isSkill && skillSection === "mine" && mySkillsLoaded && !visibleSkills.length ? <div className="creation-skill-empty"><Sparkles /><strong>还没有安装 Skill</strong><span>上传、安装或创建一个 Skill 后，它会显示在这里。</span></div> : null}
         <CreationInspirationFooter shown={isSkill ? visibleSkills.length : Math.min(limit, filtered.length)} total={isSkill ? undefined : filtered.length} unit={isSkill ? "个 Skill" : "个创意"} />
+        {playingInspiration ? <CreationInspirationPlayer
+            item={playingInspiration}
+            onUse={() => { setPlayingInspiration(null); onStartPrompt(playingInspiration.mode, playingInspiration.prompt); }}
+            onClose={() => setPlayingInspiration(null)}
+        /> : null}
     </section>;
 }
 
