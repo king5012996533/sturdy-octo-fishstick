@@ -19,6 +19,7 @@ describe("运营后台分区接线", () => {
         { key: "tickets", pane: "TicketsPane", importPath: "./tickets-pane" },
         { key: "vendors", pane: "VendorsPane", importPath: "./vendors-pane" },
         { key: "pricing", pane: "PricingPane", importPath: "./pricing-pane" },
+        { key: "posts", pane: "PostsPane", importPath: "./posts-pane" },
     ];
 
     test("每个新分区都进了 AdminConsole（import + 联合类型 + 分区表）", () => {

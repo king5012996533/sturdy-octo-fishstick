@@ -53,6 +53,14 @@ type CreationInspirationView struct {
 	SortOrder   int       `json:"sortOrder"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+	// 以下字段区分「运营录入」与「用户投稿」：前台据此决定是否显示署名与"一键复用"，
+	// 后台审核页据此判断这条要不要审。平台条目的 ReviewStatus 恒为 APPROVED。
+	Origin       string     `json:"origin"`
+	ResourceID   string     `json:"resourceId"`
+	ReviewStatus string     `json:"reviewStatus"`
+	ReviewNote   string     `json:"reviewNote"`
+	ReviewedAt   *time.Time `json:"reviewedAt"`
+	ReuseCount   int        `json:"reuseCount"`
 }
 
 // CreationInspirationInput 是新建 / 编辑精选灵感的入参。
@@ -79,7 +87,7 @@ func (s *Service) AdminCreationInspirations() ([]CreationInspirationView, error)
 	if err != nil {
 		return nil, err
 	}
-	return creationInspirationViews(records), nil
+	return s.creationInspirationViews(records), nil
 }
 
 // CreationInspirationCatalog 返回前台可见的灵感目录，只含已上架条目。
@@ -88,7 +96,7 @@ func (s *Service) CreationInspirationCatalog() ([]CreationInspirationView, error
 	if err != nil {
 		return nil, err
 	}
-	return creationInspirationViews(records), nil
+	return s.creationInspirationViews(records), nil
 }
 
 // SaveCreationInspiration 新建或更新一条精选灵感。
@@ -125,7 +133,18 @@ func (s *Service) SaveCreationInspiration(input CreationInspirationInput) (*Crea
 
 	now := time.Now()
 	if record == nil {
-		record = &model.CreationInspiration{ID: id, CreatedAt: now}
+		// 新建一律是平台条目：后台这个入口只负责运营自录，用户投稿走 SubmitCreationPost，
+		// 若让它从这条路径进来，一句 origin 缺省就会把投稿伪装成"已审核通过"。
+		record = &model.CreationInspiration{
+			ID:           id,
+			CreatedAt:    now,
+			Origin:       model.CreationInspirationOriginPlatform,
+			ReviewStatus: model.CreationInspirationReviewApproved,
+		}
+	} else if record.Origin == "" {
+		// 迁移前的历史行 origin 为空串，编辑一次就地补齐，避免前台过滤条件一直要兼容空值。
+		record.Origin = model.CreationInspirationOriginPlatform
+		record.ReviewStatus = model.CreationInspirationReviewApproved
 	}
 	likes := input.Likes
 	if likes < 0 {
@@ -150,7 +169,7 @@ func (s *Service) SaveCreationInspiration(input CreationInspirationInput) (*Crea
 	if err := s.repo.SaveCreationInspiration(record); err != nil {
 		return nil, err
 	}
-	return creationInspirationView(record), nil
+	return s.creationInspirationView(record), nil
 }
 
 // DeleteCreationInspiration 删除一条精选灵感；目标不存在时按 not found 处理。
@@ -177,35 +196,70 @@ func creationInspirationCategory(raw string) string {
 	return truncateRunes(category, 80)
 }
 
-func creationInspirationView(record *model.CreationInspiration) *CreationInspirationView {
+func (s *Service) creationInspirationView(record *model.CreationInspiration) *CreationInspirationView {
 	if record == nil {
 		return nil
 	}
 	return &CreationInspirationView{
-		ID:          record.ID,
-		Title:       record.Title,
-		Description: record.Description,
-		CoverURL:    record.CoverURL,
-		Prompt:      record.Prompt,
-		Mode:        record.Mode,
-		Category:    record.Category,
-		Author:      record.Author,
-		Likes:       record.Likes,
-		SourceURL:   record.SourceURL,
-		Source:      record.Source,
-		Status:      string(record.Status),
-		Featured:    record.Featured,
-		SortOrder:   record.SortOrder,
-		CreatedAt:   record.CreatedAt,
-		UpdatedAt:   record.UpdatedAt,
+		ID:           record.ID,
+		Title:        record.Title,
+		Description:  record.Description,
+		CoverURL:     s.creationInspirationCoverURL(record),
+		Prompt:       record.Prompt,
+		Mode:         record.Mode,
+		Category:     record.Category,
+		Author:       record.Author,
+		Likes:        record.Likes,
+		SourceURL:    record.SourceURL,
+		Source:       record.Source,
+		Status:       string(record.Status),
+		Featured:     record.Featured,
+		SortOrder:    record.SortOrder,
+		CreatedAt:    record.CreatedAt,
+		UpdatedAt:    record.UpdatedAt,
+		Origin:       string(record.Origin),
+		ResourceID:   record.ResourceID,
+		ReviewStatus: string(record.ReviewStatus),
+		ReviewNote:   record.ReviewNote,
+		ReviewedAt:   record.ReviewedAt,
+		ReuseCount:   record.ReuseCount,
 	}
 }
 
 // creationInspirationViews 保证列表位置恒为数组，前端可以直接遍历。
-func creationInspirationViews(records []model.CreationInspiration) []CreationInspirationView {
+func (s *Service) creationInspirationViews(records []model.CreationInspiration) []CreationInspirationView {
 	views := make([]CreationInspirationView, 0, len(records))
 	for index := range records {
-		views = append(views, *creationInspirationView(&records[index]))
+		views = append(views, *s.creationInspirationView(&records[index]))
 	}
 	return views
+}
+
+// creationInspirationCoverURL 决定卡片封面用什么地址。
+//
+// 平台条目存的是维护好的静态路径（或外部示例素材地址），原样返回即可；用户投稿不存
+// 地址、只存 ResourceID，因为资源出口是带签名且有有效期的：把某一刻签好的链接写进库，
+// 过期后广场上就是一片死图，而封面失效在前台看起来和"这条灵感坏了"没有区别。
+//
+// 签名需要 CANVAS_PUBLIC_BASE_URL；没配置时回落到库里存的 CoverURL（投稿恒为空串），
+// 让"没配公网地址"退化成卡片没有封面，而不是整个目录接口 500。
+func (s *Service) creationInspirationCoverURL(record *model.CreationInspiration) string {
+	if record == nil {
+		return ""
+	}
+	if record.Origin != model.CreationInspirationOriginUser {
+		return record.CoverURL
+	}
+	if strings.TrimSpace(record.ResourceID) == "" {
+		return record.CoverURL
+	}
+	resource, err := s.repo.Resource(record.ResourceID)
+	if err != nil || resource == nil {
+		return record.CoverURL
+	}
+	signed, err := s.signedPublicResourceURL(resource, time.Now().Add(creationInspirationCoverTTL))
+	if err != nil {
+		return record.CoverURL
+	}
+	return signed
 }

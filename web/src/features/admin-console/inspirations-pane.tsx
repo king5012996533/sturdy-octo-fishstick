@@ -278,7 +278,7 @@ export function InspirationsPane() {
                 <div>
                     <h2 className="admin-section-title">精选灵感广场</h2>
                     <p className="admin-section-desc">
-                        首页精选灵感的唯一来源。上架的条目会出现在用户端广场里，推荐位用于前台优先曝光；下架只是撤出广场，内容仍保留可随时恢复或替换。
+                        首页精选灵感的运营入口，既有运营自己录入的条目，也有审核通过的用户投稿。上架的条目会出现在用户端广场里，推荐位用于前台优先曝光；下架只是撤出广场，内容仍保留可随时恢复或替换。
                     </p>
                 </div>
                 <div className="admin-settings-inline">

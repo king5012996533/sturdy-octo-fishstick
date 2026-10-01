@@ -249,6 +249,8 @@ func (e *Extension) RegisterRoutes(api *gin.RouterGroup) {
 	e.registerTemplateCatalogRoutes(api)
 	// 灵感广场：前台精选灵感（只读，仅返回已上架）。
 	e.registerInspirationCatalogRoutes(api)
+	// 投稿：用户把自己的生成产物发布到广场，等待人工审核。
+	e.registerCreationPostRoutes(api)
 	// 计费清理协程：超时未支付的订单必须由平台自己关闭（用户放弃支付后没人会手动取消），
 	// 否则待支付读数失真，且订单占用的优惠券永远不会归还。
 	e.startBillingJanitor()

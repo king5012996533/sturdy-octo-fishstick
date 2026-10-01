@@ -1,5 +1,5 @@
 import { DeleteButton } from "@/components/ui/base/buttons/delete-button";
-import { AlertTriangle, ArrowDownUp, AudioLines, Box, Check, CheckCheck, Clapperboard, Copy, Download, FileText, FileUp, FileX2, FolderOpen, FolderPlus, History, Image as ImageIcon, Images, LayoutGrid, Link2, List, Maximize2, MoreHorizontal, PencilLine, Play, Plus, RotateCcw, Search, SlidersHorizontal, Star, Trash2, Upload, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
+import { AlertTriangle, ArrowDownUp, AudioLines, Box, Check, CheckCheck, Clapperboard, Copy, Download, FileText, FileUp, FileX2, FolderOpen, FolderPlus, History, Image as ImageIcon, Images, LayoutGrid, Link2, List, Maximize2, MoreHorizontal, PencilLine, Play, Plus, RotateCcw, Search, Share2, SlidersHorizontal, Star, Trash2, Upload, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Drawer, Dropdown, Form, Input, Modal, Popconfirm, Progress, Select, Space, Tag, Typography } from "antd";
@@ -34,11 +34,28 @@ import { normalizeLocalAsset } from "@/lib/local-workspace-migration";
 import { useUserStore } from "@/stores/use-user-store";
 import { createAssetFolder, deleteAssetFolder, listAssetFolders, moveAssetsToFolder, updateAssetFolder, type AssetFolder } from "@/services/api/workspace-data";
 import { AssetBatchUploadModal } from "./asset-batch-upload-modal";
+import { PublishInspirationModal, type PublishableAsset } from "./publish-inspiration-modal";
 import "@/styles/assets-reference-baseline.css";
 import "@/styles/assets-frame-lock.css";
 import "@/styles/assets-final-lock.css";
 
 type LibraryAsset = Exclude<Asset, { kind: "entity" }>;
+
+/**
+ * 判断一件素材能不能发布到灵感广场，并给出投稿弹窗需要的默认值。
+ *
+ * 只有图片与视频能发布：广场卡片是"一张作品 + 一段提示词"，文本类素材没有可用于
+ * 封面的画面。产物必须能还原成平台资源 ID，投稿接口按资源归属校验身份，拿不出
+ * 资源 ID 的素材（浏览器本地暂存、尚未同步上云）发出去也只会被服务端挡回来，
+ * 不如在菜单里就不出现这个入口。
+ */
+function publishableAssetOf(asset: LibraryAsset): PublishableAsset | null {
+    if (asset.kind !== "image" && asset.kind !== "video") return null;
+    const url = asset.kind === "image" ? asset.data.dataUrl : asset.data.url;
+    const resourceId = ownedResourceIdFromMediaRef(asset.data.storageKey, url);
+    if (!resourceId) return null;
+    return { resourceId, kind: asset.kind, defaultTitle: asset.title || "", defaultPrompt: "" };
+}
 
 type AssetFormValues = {
     kind: AssetKind;
@@ -121,6 +138,10 @@ export default function AssetsPage() {
     const [previewAsset, setPreviewAsset] = useState<LibraryAsset | null>(null);
     const [deletingAsset, setDeletingAsset] = useState<LibraryAsset | null>(null);
     const [archivingAsset, setArchivingAsset] = useState<LibraryAsset | null>(null);
+    const [publishingAsset, setPublishingAsset] = useState<LibraryAsset | null>(null);
+    // 弹窗的 target 必须保持引用稳定：每次渲染新建对象会让弹窗把它当成"换了一件产物"
+    // 而重置表单，用户刚输入的标题与提示词会被悄悄清掉。
+    const publishingTarget = useMemo(() => (publishingAsset ? publishableAssetOf(publishingAsset) : null), [publishingAsset]);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
     const [batchArchiveOpen, setBatchArchiveOpen] = useState(false);
@@ -935,6 +956,8 @@ export default function AssetsPage() {
                                                     onRestore={() => void restoreAsset(asset)}
                                                     onArchive={() => setArchivingAsset(asset)}
                                                     onDelete={() => setDeletingAsset(asset)}
+                                                    // 投稿是平台侧能力：本地/桌面工作区没有这套接口，入口直接不出现。
+                                                    onPublish={localWorkspace ? undefined : () => setPublishingAsset(asset)}
                                                     folderOptions={folderSelectOptions}
                                                     onMoveToFolder={(folderId) => void moveAssetsToFolder([asset.id], folderId)}
                                                 />
@@ -1129,6 +1152,8 @@ export default function AssetsPage() {
 
             <AssetBatchUploadModal open={batchUploadOpen} defaultFolderId={folderFilter !== "all" && folderFilter !== "uncategorized" ? folderFilter : ""} folders={folders} onClose={() => setBatchUploadOpen(false)} onComplete={async () => { setBatchUploadOpen(false); await invalidateAssetLibrary(); }} />
 
+            <PublishInspirationModal target={publishingTarget} onClose={() => setPublishingAsset(null)} />
+
             <Modal
                 className="library-modal library-confirm-modal"
                 title={folderEditor === "new" ? "新建分类" : "重命名分类"}
@@ -1247,6 +1272,7 @@ function AssetCard({
     onRestore,
     onArchive,
     onDelete,
+    onPublish,
     folderOptions,
     onMoveToFolder,
 }: {
@@ -1264,6 +1290,8 @@ function AssetCard({
     onRestore?: () => void;
     onArchive?: () => void;
     onDelete: () => void;
+    /** 发布到灵感广场；本地工作区不带这个能力，为 undefined 时菜单里不出现入口。 */
+    onPublish?: () => void;
     folderOptions: Array<{ label: string; value: string }>;
     onMoveToFolder: (folderId: string) => void;
 }) {
@@ -1275,6 +1303,7 @@ function AssetCard({
               { key: "tags", icon: <PencilLine className="size-3.5" />, label: "编辑标签", onClick: onEditTags },
               ...(asset.kind === "text" ? [{ key: "copy", icon: <Copy className="size-3.5" />, label: "复制文本", onClick: () => void onCopy(asset) }] : []),
               ...(asset.kind === "image" || asset.kind === "video" || asset.kind === "audio" || asset.kind === "model" ? [{ key: "download", icon: <Download className="size-3.5" />, label: "下载", onClick: () => onDownload(asset) }] : []),
+              ...(onPublish && publishableAssetOf(asset) ? [{ key: "publish", icon: <Share2 className="size-3.5" />, label: "发布到灵感广场", onClick: onPublish }] : []),
               { key: "favorite", icon: <Star className="size-3.5" />, label: asset.metadata?.favorite === true ? "取消收藏" : "收藏", onClick: onToggleFavorite },
               { key: "move", icon: <FolderOpen className="size-3.5" />, label: "移动到分类", children: folderOptions.map((folder) => ({ key: folder.value || "uncategorized", label: folder.label, onClick: () => onMoveToFolder(folder.value) })) },
               { type: "divider" as const },

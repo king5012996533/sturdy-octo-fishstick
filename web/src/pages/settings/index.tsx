@@ -8,6 +8,7 @@ import { useUserStore } from "@/stores/use-user-store";
 import { AccountOverviewPane } from "./account-overview-pane";
 import { ChannelSettingsPane, channelValidationError, focusInvalidChannelField, isChannelReady } from "./channel-settings-pane";
 import { ModelDefaultGrid } from "./model-default-grid";
+import { MyCreationPostsCard } from "./my-creation-posts-card";
 
 type ConfigSectionKey = "channels" | "models";
 
@@ -85,6 +86,7 @@ export default function SettingsPage() {
             <main className="settings-page app-workspace-page app-user-workspace flex h-full min-h-0 flex-col text-foreground">
                 <div className="app-workspace-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 md:px-6">
                     <AccountOverviewPane />
+                    <MyCreationPostsCard />
                 </div>
             </main>
         );

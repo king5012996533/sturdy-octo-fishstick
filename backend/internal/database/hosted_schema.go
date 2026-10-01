@@ -40,6 +40,18 @@ func MigrateHostedSharedSchema(db *gorm.DB) error {
 	); err != nil {
 		return fmt.Errorf("迁移托管共享结构: %w", err)
 	}
+	// 灵感广场从"运营独占"扩成"运营精选 + 用户投稿"时新增了来源与审核结论两列。
+	// 存量行都是运营手工录入的平台内容，这里补上取值，让前台的可见性判断不必再写
+	// 一套 NULL 兼容分支——"空来源"一旦要在查询里兜底，就会在每个新查询里再兜一次。
+	// 语句按"来源为空"过滤，重复执行无副作用。
+	if err := db.Model(&model.CreationInspiration{}).
+		Where("origin IS NULL OR origin = ?", "").
+		Updates(map[string]any{
+			"origin":        model.CreationInspirationOriginPlatform,
+			"review_status": model.CreationInspirationReviewApproved,
+		}).Error; err != nil {
+		return fmt.Errorf("回填灵感广场来源: %w", err)
+	}
 	return nil
 }
 

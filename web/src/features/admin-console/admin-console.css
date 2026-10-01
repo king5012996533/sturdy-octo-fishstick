@@ -601,6 +601,28 @@
     max-width: 200px;
 }
 
+/* 投稿审核：一列里同时放封面缩略图与标题/摘要，封面必须固定尺寸而不是按原图撑开，
+   否则竖版视频封面会把整行拉到几百像素高。 */
+.admin-post-cell {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+}
+
+.admin-post-cover {
+    width: 56px;
+    height: 56px;
+    flex: none;
+    object-fit: cover;
+    border-radius: 6px;
+    background: var(--admin-field, rgba(127, 127, 127, 0.12));
+}
+
+.admin-post-cover.is-empty {
+    display: block;
+}
+
 .admin-canvas-meta {
     display: flex;
     flex-wrap: wrap;
