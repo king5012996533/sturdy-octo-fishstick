@@ -44,6 +44,8 @@ func EnsureDevSchema(db *gorm.DB) error {
 	models = append(models, PricingModels()...)
 	// 积分账户与流水同样只在开发库建表：生产结构归 Prisma 迁移，理由与上面几个域一致。
 	models = append(models, CreditModels()...)
+	// 注销申请同理：自助注销只在托管实例里开放，本地桌面没有账号库也就没有这张表。
+	models = append(models, AccountDeletionModels()...)
 	if err := db.AutoMigrate(models...); err != nil {
 		return err
 	}
@@ -62,6 +64,9 @@ func EnsureDevSchema(db *gorm.DB) error {
 		return err
 	}
 	if err := EnsureCreditSchema(db); err != nil {
+		return err
+	}
+	if err := EnsureAccountDeletionSchema(db); err != nil {
 		return err
 	}
 

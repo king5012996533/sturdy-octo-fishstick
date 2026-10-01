@@ -406,6 +406,8 @@ type accountOverviewResponse struct {
 // 认证模块自身、却要读写账号信息的接口。
 func (e *Extension) registerAccountRoutes(api *gin.RouterGroup) {
 	api.GET("/finance/account", e.handleAccountOverview)
+	// 自助注销：申请 / 查询状态 / 冷静期内撤销。
+	e.registerAccountDeletionRoutes(api)
 }
 
 func (e *Extension) handleAccountOverview(c *gin.Context) {

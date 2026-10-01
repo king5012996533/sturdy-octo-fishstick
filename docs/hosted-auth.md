@@ -145,6 +145,36 @@ curl -s -b cookies.txt localhost:8080/api/workspace/bootstrap
 `web/public/beef-logo.png`、`beef-mark.png`、`logo.svg` 已无任何代码引用，但暂未删除：存量数据库的
 `system_setting.appearance` 里可能仍存着 `/logo.svg`，删文件会让那个值 404。确认线上没有引用后再清理。
 
+## 账号注销
+
+用户自助注销，入口在「设置 → 账户与用量 → 注销账号」。流程是**申请 → 冷静期 → 到期匿名化**，
+不是点一下即删：注销不可逆，而账号背后可能还挂着没跑完的生成任务、未结算的订单和没导出的作品。
+
+| 动作 | 接口 | 说明 |
+| --- | --- | --- |
+| 查询状态 | `GET /api/finance/account/deletion` | 无申请时 `status=NONE` |
+| 提交申请 | `POST /api/finance/account/deletion` | 需 `methodType` + `code`，可选 `reason` |
+| 撤销申请 | `DELETE /api/finance/account/deletion` | 冷静期内可撤销；无申请时 404 |
+
+实现落在 `auth` 域的 `account_deletion.go`（表 `auth_account_deletions`）与托管层的
+`hosted/account_deletion.go`（路由 + 到期执行协程）。
+
+**确认身份**：验证码必须发到账号自己绑定的邮箱或手机号。请求体里的目标不参与校验——
+否则任何人只要有一个收得到验证码的邮箱，就能注销别人的账号。验证码复用登录场景
+（同一 `scene`），因此不存在「注销专用验证码」这种旁路。
+
+**冷静期**：默认 7 天（`AccountDeletionGraceDays`），到期前可随时撤销。同一账号同时只
+允许一条待执行申请，重复申请按重新计时处理；两条并存会让到期扫描对同一个人跑两遍匿名化。
+
+**到期执行**：托管层协程每小时执行一次（启动时先扫一遍，补上停机期间到期的申请）。
+执行是**匿名化**而不是物理删除——账号行保留（账本、订单、审计按 `user_id` 外键指向它），
+但 `username`/`email`/`phone`/`password_hash`/`avatar_url` 置 NULL、展示名改为「已注销用户」、
+状态改为 `DISABLED`，并删除第三方身份绑定、吊销全部会话。
+三个唯一索引上的列必须置 NULL 而不是空串：空串会让第二个注销的账号撞唯一约束而失败。
+
+**保留范围**：订单、积分流水等交易记录按法律法规要求继续保留；账号内剩余积分不折现退还。
+这两条都写在注销弹窗里，用户按下按钮前能看到。
+
 ## 尚未完成
 
 - **GitHub OAuth**：需要注册 OAuth App 并把回调填成 `https://<域名>/api/auth/oauth/callback`。
@@ -156,7 +186,6 @@ curl -s -b cookies.txt localhost:8080/api/workspace/bootstrap
   按账号隔离是独立的一块工作。
 - **设置/重置密码**：密码通道已可用，但「验证码 + 新密码」的设置入口还没做，所以用验证码
   注册的老用户暂时设不上密码，密码注册的用户忘记密码也没有自助找回路径。
-- **账号注销**：注册入口已独立（登录不再静默建号），但「注销账号」尚未实现。
 - **验证码尝试次数上限**：6 位码在 5 分钟内可被枚举。要封住需要在 CanvasMind 侧加
   「失败次数」列并让 `ConsumeCode` 累加，属于跨仓改动，尚未做。
 

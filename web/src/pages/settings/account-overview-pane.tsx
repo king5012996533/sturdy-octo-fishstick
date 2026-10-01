@@ -6,6 +6,8 @@ import { useNavigate } from "react-router";
 import { formatBytes, formatCount, formatDateTime, formatTokens } from "@/lib/format-usage";
 import { http } from "@/services/api/request";
 
+import { AccountDeletionCard, type AccountDeletionChannel } from "./account-deletion-card";
+
 type AccountAgreement = {
     agreementType: string;
     version: string;
@@ -192,10 +194,23 @@ export function AccountOverviewPane() {
                         <h3 className="account-block-title">计费</h3>
                         <p className="account-sub">{payload.billing.note}</p>
                     </section>
+
+                    <AccountDeletionCard channels={deletionChannelsOf(payload)} />
                 </>
             ) : loading ? (
                 <p className="account-sub">正在读取账户信息…</p>
             ) : null}
         </div>
     );
+}
+
+/**
+ * 注销只能用账号自己绑定过的渠道确认身份，因此这里只把已绑定的邮箱/手机号交给
+ * 面板：未绑定的渠道点进去也只会得到一句"未绑定"，不如一开始就不出现。
+ */
+function deletionChannelsOf(payload: AccountOverview): AccountDeletionChannel[] {
+    const channels: AccountDeletionChannel[] = [];
+    if (payload.account.email) channels.push({ methodType: "EMAIL_CODE", label: "邮箱", target: payload.account.email });
+    if (payload.account.phone) channels.push({ methodType: "PHONE_CODE", label: "手机号", target: payload.account.phone });
+    return channels;
 }

@@ -50,6 +50,10 @@ type Extension struct {
 	// 数据库连接，否则最后一轮清理会打到已关闭的连接上。
 	janitorOnce sync.Once
 	janitorStop chan struct{}
+	// accountJanitor 是到期注销的执行协程开关。它与计费清理分开计数：两者的
+	// 周期与失败语义都不同，共用一个 Once 会让其中一个再也起不来。
+	accountJanitorOnce sync.Once
+	accountJanitorStop chan struct{}
 }
 
 // billingJanitorInterval 是超时订单清理周期。
@@ -248,6 +252,9 @@ func (e *Extension) RegisterRoutes(api *gin.RouterGroup) {
 	// 计费清理协程：超时未支付的订单必须由平台自己关闭（用户放弃支付后没人会手动取消），
 	// 否则待支付读数失真，且订单占用的优惠券永远不会归还。
 	e.startBillingJanitor()
+	// 注销执行协程：冷静期到期后必须真的把账号匿名化，"申请了但没人执行"等于
+	// 对用户承诺的删除没有兑现。
+	e.startAccountDeletionJanitor()
 }
 
 // startBillingJanitor 启动超时订单清理：先立刻扫一遍（补上停机期间积压的超时订单），
@@ -293,6 +300,10 @@ func (e *Extension) Close() error {
 	if e.janitorStop != nil {
 		close(e.janitorStop)
 		e.janitorStop = nil
+	}
+	if e.accountJanitorStop != nil {
+		close(e.accountJanitorStop)
+		e.accountJanitorStop = nil
 	}
 	if e.db == nil {
 		return nil
