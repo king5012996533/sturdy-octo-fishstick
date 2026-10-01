@@ -1,4 +1,3 @@
-import { inspirationSource } from "./creation-inspirations";
 import { libtvSampleSource } from "./creation-inspirations-libtv";
 
 /**
@@ -21,10 +20,8 @@ export function CreationInspirationFooter({ shown, total, unit }: { shown: numbe
             <div className="creation-inspiration-index">
                 <details className="creation-inspiration-sources-fold">
                     <summary>模板与封面来源</summary>
-                    <p>{inspirationSource.notice}</p>
                     <p>{libtvSampleSource.notice}</p>
                     <div className="creation-inspiration-sources">
-                        <a href={inspirationSource.repository} target="_blank" rel="noreferrer">awesome-chatgpt-prompts · CC0</a>
                         <a href={libtvSampleSource.site} target="_blank" rel="noreferrer">LibTV 公开作品页 · 示例素材</a>
                     </div>
                 </details>

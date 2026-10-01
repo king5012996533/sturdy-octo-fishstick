@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
-import { creationFeaturedWorks, inspirationFromRecord, inspirationSource, type CreationInspiration } from "../src/pages/create/creation-inspirations";
+import { inspirationFromRecord, type CreationInspiration } from "../src/pages/create/creation-inspirations";
 import { creationLibtvInspirations, libtvSampleSource } from "../src/pages/create/creation-inspirations-libtv";
 import type { CreationInspirationRecord } from "../src/services/api/creation-inspirations";
 
@@ -30,27 +28,9 @@ function catalogRecord(overrides: Partial<CreationInspirationRecord> = {}): Crea
     };
 }
 
-describe("curated creation inspirations", () => {
-    test("all templates have unique titles, usable prompts and local cover assets", () => {
-        expect(creationFeaturedWorks.length).toBe(22);
-        expect(new Set(creationFeaturedWorks.map((item) => item.title)).size).toBe(22);
-        for (const item of creationFeaturedWorks) {
-            expect(["image", "video", "text"]).toContain(item.mode);
-            expect(item.prompt.length).toBeGreaterThan(35);
-            expect(existsSync(resolve(import.meta.dir, "../public", item.image.slice(1)))).toBe(true);
-        }
-    });
-    test("adapted prompts retain provenance and the data license", () => {
-        expect(creationFeaturedWorks.filter((item) => item.source).length).toBe(8);
-        expect(inspirationSource.license).toBe("CC0-1.0");
-        expect(inspirationSource.revision).toMatch(/^[a-f0-9]{40}$/);
-        expect(inspirationSource.notice).toContain("不代表实际生成结果");
-    });
-});
-
 describe("LibTV sample inspirations", () => {
     test("每条示例素材都能直接使用：远程封面、可追溯来源、非空提示词", () => {
-        expect(creationLibtvInspirations.length).toBeGreaterThan(20);
+        expect(creationLibtvInspirations.length).toBe(58);
         expect(new Set(creationLibtvInspirations.map((item) => item.title)).size).toBe(creationLibtvInspirations.length);
         for (const item of creationLibtvInspirations) {
             expect(["image", "video", "text"]).toContain(item.mode);
@@ -62,15 +42,23 @@ describe("LibTV sample inspirations", () => {
             expect(item.author?.length).toBeGreaterThan(0);
         }
     });
-    test("示例素材与原创列表分开维护，且不冒充原创或 CC0", () => {
-        const curated = new Set(creationFeaturedWorks.map((item) => item.title));
+    test("广场上不再混自编占位条目：没有本地示意图，也没有冒充原创或 CC0", () => {
         for (const item of creationLibtvInspirations) {
-            expect(curated.has(item.title)).toBe(false);
+            // 本地示意图（/short-drama-styles/*.jpg）曾用来顶替作品封面，和标题对不上，
+            // 是这一批数据要消灭的东西：封面必须来自作品自己的 CDN。
+            expect(item.image.startsWith("/")).toBe(false);
+            expect(item.sourceUrl).toBeDefined();
             // 示例素材没有 source（那是"开源改编 · CC0"的标记），避免页脚把它标成 CC0。
             expect(item.source).toBeUndefined();
         }
         expect(libtvSampleSource.notice).toContain("上线前");
         expect(libtvSampleSource.site).toContain("liblib.tv");
+    });
+    test("每条视频都有真实时长角标：时长来自成片本身，不是手填的样值", () => {
+        const videos = creationLibtvInspirations.filter((item) => item.mode === "video");
+        expect(videos.length).toBeGreaterThan(50);
+        for (const item of videos) expect(item.duration).toMatch(/^\d{2}:\d{2}$/);
+        for (const item of creationLibtvInspirations.filter((entry) => entry.mode !== "video")) expect(item.duration).toBeUndefined();
     });
 });
 

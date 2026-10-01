@@ -48,7 +48,7 @@ import { creationAttachmentKind, creationMediaAspectRatio, removeCreationAttachm
 import { conversationTimestamp, isImageAttachment, isVideoAttachment } from "./creation-conversations";
 import { conversationTimeFormatter, countOptions, historyDayFormatter, messageTimeFormatter, modeLabels, qualityOptions, ratioOptions, resolutionOptions, shotScriptLabels, type CreationConversation, type CreationMessage, type CreationShotRailEntry, type CreationStatus } from "./creation-types";
 import "./creation-product.css";
-import { creationFeaturedWorks, type CreationInspiration } from "./creation-inspirations";
+import type { CreationInspiration } from "./creation-inspirations";
 import { loadCreationInspirations } from "./creation-inspirations-source";
 import { creationLibtvInspirations } from "./creation-inspirations-libtv";
 import { CreationInspirationCard } from "./creation-inspiration-card";
@@ -834,7 +834,12 @@ export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode:
             </div>
             {skillSection === "mine" ? <button type="button" className="creation-skill-create" onClick={() => navigate("/skills?create=1")}><Plus size={16} />创建 Skill</button> : null}
         </div> : <div className="creation-inspiration-filters" role="group" aria-label="灵感类型">
-            {(["all", "video", "image", "text"] as const).map((value) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => { setFilter(value); setLimit(13); }}>{value === "all" ? "全部灵感" : modeLabels[value]}<span>{creationInspirationPool.filter((item) => value === "all" || item.mode === value).length}</span></button>)}
+            {(["all", "video", "image", "text"] as const)
+                // 0 条的分类不渲染：广场内容全部来自真实作品，某一类暂时没有就该整档消失，
+                // 留一个写着"0"的按钮只会让人以为加载失败了。
+                .map((value) => ({ value, count: creationInspirationPool.filter((item) => value === "all" || item.mode === value).length }))
+                .filter((tab) => tab.value === "all" || tab.count > 0)
+                .map(({ value, count }) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => { setFilter(value); setLimit(13); }}>{value === "all" ? "全部灵感" : modeLabels[value]}<span>{count}</span></button>)}
         </div>}
         <div className={`creation-featured-layout ${isSkill ? "creation-skill-grid" : ""}`}>
                 {isSkill ? visibleSkills.map((item) => <button key={item.title} type="button" className="product-collection-card creation-featured-card creation-skill-card" onClick={() => onStartPrompt("video", item.prompt)}>
@@ -848,9 +853,9 @@ export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode:
     </section>;
 }
 
-// 本地兜底列表 = LibTV 示例素材（占位）+ 我们自己的原创列表；示例素材单独成文件，删掉即可恢复纯原创。
-// 后台接口可用时前台用接口数据，这两份常量只在接口拿不到时生效。
-const localCreationInspirationPool = [...creationLibtvInspirations, ...creationFeaturedWorks];
+// 本地兜底列表 = LibTV 公开作品示例素材，单独成文件。
+// 后台接口可用时前台用接口数据，这份常量只在接口拿不到时生效。
+const localCreationInspirationPool = [...creationLibtvInspirations];
 
 type CreationThinking = { title: string; hint: string; steps: string[]; activity: string };
 
