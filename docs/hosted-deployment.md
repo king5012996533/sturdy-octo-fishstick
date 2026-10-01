@@ -104,6 +104,29 @@ HTTPS_PROXY=http://<可出海的代理>:<端口>
 `socks5://`；后端已经把它接进出站传输（`internal/outbound`），配了就会走代理，
 代理主机本身也不会被自建的 SSRF 规则拦下。
 
+## 广场封面抓取
+
+灵感广场的平台条目只把封面当"素材地址"存，早期是直接热链 LibTV 的图床。上游一加
+防盗链或改目录规则，广场就是一片死图，所以在 `cmd/inspiration-covers` 里留了一条
+一次性维护命令：把外链封面抓回本地资源库，条目改挂 `resource_id`，出口换成平台自己
+的签名地址（见 `app.HarvestInspirationCovers`）。
+
+```bash
+cd /tmp/kinotv-src/backend
+CGO_ENABLED=1 GOFLAGS=-mod=mod GOSUMDB=off GOPROXY=https://goproxy.cn,direct \
+  go build -o /tmp/inspiration-covers ./cmd/inspiration-covers
+cd /opt/kinotv
+CANVAS_BACKEND_DATA_DIR=/opt/kinotv/data CANVAS_DATABASE_DRIVER=sqlite /tmp/inspiration-covers
+```
+
+资源 ID 由源地址确定性派生，所以重跑只会复用、不会重复下载；上游换了图但地址没变时
+加 `-overwrite`。抓下来的文件落在 `data/resources/users/platform-inspiration-covers/`，
+归属一个固定的虚拟用户，不会混进任何人的"我的资源"。有失败会返回非零退出码——
+截断响应和防盗链这类问题会成片出现，静默成功比失败更难查。
+
+`cover_url` 列仍然保留原外链，只在签名不可用（没配 `CANVAS_PUBLIC_BASE_URL`）时兜底；
+运营在后台改封面地址会顺手清掉 `resource_id`，否则签名地址会一直压过新填的 URL。
+
 ## 日常操作
 
 ```bash
@@ -144,11 +167,28 @@ server {
         try_files $uri =404;
     }
 
+    # 根路径与 index.html 都必须每次协商，不能靠浏览器启发式缓存。
+    location = / {
+        add_header Cache-Control "no-cache" always;
+        try_files /index.html =404;
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-cache" always;
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }
 }
 ```
+
+**SPA 入口必须显式关掉缓存。** `index.html` 的文件名不带内容哈希，"是否还有效"
+只能靠协商；nginx 默认不给它 `Cache-Control`，浏览器就会按 `Last-Modified` 做启发式
+缓存。后果不是"多等几分钟"：发布时旧 chunk 已经被删掉，被钉在旧 `index.html` 上的
+浏览器会去请求一个 404 的 JS，页面直接白屏，而服务端日志看起来一切正常（新 chunk
+确实有人拉到了）。`/` 和 `/index.html` 要分开写——根路径会走 `try_files` 的"目录存在"
+分支留在 `location /` 上下文里，吃不到 `location = /index.html` 那条头。
 
 证书用 `certbot --nginx -d kinotv.xingtudesign.com`，续期走同一条 HTTP-01 路径，
 `/etc/letsencrypt/renewal/kinotv.xingtudesign.com.conf` 里 `authenticator = nginx`。
