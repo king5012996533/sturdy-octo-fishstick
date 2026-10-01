@@ -159,7 +159,13 @@ func (s *Service) SaveCreationInspiration(input CreationInspirationInput) (*Crea
 	}
 	record.Title = title
 	record.Description = truncateRunes(strings.TrimSpace(input.Description), creationInspirationDescriptionMaxLen)
-	record.CoverURL = truncateRunes(strings.TrimSpace(input.CoverURL), 1000)
+	coverURL := truncateRunes(strings.TrimSpace(input.CoverURL), 1000)
+	if coverURL != record.CoverURL {
+		// 运营改了封面地址，说明这一版就是要用新地址覆盖：本地资源引用必须一起失效，
+		// 否则签名地址会一直压过刚填的 URL，封面看起来"改不动"。
+		record.ResourceID = ""
+	}
+	record.CoverURL = coverURL
 	record.Prompt = truncateRunes(strings.TrimSpace(input.Prompt), creationInspirationPromptMaxLen)
 	record.Mode = mode
 	record.Category = creationInspirationCategory(input.Category)
@@ -247,18 +253,19 @@ func (s *Service) creationInspirationViews(records []model.CreationInspiration) 
 
 // creationInspirationCoverURL 决定卡片封面用什么地址。
 //
-// 平台条目存的是维护好的静态路径（或外部示例素材地址），原样返回即可；用户投稿不存
-// 地址、只存 ResourceID，因为资源出口是带签名且有有效期的：把某一刻签好的链接写进库，
-// 过期后广场上就是一片死图，而封面失效在前台看起来和"这条灵感坏了"没有区别。
+// 只要条目挂了 ResourceID 就走签名出口，不再区分平台条目还是投稿：资源地址带签名和
+// 有效期，把某一刻签好的链接写进库，过期后广场上就是一片死图，而封面失效在前台看起来
+// 和"这条灵感坏了"没有区别。
 //
-// 签名需要 CANVAS_PUBLIC_BASE_URL；没配置时回落到库里存的 CoverURL（投稿恒为空串），
-// 让"没配公网地址"退化成卡片没有封面，而不是整个目录接口 500。
+// 平台条目同样可能有 ResourceID——运营抓下来的外部素材就是这样落库的
+// （见 app.HarvestInspirationCovers），它和投稿共用同一套出口。
+//
+// 签名需要 CANVAS_PUBLIC_BASE_URL；没配置或签名失败时回落到库里存的 CoverURL，
+// 让"没配公网地址"退化成热链旧地址，而不是整个目录接口 500。投稿的 CoverURL 恒为空串，
+// 此时卡片没有封面——这是已知取舍，好过让广场目录挂掉。
 func (s *Service) creationInspirationCoverURL(record *model.CreationInspiration) string {
 	if record == nil {
 		return ""
-	}
-	if record.Origin != model.CreationInspirationOriginUser {
-		return record.CoverURL
 	}
 	if strings.TrimSpace(record.ResourceID) == "" {
 		return record.CoverURL

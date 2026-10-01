@@ -22,7 +22,8 @@ func newInspirationTestService(t *testing.T) *Service {
 		sqlDB.SetMaxOpenConns(1)
 	}
 	// 灵感、审计与 ID 序列都要建：新建灵感会走 NextPrefixedID 生成主键。
-	if err := db.AutoMigrate(&model.CreationInspiration{}, &model.AdminAuditEvent{}, &model.IDSequence{}); err != nil {
+	// 资源表同样要建：平台封面会被抓进本地资源库（见 inspiration_cover_harvest_test.go）。
+	if err := db.AutoMigrate(&model.CreationInspiration{}, &model.AdminAuditEvent{}, &model.IDSequence{}, &model.Resource{}); err != nil {
 		t.Fatal(err)
 	}
 	return New(repository.New(db), t.TempDir())
