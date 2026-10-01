@@ -39,13 +39,14 @@ func (s *Service) emailCodeStrategy() *Strategy {
 				return nil, internalFailure(err)
 			}
 			expiresAt := s.now().Add(codeTTL(s.codeExpireMinutes))
-			if err := s.store.InvalidateActiveCodes(MethodEmailCode, email, codeScene); err != nil {
+			scene := sendCodeScene(in.Scene)
+			if err := s.store.InvalidateActiveCodes(MethodEmailCode, email, scene); err != nil {
 				return nil, internalFailure(err)
 			}
 			record := &VerificationCode{
 				MethodType:  MethodEmailCode,
 				Channel:     ChannelEmail,
-				Scene:       codeScene,
+				Scene:       scene,
 				Target:      email,
 				Code:        code,
 				ExpiresAt:   expiresAt,

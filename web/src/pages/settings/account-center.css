@@ -135,6 +135,51 @@
     object-fit: cover;
 }
 
+/* 头像本身就是上传按钮：点哪张图就改哪张图，不需要在旁边再解释一次。
+   button 的默认内边距与居中在这里要抹平，否则那张 56px 的圆会被挤成椭圆。 */
+.account-avatar-button {
+    padding: 0;
+    cursor: pointer;
+    transition: border-color var(--user-motion), box-shadow var(--user-motion);
+}
+
+.account-avatar-button:hover:not(:disabled),
+.account-avatar-button:focus-visible {
+    border-color: var(--user-accent);
+    outline: none;
+}
+
+.account-avatar-button:disabled {
+    cursor: progress;
+    opacity: 0.6;
+}
+
+/* 原生 file input 不参与排版：它的外观在各浏览器之间无法统一，也没有可承载的信息。 */
+.account-avatar-input {
+    display: none;
+}
+
+/* 页脚里的次要动作：与 antd 文字按钮同一形态，但这里是原生 button，
+   不能继承 .account-quiet-button.ant-btn 那条重置。 */
+.account-link-button {
+    border: 0;
+    background: none;
+    padding: 0;
+    font-size: 13px;
+    color: var(--user-ink-soft);
+    cursor: pointer;
+    transition: color var(--user-motion);
+}
+
+.account-link-button:hover:not(:disabled) {
+    color: var(--destructive);
+}
+
+.account-link-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
 .account-field {
     display: flex;
     flex-direction: column;

@@ -14,6 +14,7 @@ import (
 
 	"infinite-canvas/backend/internal/app"
 	"infinite-canvas/backend/internal/auth"
+	"infinite-canvas/backend/internal/avatar"
 	"infinite-canvas/backend/internal/bootstrap"
 	"infinite-canvas/backend/internal/database"
 	"infinite-canvas/backend/internal/handler"
@@ -44,6 +45,9 @@ type Extension struct {
 	canvas  *app.Service
 	db      *gorm.DB
 	dataDir string
+	// avatars 是账号头像的文件存储。刻意与 canvas 的资源存储分开，理由见
+	// internal/avatar：资源管线会回收没有画布引用的对象，而头像的引用不在画布库里。
+	avatars *avatar.Store
 	ensure  func(userID string, displayName string) error
 	cookie  auth.CookieOptions
 	// janitor 是计费侧的清理协程开关。只允许启动一次，Close 时必须先停它再断开
@@ -117,6 +121,7 @@ func New(deps bootstrap.HostedDeps, options Options) (bootstrap.HostedExtension,
 		canvas:  deps.Service,
 		db:      db,
 		dataDir: deps.DataDir,
+		avatars: avatar.NewStore(deps.DataDir),
 		cookie:  auth.CookieOptions{Secure: options.CookieSecure},
 	}
 	if deps.Service != nil {
@@ -176,7 +181,7 @@ func smsSender() auth.SMSSender {
 // 一张安全边界清单，必须一眼看全，不能散落在各文件里。放行也不等于放权——回调的
 // 准入是渠道验签与金额核对（HandleBillingCallback），中间件只负责别提前判 401。
 var anonymousPathPrefixes = []string{auth.BasePath, "/api/public/appearance", "/api/public/resources",
-	billingCallbackPathPrefix}
+	"/api/public/avatars", billingCallbackPathPrefix}
 
 func isAnonymousPath(path string) bool {
 	for _, prefix := range anonymousPathPrefixes {
@@ -238,6 +243,8 @@ func (e *Extension) RegisterRoutes(api *gin.RouterGroup) {
 	e.registerAccountRoutes(api)
 	// 资源下载：供模型上游拉取参考素材，准入靠签名而非会话。
 	e.registerPublicResourceRoutes(api)
+	// 头像：地址按账号寻址、不带签名，准入是"该账号当前还在用平台头像"。
+	e.registerPublicAvatarRoute(api)
 	e.registerOwnCanvasModerationRoutes(api)
 	// 计费：套餐货架、结算试算、下单与支付（用户端，主体恒为会话账号）。
 	e.registerBillingRoutes(api)

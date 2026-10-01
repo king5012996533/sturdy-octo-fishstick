@@ -5,7 +5,8 @@ import { MemoryRouter } from "react-router";
 
 import { detectHostedAuth, type HostedAuthMethod } from "../src/features/hosted-auth/api";
 import { resolveHostedAuthGatePhase } from "../src/features/hosted-auth/gate";
-import { HostedAuthLoginPage, isValidPasswordInput, isValidPasswordTargetInput, isValidPhoneInput, normalizePhoneInput, oauthRedirectUri, resolveDevCodeHint, shouldOfferRegistration } from "../src/features/hosted-auth/login-page";
+import { isValidPasswordInput, isValidPasswordTargetInput, isValidPhoneInput, normalizePhoneInput, resolveDevCodeHint } from "../src/features/hosted-auth/credentials";
+import { HostedAuthLoginPage, oauthRedirectUri, shouldOfferRegistration } from "../src/features/hosted-auth/login-page";
 import { HostedAuthAccountPanel, HostedAuthSidebarFooter, hostedAuthIdentityLabel, performHostedAuthLogout } from "../src/features/hosted-auth/sidebar-footer";
 import { ApiError, apiClient } from "../src/services/api/request";
 

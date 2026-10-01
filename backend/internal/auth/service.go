@@ -240,7 +240,7 @@ func (s *Service) SendCode(ctx context.Context, input SendCodeInput) (*SendCodeO
 	}
 	input.Config = *config
 
-	issuedAt, err := s.store.LatestCodeIssuedAt(input.MethodType, strings.TrimSpace(input.Target), "login")
+	issuedAt, err := s.store.LatestCodeIssuedAt(input.MethodType, strings.TrimSpace(input.Target), sendCodeScene(input.Scene))
 	if err != nil {
 		return nil, internalFailure(err)
 	}

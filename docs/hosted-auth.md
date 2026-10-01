@@ -186,7 +186,9 @@ curl -s -b cookies.txt localhost:8080/api/workspace/bootstrap
 | --- | --- | --- |
 | 积分（首屏） | `GET /api/finance/wallet` | `hosted/credit.go` → `pages/settings/account-credits-card.tsx` |
 | 资料（昵称 / 头像） | `GET`、`PATCH /api/finance/account/profile` | `auth/account_profile.go` + `hosted/account_profile.go` |
+| 头像图片 | `POST`、`DELETE /api/finance/account/avatar`；公开读 `GET /api/public/avatars/:userId` | `auth/account_avatar.go` + `hosted/account_avatar.go` |
 | 密码 | `GET`、`POST`、`PUT /api/finance/account/password` | `auth/account_password.go` + `hosted/account_password.go` |
+| 忘记密码 | `POST /api/auth/password/reset/code`、`POST /api/auth/password/reset` | `auth/password_reset.go` + `auth/handler_password_reset.go` |
 | 登录设备（更多） | `GET /api/finance/account/sessions`、`DELETE /api/finance/account/sessions/:id`、`POST /api/finance/account/sessions/revoke-others` | `auth/account_sessions.go` + `hosted/account_sessions.go` |
 | 身份绑定（更多） | `GET /api/finance/account/bindings`、`POST /api/finance/account/bindings/code`、`POST /api/finance/account/bindings` | `auth/account_bindings.go` + `hosted/account_bindings.go` |
 | 用量与协议留痕（更多） | `GET /api/finance/account` | `hosted/admin.go` → `pages/settings/account-usage-card.tsx` |
@@ -214,13 +216,49 @@ curl -s -b cookies.txt localhost:8080/api/workspace/bootstrap
 存在且状态可用）、`accountVerificationTarget` 与 `consumeAccountCode`（验证码必须发到并
 校验账号**自己绑定**的地址）。不抽这一段，四条路径会各自长出一份略有差异的校验。
 
-**密码**：没有密码的走「验证码 → 新密码」，已有密码的走「旧密码 → 新密码」。两条路径
-都保留发起操作的这台设备、吊销其余会话——改完密码旧会话继续有效，正是账号被盗后攻击者
-最想要的结果。密码只卡长度（≥8，上下限由服务端下发，表单不写死），不强制字符类别组合。
+**密码**：没有密码的走「验证码 → 新密码」，已有密码的走「旧密码 → 新密码」，忘了旧密码
+的走「验证码 → 新密码」（见下节）。三条路径都保留发起操作的这台设备、吊销其余会话——改完
+密码旧会话继续有效，正是账号被盗后攻击者最想要的结果。密码只卡长度（≥8，上下限由服务端
+下发，表单不写死），不强制字符类别组合。
+
+**头像存的是图片，不是地址**：`avatar_url` 里放的是平台签发的公开地址
+`/api/public/avatars/<userId>?v=<时间戳>`，文件落在 `<dataDir>/avatars/<userId>/avatar`。
+它刻意**不走 resources 资源管线**：那条管线有引用计数与 24 小时孤儿回收，而头像的引用关系
+记在账号库、不在画布文档里，对回收器永远不可见——放进去只会在一天后被安静地删掉。上传时
+按字节嗅探格式（PNG / JPG / WebP，≤2MB），声明的 MIME 只作为本地预检的提示。公开读不带
+签名也不带有效期：头像本身就是公开信息，而一个会过期的地址等于广场里随机出现的破图；
+准入改成"该账号当前还在用平台头像"，清除头像后旧地址立即 404，外链头像也不由本站代理
+（否则这条无鉴权路由就是一条开放跳转）。
 
 **换绑**：分两步——先给新地址发码，再带码确认；成功后给**旧地址**发一条变更通知。
 少了新地址这一步，一次手误就能把账号绑到一个永远收不到验证码的地址上，而那种状态下
 用户连注销都做不了（注销同样要验证码）。
+
+## 忘记密码
+
+入口有两个：登录页密码框下的「忘记密码？」，以及用户中心密码卡里的「忘记当前密码」。
+两条入口用的是同一对接口——后端并不区分调用者是否在会话里，只区分"能不能收到发到该标识
+上的验证码"。
+
+| 接口 | 作用 |
+| --- | --- |
+| `POST /api/auth/password/reset/code` | 给已注册的邮箱/手机号下发重置验证码 |
+| `POST /api/auth/password/reset` | `{methodType, target, code, newPassword}`，带码重置 |
+
+三条规则是这一节的要点：
+
+1. **只认邮箱验证码与短信验证码**。任何以密码为载体的通道在这里等于把"忘记密码"变成
+   "绕过密码"。
+2. **验证码走独立场景**（`password_reset`）。冷却按 `(通道, 目标, 场景)` 计数，共用一个
+   场景时，用户在登录页点过"发送验证码"再切到忘记密码会被同一分钟的冷却挡住，而他能
+   看到的只有"发送过于频繁"。反过来说，登录场景的码也不能拿来改密码——两个场景各自独立，
+   这是一条安全属性而不只是体验优化（`TestResetPasswordRejectsLoginSceneCode`）。
+3. **重置成功后吊销该账号的全部会话**，发起重置的那台设备如果在会话里则保留它——在用户
+   中心里点"忘记当前密码"的人不该被顺带登出。登录页上没有会话，语义自然退化成"全部吊销"。
+
+重置成功不签发会话：新密码是用户刚设置的，让他用一次自己的新凭据登录，才验证得了这串
+密码他记得住、也真的能进得来。标识不存在时如实回 404（登录接口本来就在做同一件事），
+而不是回一句"已发送"让用户对着一个永远收不到的验证码等下去。
 
 ## 尚未完成
 
@@ -231,12 +269,13 @@ curl -s -b cookies.txt localhost:8080/api/workspace/bootstrap
   `本地工作区`，`profile` 仍是 `local`；SaaS 前端接入时需要一并调整。
 - **企业连接（BeefAPI）仍是单租户**：其状态与 provider 配置存放在 dataDir 的单一文件里，
   按账号隔离是独立的一块工作。
-- **忘记密码自助找回**：用户中心已能设置密码（验证码）与修改密码（旧密码），但「已有密码
-  却忘了」这条路径还没有——既没有邮件重置链接，也没有凭验证码直接重设的入口。这类账号
-  不会因此登不进来（验证码通道照常可用），但想恢复密码只能走后台的
-  `POST /api/admin/users/:id/password` 由运营重置。
 - **验证码尝试次数上限**：6 位码在 5 分钟内可被枚举。要封住需要在 CanvasMind 侧加
-  「失败次数」列并让 `ConsumeCode` 累加，属于跨仓改动，尚未做。
+  「失败次数」列并让 `ConsumeCode` 累加，属于跨仓改动，尚未做。也就是说，登录、注册与
+  重置三条验证码路径目前只靠"5 分钟过期 + 6 位长度"限制猜测；重置密码另有一层进程内的
+  失败计数（复用 `passwordThrottle`，键为 `password-reset:<通道>:<标识>`），但多实例部署
+  下每个副本各自计数。
+- **重置密码不发通知**：换绑会给旧地址发一条变更通知，重置密码目前没有。投递通道只有
+  登录验证码那一种模板，加通知要先有模板基础设施。
 
 ## 前端登录页
 
@@ -245,8 +284,10 @@ curl -s -b cookies.txt localhost:8080/api/workspace/bootstrap
 | 文件 | 职责 |
 | --- | --- |
 | `api.ts` | 调用 `/api/auth/*`，只有这一层直接拼这些路径 |
+| `credentials.ts` | 标识与口令的纯规则（邮箱/手机号归一、密码长度），登录页与重置表单共用 |
 | `gate.tsx` | 形态探测与会话判定，纯判定逻辑在 `resolveHostedAuthGatePhase` |
-| `login-page.tsx` | 登录/注册表单与 GitHub 入口，含 OAuth 回调处理 |
+| `login-page.tsx` | 登录/注册/重置/忘记密码四态与 GitHub 入口，含 OAuth 回调处理 |
+| `password-reset-form.tsx` | 忘记密码表单：标识 + 验证码 + 新密码 + 确认 |
 | `login-page.css` | 登录场景的取景网格、监视器与表单卡样式 |
 | `sidebar-footer.tsx` | 左侧 tab 栏底部的退出入口 |
 

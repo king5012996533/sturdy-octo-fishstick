@@ -45,13 +45,14 @@ func (s *Service) phoneCodeStrategy() *Strategy {
 				return nil, internalFailure(err)
 			}
 			expiresAt := s.now().Add(codeTTL(s.codeExpireMinutes))
-			if err := s.store.InvalidateActiveCodes(MethodPhoneCode, phone, codeScene); err != nil {
+			scene := sendCodeScene(in.Scene)
+			if err := s.store.InvalidateActiveCodes(MethodPhoneCode, phone, scene); err != nil {
 				return nil, internalFailure(err)
 			}
 			record := &VerificationCode{
 				MethodType:  MethodPhoneCode,
 				Channel:     ChannelPhone,
-				Scene:       codeScene,
+				Scene:       scene,
 				Target:      phone,
 				Code:        code,
 				ExpiresAt:   expiresAt,

@@ -102,6 +102,27 @@ export function loginHostedAuth(input: { methodType: HostedAuthMethodType; targe
 }
 
 /**
+ * 忘记密码：给已注册的邮箱/手机号下发重置验证码。
+ *
+ * 与登录验证码分成两条端点，是因为后端的发送冷却按 (通道, 目标, 场景) 计数：
+ * 共用一条的话，用户刚在登录页点过"发送验证码"、马上想起密码忘了，就会被同一分钟的
+ * 冷却挡住，而他能看到的只有"发送过于频繁"。
+ */
+export function sendPasswordResetCode(methodType: HostedAuthMethodType, target: string) {
+    return http.post<HostedAuthCodeChallenge>("/auth/password/reset/code", { methodType, target });
+}
+
+/**
+ * 忘记密码：带验证码写入新密码。
+ *
+ * 成功后不签发会话——让用户用一次自己刚设的新密码登录，才验证得了这串密码他记得住、
+ * 也真的能进得来。revokedSessions 是顺带被踢下线的其他设备数。
+ */
+export function resetHostedAuthPassword(input: { methodType: HostedAuthMethodType; target: string; code: string; newPassword: string }) {
+    return http.post<{ revokedSessions: number }>("/auth/password/reset", input);
+}
+
+/**
  * 拉取当前生效的协议版本与正文。
  *
  * 版本必须由服务端下发而不是前端写死：注册时要把它原样回传，服务端据此判断用户

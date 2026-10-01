@@ -31,6 +31,8 @@ func accountRouteCases() []struct{ method, path, body string } {
 		{http.MethodDelete, "/api/finance/account/sessions/some-id", ""},
 		{http.MethodPost, "/api/finance/account/sessions/revoke-others", ""},
 		{http.MethodGet, "/api/finance/account/bindings", ""},
+		{http.MethodPost, "/api/finance/account/avatar", ""},
+		{http.MethodDelete, "/api/finance/account/avatar", ""},
 		{http.MethodPost, "/api/finance/account/bindings/code", `{"channel":"EMAIL","target":"new@example.com"}`},
 		{http.MethodPost, "/api/finance/account/bindings", `{"channel":"EMAIL","target":"new@example.com","code":"000000"}`},
 	}
@@ -137,8 +139,10 @@ func TestHostedAccountPasswordSetThenChange(t *testing.T) {
 	// 写接口回的是 {state, revokedSessions}：前端据此写"已从 N 台设备退出登录"。
 	var update struct {
 		Data struct {
-			State           struct{ HasPassword bool `json:"hasPassword"` } `json:"state"`
-			RevokedSessions int64                                            `json:"revokedSessions"`
+			State struct {
+				HasPassword bool `json:"hasPassword"`
+			} `json:"state"`
+			RevokedSessions int64 `json:"revokedSessions"`
 		} `json:"data"`
 	}
 	if json.Unmarshal(recorder.Body.Bytes(), &update) != nil || !update.Data.State.HasPassword {

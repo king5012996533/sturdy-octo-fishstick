@@ -20,6 +20,16 @@ func NewFileStore(dataDir string) *FileStore {
 	return &FileStore{root: filepath.Join(dataDir, "resources")}
 }
 
+// NewFileStoreAt 用显式根目录构造一个存储。
+//
+// 头像一类的本地资产不在 resources/ 下（那条目录的孤儿回收按资源表走，见
+// app.cleanupDetachedResources），但它们需要完全相同的路径校验与原子写入。
+// 与其在别处再实现一遍，不如把根目录做成参数——漏掉一次 traversal 校验，
+// 就是一个写任意文件的口子。
+func NewFileStoreAt(root string) *FileStore {
+	return &FileStore{root: filepath.Clean(root)}
+}
+
 func (s *FileStore) Write(objectKey string, body io.Reader) (returnErr error) {
 	target, err := s.path(objectKey)
 	if err != nil {
@@ -105,6 +115,14 @@ func (s *FileStore) Delete(objectKey string) error {
 		return err
 	}
 	return syncDirectory(filepath.Dir(path))
+}
+
+// Root 返回存储的根目录，供测试断言落盘位置。
+func (s *FileStore) Root() string {
+	if s == nil {
+		return ""
+	}
+	return s.root
 }
 
 func (s *FileStore) ensureSafeParent(directory string) error {

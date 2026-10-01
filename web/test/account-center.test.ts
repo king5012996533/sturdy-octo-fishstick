@@ -35,7 +35,7 @@ describe("用户中心", () => {
     });
 
     test("一个功能一个文件，且没有长出巨型文件", () => {
-        for (const card of [...primary, ...more, "account-more-section"]) {
+        for (const card of [...primary, ...more, "account-more-section", "account-avatar-uploader"]) {
             const file = `src/pages/settings/${card}.tsx`;
             // 这条是硬约束：一个文件几千行之后，改一处要先读懂半页。
             expect(lines(file)).toBeLessThan(400);
@@ -60,6 +60,30 @@ describe("用户中心", () => {
         expect(password).toContain("changeAccountPassword(");
     });
 
+    test("头像走上传而不是填地址", () => {
+        const card = read("src/pages/settings/account-profile-card.tsx");
+        const uploader = read("src/pages/settings/account-avatar-uploader.tsx");
+        // 地址是服务端签发的，用户既看不到也不需要理解它；留一个输入框就是在问用户
+        // 一个他答不上来的问题，而且外链迟早会因为对方删图变成破图。
+        expect(card).not.toContain("头像地址");
+        expect(card).not.toContain('placeholder="https://');
+        expect(card).toContain("AccountAvatarUploader");
+        // 准入规则与服务端 avatar 包同源，两处不一致时用户会先看到"能选"再收到"不支持"。
+        expect(uploader).toContain('type="file"');
+        expect(uploader).toContain("AVATAR_ACCEPTED_TYPES");
+        expect(uploader).toContain("AVATAR_MAX_BYTES");
+        expect(uploader).toContain("uploadAccountAvatar(");
+    });
+
+    test("忘记密码在用户中心里也能走通，不只是登录页的入口", () => {
+        const password = read("src/pages/settings/account-password-card.tsx");
+        // 已经有密码的人点"忘记当前密码"，走的是验证码重置这条路；
+        // 旧密码那条路（changeAccountPassword）必须原样留着。
+        expect(password).toContain("resetHostedAuthPassword(");
+        expect(password).toContain("changeAccountPassword(");
+        expect(password).toContain("sendPasswordResetCode(");
+    });
+
     test("积分卡把余额留给自己，档位与订单仍只在积分中心", () => {
         const credits = read("src/pages/settings/account-credits-card.tsx");
         expect(credits).toContain("getCreditWallet(");
@@ -77,8 +101,14 @@ describe("用户中心", () => {
             ["src/services/api/account-security.ts", '"/finance/account/sessions/revoke-others"'],
             ["src/services/api/account-bindings.ts", '"/finance/account/bindings"'],
             ["src/services/api/account-bindings.ts", '"/finance/account/bindings/code"'],
+            ["src/services/api/account-profile.ts", '"/finance/account/avatar"'],
         ];
-        const backend = readBackend("account_profile.go") + readBackend("account_password.go") + readBackend("account_sessions.go") + readBackend("account_bindings.go");
+        const backend =
+            readBackend("account_profile.go") +
+            readBackend("account_password.go") +
+            readBackend("account_sessions.go") +
+            readBackend("account_bindings.go") +
+            readBackend("account_avatar.go");
         for (const [file, path] of routes) {
             expect(read(file)).toContain(path);
             expect(backend).toContain(path.slice(1, -1));

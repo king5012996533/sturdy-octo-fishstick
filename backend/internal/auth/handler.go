@@ -261,6 +261,10 @@ func RegisterRoutes(api *gin.RouterGroup, service *Service, cookie CookieOptions
 		})
 	})
 
+	// 忘记密码：同样挂在 /auth 下（这一组整体公开），但它的证明方式与时序都与
+	// 登录不同，因此单独一个文件登记。
+	registerPasswordResetRoutes(group, service)
+
 	group.POST("/logout", func(c *gin.Context) {
 		if err := service.Logout(ReadSessionToken(c.Request)); err != nil {
 			respondError(c, err)

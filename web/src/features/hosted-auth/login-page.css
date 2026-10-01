@@ -344,3 +344,25 @@
     font-size: 13px;
     color: var(--auth-ink-soft);
 }
+
+/* 「忘记密码？」挂在密码输入框右下角：它是这一屏唯一的次要出口，
+   但位置必须贴着密码字段——放在页脚会让人误以为是"换一种登录方式"。 */
+.auth-forgot-row {
+    margin: -14px 0 0;
+    text-align: right;
+    font-size: 12.5px;
+}
+
+.auth-mode-switch .ant-btn,
+.auth-forgot-row .ant-btn {
+    vertical-align: baseline;
+}
+
+/* 重置表单自己的错误条：表单级的失败（验证码错、密码不合规）不属于某个字段，
+   标红那一个输入框会把原因指向错误的地方。 */
+.auth-form-error {
+    margin: 0 0 4px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: #fca5a5;
+}

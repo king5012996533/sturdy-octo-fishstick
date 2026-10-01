@@ -190,6 +190,20 @@ func (s *Service) publicResourceBaseURL() (*url.URL, error) {
 	return validatePublicResourceBaseURL(raw)
 }
 
+// PublicBaseURL 返回本站对外的公开访问地址（不带结尾斜杠）。
+//
+// 签名下载地址每次现算，调用方不需要它；但头像这类"地址要落库"的字段必须在写库时
+// 就拼成绝对地址——前端直接把它塞进 <img src>，相对路径在跨域与 CanvasMind 侧都会被
+// 当成同源处理。这里把唯一的取值来源暴露出来，而不是让调用方各自再读一次环境变量：
+// 两处各读一次，迟早有一处漏掉 validatePublicResourceBaseURL 的校验。
+func (s *Service) PublicBaseURL() (string, error) {
+	baseURL, err := s.publicResourceBaseURL()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(baseURL.String(), "/"), nil
+}
+
 func validatePublicResourceBaseURL(raw string) (*url.URL, error) {
 	parsed, err := ValidateOutboundURL(raw)
 	if err != nil {

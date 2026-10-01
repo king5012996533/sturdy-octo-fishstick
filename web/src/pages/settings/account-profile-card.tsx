@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { getAccountProfile, updateAccountProfile, type AccountProfile } from "@/services/api/account-profile";
 import { ApiError } from "@/services/api/request";
 
+import { AccountAvatarRemoveButton, AccountAvatarUploader } from "./account-avatar-uploader";
+
 /**
  * 「资料」：昵称与头像。
  *
@@ -11,15 +13,13 @@ import { ApiError } from "@/services/api/request";
  * "改成什么样"拆成上下两处，是上一版最刺眼的问题：同一份信息在一屏里出现两遍，
  * 读者要先分辨哪个是读数、哪个是表单。
  *
- * 头像地址收在「更换头像」后面：它是一个 URL，不该和昵称并排摆在第一眼的位置。
- * 放在这里而不是弹窗，是因为预览必须实时——用户要看到自己贴的地址能不能显示出图。
+ * 头像从"填地址"改成"传图片"之后，它就不该再占表单的一行了：地址是服务端签发的，
+ * 用户既看不到也不需要理解它。点那张图换一张，是这一页唯一需要存在的说明。
  */
 export function AccountProfileCard() {
     const { message } = App.useApp();
     const [profile, setProfile] = useState<AccountProfile | null>(null);
     const [name, setName] = useState("");
-    const [avatarUrl, setAvatarUrl] = useState("");
-    const [editingAvatar, setEditingAvatar] = useState(false);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
@@ -30,7 +30,6 @@ export function AccountProfileCard() {
             const payload = await getAccountProfile();
             setProfile(payload);
             setName(payload.name);
-            setAvatarUrl(payload.avatarUrl);
             setError("");
         } catch (loadError) {
             setError(loadError instanceof Error ? loadError.message : "读取个人资料失败");
@@ -43,13 +42,20 @@ export function AccountProfileCard() {
         void load();
     }, [load]);
 
+    /** 头像上传即生效，因此它不参与"有未保存的改动"：它是已经落库的，不是草稿。 */
+    const applyAvatar = useCallback((updated: AccountProfile) => {
+        setProfile(updated);
+    }, []);
+
     const save = async () => {
+        if (!profile) return;
         setSaving(true);
         try {
-            const updated = await updateAccountProfile({ name, avatarUrl });
+            // 头像原样回传：接口一直接受它，而这里回传的正是服务端刚写下的值，
+            // 重复写一次是空操作，却省掉一个"改昵称顺手清空头像"的分支。
+            const updated = await updateAccountProfile({ name, avatarUrl: profile.avatarUrl });
             setProfile(updated);
             setName(updated.name);
-            setAvatarUrl(updated.avatarUrl);
             setError("");
             message.success("资料已保存");
         } catch (saveError) {
@@ -60,10 +66,9 @@ export function AccountProfileCard() {
         }
     };
 
-    const dirty = profile !== null && (name.trim() !== profile.name || avatarUrl.trim() !== profile.avatarUrl);
-    const shownAvatar = avatarUrl.trim();
-    const initial = (name.trim() || profile?.email || profile?.phone || "K").slice(0, 1).toUpperCase();
+    const dirty = profile !== null && name.trim() !== profile.name;
     const contact = profile?.email || profile?.phone || "";
+    const initial = (name.trim() || profile?.email || profile?.phone || "K").slice(0, 1).toUpperCase();
 
     return (
         <section className="account-card" aria-labelledby="account-profile-title">
@@ -73,45 +78,26 @@ export function AccountProfileCard() {
             </div>
 
             <div className="account-identity-row">
-                {shownAvatar ? (
-                    // 头像地址可能指向任何 https 资源，加载失败时浏览器显示破图；不预加载探活，
-                    // 探活会让每次打开这一页都多发一条请求。
-                    <span className="account-avatar-lg"><img src={shownAvatar} alt="" referrerPolicy="no-referrer" /></span>
-                ) : (
-                    <span className="account-avatar-lg" aria-hidden>{initial}</span>
-                )}
+                <AccountAvatarUploader avatarUrl={profile?.avatarUrl ?? ""} fallback={initial} onChange={applyAvatar} />
                 <label className="account-field is-flush min-w-0 flex-1">
                     <span className="account-field-label">昵称</span>
                     <Input
                         value={name}
                         maxLength={30}
                         placeholder={loading ? "正在读取…" : "给自己起个名字"}
+                        disabled={loading}
                         onChange={(event) => setName(event.target.value)}
                     />
                 </label>
             </div>
 
-            {editingAvatar ? (
-                <div className="account-field">
-                    <span className="account-field-label">头像地址（留空则用昵称首字母）</span>
-                    <Input
-                        value={avatarUrl}
-                        placeholder="https://…"
-                        allowClear
-                        onChange={(event) => setAvatarUrl(event.target.value)}
-                    />
-                </div>
-            ) : null}
-
             {error ? <p className="account-error">{error}</p> : null}
 
             <div className="account-card-foot">
-                {editingAvatar ? (
-                    <span className="account-card-aside">头像地址留空即用昵称首字母</span>
+                {profile?.avatarUrl ? (
+                    <AccountAvatarRemoveButton disabled={loading || saving} onChange={applyAvatar} />
                 ) : (
-                    <Button className="account-quiet-button" type="link" size="small" onClick={() => setEditingAvatar(true)}>
-                        更换头像
-                    </Button>
+                    <span className="account-card-aside">{loading ? "正在读取头像…" : "点头像即可上传一张图片"}</span>
                 )}
                 <div className="account-card-foot-actions">
                     {dirty ? <span className="account-card-aside">有未保存的改动</span> : null}

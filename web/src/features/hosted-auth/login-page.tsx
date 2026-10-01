@@ -10,7 +10,14 @@ import { brandStudioLabel, useAppearanceStore } from "@/stores/use-appearance-st
 import "./login-page.css";
 
 import { HostedAuthAgreementDialog } from "./agreement-dialog";
+import { PasswordResetForm } from "./password-reset-form";
 import { completeHostedOAuthCallback, fetchHostedAuthAgreements, loginHostedAuth, registerHostedAuth, requestHostedOAuthAuthorize, sendHostedAuthCode, type HostedAuthAgreements, type HostedAuthMethod, type HostedAuthUser } from "./api";
+import { identityShapeOf, isValidEmailInput, isValidPasswordInput, isValidPhoneInput, resolveDevCodeHint, type IdentityShape } from "./credentials";
+
+/** 登录页的三个模式：登录、注册、忘记密码。 */
+type AuthMode = "login" | "register" | "reset";
+
+const AUTH_TITLES: Record<AuthMode, string> = { login: "欢迎回来", register: "创建账号", reset: "重置密码" };
 
 const GITHUB_METHOD = "GITHUB_OAUTH";
 const EMAIL_METHOD = "EMAIL_CODE";
@@ -36,64 +43,6 @@ export type LocationAssigner = (url: string) => void;
  */
 export type HostedAuthFactor = "password" | "code";
 
-const EMAIL_INPUT_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-export function isValidEmailInput(value: string): boolean {
-    const raw = String(value ?? "").trim();
-    return EMAIL_INPUT_PATTERN.test(raw) && !raw.includes(" ");
-}
-
-/**
- * 与服务端 normalizePhone 对齐：先去掉分隔符和 +86 前缀再判断。
- *
- * 前端只做即时提示，最终以服务端为准；两边规则不一致会让用户看到「格式正确却
- * 被拒绝」，所以这里的归一逻辑必须和服务端保持一致。
- */
-export function normalizePhoneInput(value: string): string {
-    const compact = String(value ?? "").replace(/[\s\-()\t]/g, "");
-    const withoutPrefix = compact.startsWith("+") ? compact.slice(1) : compact;
-    return withoutPrefix.startsWith("86") && withoutPrefix.length > 11 ? withoutPrefix.slice(2) : withoutPrefix;
-}
-
-export function isValidPhoneInput(value: string): boolean {
-    return /^1[3-9]\d{9}$/.test(normalizePhoneInput(value));
-}
-
-/**
- * 密码通道的标识既可以是邮箱也可以是手机号，服务端按形态分列存储。
- *
- * 规则必须和服务端 classifyPasswordTarget 对齐：只在一边放宽，用户就会看到
- * 「前端说格式没问题、提交后被拒」。
- */
-export function isValidPasswordTargetInput(value: string): boolean {
-    const raw = String(value ?? "").trim();
-    if (!raw) return false;
-    return isValidPhoneInput(raw) || isValidEmailInput(raw);
-}
-
-/**
- * 与服务端 validatePassword 对齐：8-64 位、不含空白、字母与数字都要有。
- *
- * 只做长度和字符类别，不强制大小写与符号 —— 服务端也是这个口径。
- */
-export function isValidPasswordInput(value: string): boolean {
-    const raw = String(value ?? "");
-    if (raw.length < 8 || raw.length > 64) return false;
-    if (/\s/.test(raw)) return false;
-    return /[A-Za-z]/.test(raw) && /\d/.test(raw);
-}
-
-/**
- * 本地联调时后端会回显验证码（没有真实投递通道才可能发生）。
- *
- * 抽成纯函数是为了让「回显」这件事在测试里可断言，而不是藏在点击回调内部。
- */
-export function resolveDevCodeHint(challenge: { devCode?: string }): { code: string; message: string } | null {
-    const code = String(challenge.devCode ?? "").trim();
-    if (!code) return null;
-    return { code, message: `本地投递：验证码 ${code} 已自动填入（未真实发送）` };
-}
-
 /**
  * 登录失败后是否应该把用户引导到注册页。
  *
@@ -104,16 +53,13 @@ export function shouldOfferRegistration(error: unknown): boolean {
     return error instanceof ApiError && (error.reason === "not_found" || error.status === 404);
 }
 
-/** 标识形态：验证码通道按形态寻址，密码通道两种都收。 */
-type IdentityShape = "email" | "phone";
-
 const defaultAssign: LocationAssigner = (url) => window.location.assign(url);
 
 export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: HostedAuthMethod[]; onAuthenticated: (user: HostedAuthUser) => void }) {
     const { message } = App.useApp();
     const appearance = useAppearanceStore((state) => state.appearance);
     const [form] = Form.useForm<{ target: string; code: string; password: string; confirmPassword: string }>();
-    const [mode, setMode] = useState<"login" | "register">("login");
+    const [mode, setMode] = useState<AuthMode>("login");
     const [sending, setSending] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [cooldown, setCooldown] = useState(0);
@@ -135,6 +81,9 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
         if (emailMethod || phoneMethod) items.push("code");
         return items;
     }, [emailMethod, passwordMethod, phoneMethod]);
+
+    // 验证码通道只要开了一条，就存在"忘记密码"这条路；一条都没开时重置页无码可发。
+    const resetAvailable = Boolean(emailMethod || phoneMethod);
 
     const [factor, setFactor] = useState<HostedAuthFactor>("password");
     // 选中态要跟着可用因子走：后台关掉某个通道后若不作废选中态，表单会因为找不到
@@ -167,8 +116,9 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
      * 「发送验证码」保持禁用。比起让用户点一下再弹「格式不对」，禁用态本身就是说明。
      */
     const codeShape = useMemo<IdentityShape | null>(() => {
-        if (isValidPhoneInput(rawTarget)) return phoneMethod ? "phone" : null;
-        if (isValidEmailInput(rawTarget)) return emailMethod ? "email" : null;
+        const shape = identityShapeOf(rawTarget);
+        if (shape === "phone") return phoneMethod ? "phone" : null;
+        if (shape === "email") return emailMethod ? "email" : null;
         return null;
     }, [emailMethod, phoneMethod, rawTarget]);
 
@@ -392,6 +342,7 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
     // 副标题只描述「现在真的能用的方式」：通道被后台关掉后，这里不能还留着密码或验证码的字样。
     const subtitle = (() => {
         if (!hasAnyMethod) return "当前没有可用的登录方式，请联系管理员在后台开启。";
+        if (mode === "reset") return "验证码会发到你绑定的邮箱或手机号，验证通过即可设置新密码。";
         if (mode === "register") {
             return isPasswordFactor && passwordMethod ? "设置密码即可开始，注册即代表同意下方协议" : `验证码将发送到你的${identityLabel}`;
         }
@@ -521,14 +472,30 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
 
                     <div className="auth-card">
                         <header className="auth-card-head">
-                            <h2 className="auth-title">{mode === "login" ? "欢迎回来" : "创建账号"}</h2>
+                            <h2 className="auth-title">{AUTH_TITLES[mode]}</h2>
                             <p className="auth-subtitle">{subtitle}</p>
                         </header>
 
                         {/* 因子切换只在两条因子都能用时出现。通道是后台开关决定的，界面上
                             让用户在邮箱/手机/密码之间先做一道选择题，就是「为了登录而登录」：
                             标识能收什么由表单内容决定，这里只负责换证明方式。 */}
-                        {switchableFactors.length > 1 ? (
+                        {mode === "reset" ? (
+                            <PasswordResetForm
+                                methods={methods}
+                                initialTarget={rawTarget}
+                                onCancel={() => setMode("login")}
+                                onDone={(target) => {
+                                    // 回到登录表单并带上标识：重置已经证明了这个标识属于本人，
+                                    // 再让他重敲一遍纯属重复劳动。
+                                    setMode("login");
+                                    form.setFieldValue("target", target);
+                                    form.setFieldValue("password", "");
+                                    form.setFieldValue("code", "");
+                                }}
+                            />
+                        ) : null}
+
+                        {switchableFactors.length > 1 && mode !== "reset" ? (
                             <div className="auth-factor-tabs" role="tablist" aria-label="登录方式">
                                 {switchableFactors.map((item) => (
                                     <button
@@ -546,7 +513,7 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                             </div>
                         ) : null}
 
-                        {hasAnyMethod ? (
+                        {hasAnyMethod && mode !== "reset" ? (
                             <Form form={form} layout="vertical" onFinish={mode === "register" ? handleRegister : handleSubmit} requiredMark={false} disabled={submitting} className="auth-form">
                                 <Form.Item name="target" label={<span className="auth-field-label">{identityLabel}</span>} rules={targetFieldRules}>
                                     <Input size="large" data-testid="hosted-auth-identity" prefix={<UserOutlined aria-hidden />} {...identityProps} />
@@ -564,6 +531,15 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                                                 data-testid="hosted-auth-password"
                                             />
                                         </Form.Item>
+                                        {/* 重置入口只在走密码时出现：验证码方式本来就不需要密码，
+                                            那条路上的"忘记密码"没有意义，只会把用户引到一次多余的跳转。 */}
+                                        {mode === "login" && resetAvailable ? (
+                                            <p className="auth-forgot-row">
+                                                <Button type="link" size="small" className="!h-auto !p-0" onClick={() => setMode("reset")} data-testid="hosted-auth-forgot">
+                                                    忘记密码？
+                                                </Button>
+                                            </p>
+                                        ) : null}
                                         {mode === "register" ? (
                                             <Form.Item
                                                 name="confirmPassword"
@@ -654,7 +630,7 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                         ) : null}
 
                         {/* 注册入口挂在后端配置上：allow_sign_up 关掉时这里不出现，用户就不会撞上 403。 */}
-                        {hasAnyMethod && canSignUp ? (
+                        {hasAnyMethod && canSignUp && mode !== "reset" ? (
                             <p className="auth-mode-switch">
                                 {mode === "register" ? "已有账号？" : "还没有账号？"}
                                 <Button type="link" size="small" className="!h-auto !p-0" onClick={() => setMode(mode === "register" ? "login" : "register")} data-testid="hosted-auth-mode-switch">

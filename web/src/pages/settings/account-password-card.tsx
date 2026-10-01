@@ -1,16 +1,16 @@
 import { App, Button, Input } from "antd";
 import { useCallback, useEffect, useState } from "react";
 
-import { sendHostedAuthCode } from "@/features/hosted-auth/api";
+import { resetHostedAuthPassword, sendHostedAuthCode, sendPasswordResetCode } from "@/features/hosted-auth/api";
 import { getAccountBindings, type AccountBindings } from "@/services/api/account-bindings";
 import { changeAccountPassword, getPasswordState, setAccountPassword, type PasswordState } from "@/services/api/account-security";
 import { ApiError } from "@/services/api/request";
 
 /**
- * 「密码」：没有密码的设一个，有密码的改一个。
+ * 「密码」：没有密码的设一个，有密码的改一个，忘了的用验证码重来一个。
  *
- * 两条分支的证明方式不同，界面照实分开：设置要验证码（有没有密码是账号的既有状态，
- * 不能被一次会话改掉），修改要旧密码。
+ * 三条分支的证明方式不同，界面照实分开：设置要验证码（有没有密码是账号的既有状态，
+ * 不能被一次会话改掉），修改要旧密码，重置要验证码——旧密码已经不在用户手里了。
  *
  * 密码状态与绑定关系分成两次请求、各自成败：上一版用 Promise.all 把两者绑在一起，
  * 绑定接口一旦失败（例如后端还没上那组路由），整张卡片就退化成一句"暂时读不到密码状态"
@@ -22,6 +22,9 @@ export function AccountPasswordCard() {
     const [bindingsError, setBindingsError] = useState("");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    // 忘记密码是"修改"这条路上的一个岔口，不是第四个平级状态：用户先有密码、
+    // 再想不起它，顺序不能反过来。
+    const [forgot, setForgot] = useState(false);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -47,6 +50,20 @@ export function AccountPasswordCard() {
         void load();
     }, [load]);
 
+    const reload = useCallback(() => {
+        setForgot(false);
+        void load();
+    }, [load]);
+
+    const formProps = {
+        bindings,
+        bindingsError,
+        minLength: state?.minLength ?? 8,
+        maxLength: state?.maxLength ?? 64,
+        onRetryBindings: () => void load(),
+        onDone: reload,
+    };
+
     return (
         <section className="account-card" aria-labelledby="account-password-title">
             <div className="account-card-head">
@@ -58,16 +75,13 @@ export function AccountPasswordCard() {
 
             {state ? (
                 state.hasPassword ? (
-                    <ChangePasswordForm minLength={state.minLength} maxLength={state.maxLength} onDone={() => void load()} />
+                    forgot ? (
+                        <CodePasswordForm mode="reset" onCancel={() => setForgot(false)} {...formProps} />
+                    ) : (
+                        <ChangePasswordForm minLength={state.minLength} maxLength={state.maxLength} onDone={reload} onForgot={() => setForgot(true)} />
+                    )
                 ) : (
-                    <SetPasswordForm
-                        bindings={bindings}
-                        bindingsError={bindingsError}
-                        minLength={state.minLength}
-                        maxLength={state.maxLength}
-                        onRetryBindings={() => void load()}
-                        onDone={() => void load()}
-                    />
+                    <CodePasswordForm mode="set" {...formProps} />
                 )
             ) : (
                 <>
@@ -80,14 +94,18 @@ export function AccountPasswordCard() {
     );
 }
 
-/** 首次设置密码：验证码通道取决于账号绑定了哪些联系方式。 */
-function SetPasswordForm({ bindings, bindingsError, minLength, maxLength, onRetryBindings, onDone }: {
+type CodeFormMode = "set" | "reset";
+
+/** 验证码换密码：首次设置（set）与忘了旧密码的重置（reset）走同一张表单。 */
+function CodePasswordForm({ mode, bindings, bindingsError, minLength, maxLength, onRetryBindings, onDone, onCancel }: {
+    mode: CodeFormMode;
     bindings: AccountBindings | null;
     bindingsError: string;
     minLength: number;
     maxLength: number;
     onRetryBindings: () => void;
     onDone: () => void;
+    onCancel?: () => void;
 }) {
     const { message } = App.useApp();
     const [code, setCode] = useState("");
@@ -102,13 +120,21 @@ function SetPasswordForm({ bindings, bindingsError, minLength, maxLength, onRetr
         return () => window.clearTimeout(timer);
     }, [cooldown]);
 
-    const channel = bindings?.email ? { methodType: "EMAIL_CODE" as const, label: "邮箱", target: bindings.email } : bindings?.phone ? { methodType: "PHONE_CODE" as const, label: "手机号", target: bindings.phone } : null;
+    const channel = bindings?.email
+        ? { methodType: "EMAIL_CODE" as const, label: "邮箱", target: bindings.email }
+        : bindings?.phone
+          ? { methodType: "PHONE_CODE" as const, label: "手机号", target: bindings.phone }
+          : null;
 
     const sendCode = async () => {
         if (!channel) return;
         setSending(true);
         try {
-            const challenge = await sendHostedAuthCode(channel.methodType, channel.target);
+            // 重置走独立场景下发：与登录验证码共用一条端点的话，用户刚在别处点过发送，
+            // 这里会被同一分钟的冷却挡住，而他能看到的只有"发送过于频繁"。
+            const challenge = mode === "reset"
+                ? await sendPasswordResetCode(channel.methodType, channel.target)
+                : await sendHostedAuthCode(channel.methodType, channel.target);
             setCooldown(challenge?.cooldownSeconds && challenge.cooldownSeconds > 0 ? challenge.cooldownSeconds : 60);
             message.success(challenge?.devCode ? `验证码已发送（联调回显：${challenge.devCode}）` : `验证码已发送至 ${channel.target}`);
         } catch (sendError) {
@@ -122,13 +148,15 @@ function SetPasswordForm({ bindings, bindingsError, minLength, maxLength, onRetr
         if (!channel) return;
         setSubmitting(true);
         try {
-            const result = await setAccountPassword({ methodType: channel.methodType, code: code.trim(), newPassword: password });
-            message.success(result.revokedSessions > 0 ? `密码已设置，并从其他 ${result.revokedSessions} 台设备退出了登录` : "密码已设置");
+            const input = { methodType: channel.methodType, target: channel.target, code: code.trim(), newPassword: password };
+            const result = mode === "reset" ? await resetHostedAuthPassword(input) : await setAccountPassword(input);
+            const done = mode === "reset" ? "密码已重置" : "密码已设置";
+            message.success(result.revokedSessions > 0 ? `${done}，并从其他 ${result.revokedSessions} 台设备退出了登录` : done);
             setCode("");
             setPassword("");
             onDone();
         } catch (submitError) {
-            message.error(submitError instanceof ApiError ? submitError.message : "设置密码失败，请稍后重试");
+            message.error(submitError instanceof ApiError ? submitError.message : "保存新密码失败，请稍后重试");
         } finally {
             setSubmitting(false);
         }
@@ -139,7 +167,9 @@ function SetPasswordForm({ bindings, bindingsError, minLength, maxLength, onRetr
         return (
             <>
                 <p className="account-inline-note">
-                    {bindingsError ? "暂时读不到这个账号绑定的邮箱与手机号，密码需要验证码才能设置。" : "这个账号还没有绑定邮箱或手机号，先在「更多设置 → 身份绑定」里补一个，再回来设置密码。"}
+                    {bindingsError
+                        ? `暂时读不到这个账号绑定的邮箱与手机号，${mode === "reset" ? "重置" : "设置"}密码需要验证码。`
+                        : `这个账号还没有绑定邮箱或手机号，先在「更多设置 → 身份绑定」里补一个，再回来${mode === "reset" ? "重置" : "设置"}密码。`}
                 </p>
                 {bindingsError ? <p className="account-error">{bindingsError}</p> : null}
                 {bindingsError ? <Button size="small" onClick={onRetryBindings}>重试</Button> : null}
@@ -150,7 +180,9 @@ function SetPasswordForm({ bindings, bindingsError, minLength, maxLength, onRetr
     return (
         <div className="account-form-narrow flex flex-col">
             <p className="account-inline-note" style={{ marginTop: 12 }}>
-                设置密码后就能在收不到验证码的设备上登录。验证码会发到 {channel.label} {channel.target}，设置成功后其他设备会被退出登录。
+                {mode === "reset"
+                    ? `验证码会发到 ${channel.label} ${channel.target}；改完当前设备保持登录，其他设备会被退出。`
+                    : `设置密码后就能在收不到验证码的设备上登录。验证码会发到 ${channel.label} ${channel.target}，设置成功后其他设备会被退出登录。`}
             </p>
             <div className="account-field">
                 <span className="account-field-label">验证码</span>
@@ -167,15 +199,25 @@ function SetPasswordForm({ bindings, bindingsError, minLength, maxLength, onRetr
             </label>
             <div className="account-credits-actions">
                 <Button type="primary" loading={submitting} disabled={!code.trim() || !password} onClick={() => void submit()}>
-                    设置密码
+                    {mode === "reset" ? "重置密码" : "设置密码"}
                 </Button>
+                {onCancel ? (
+                    <Button className="account-quiet-button" type="link" size="small" onClick={onCancel}>
+                        返回
+                    </Button>
+                ) : null}
             </div>
         </div>
     );
 }
 
 /** 已有密码时改密：旧密码即证明，不再要验证码。 */
-function ChangePasswordForm({ minLength, maxLength, onDone }: { minLength: number; maxLength: number; onDone: () => void }) {
+function ChangePasswordForm({ minLength, maxLength, onDone, onForgot }: {
+    minLength: number;
+    maxLength: number;
+    onDone: () => void;
+    onForgot: () => void;
+}) {
     const { message } = App.useApp();
     const [current, setCurrent] = useState("");
     const [next, setNext] = useState("");
@@ -212,6 +254,11 @@ function ChangePasswordForm({ minLength, maxLength, onDone }: { minLength: numbe
             <div className="account-credits-actions">
                 <Button type="primary" loading={submitting} disabled={!current || !next} onClick={() => void submit()}>
                     更新密码
+                </Button>
+                {/* 忘记旧密码就从这里走验证码：这条岔路必须贴着"当前密码"输入框，
+                    否则用户只会去登录页找它——而他在用户中心里本来就是登录状态。 */}
+                <Button className="account-quiet-button" type="link" size="small" onClick={onForgot} data-testid="account-password-forgot">
+                    忘记当前密码
                 </Button>
             </div>
         </div>

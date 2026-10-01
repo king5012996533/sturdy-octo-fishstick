@@ -43,7 +43,10 @@ type SendCodeInput struct {
 	Target      string
 	RequesterIP string
 	UserAgent   string
-	Config      MethodConfig
+	// Scene 由服务端指定（见 sendCodeScene），留空即登录场景。它同时决定冷却的
+	// 计数维度，因此不接受客户端传值。
+	Scene  string
+	Config MethodConfig
 }
 
 // SendCodeOutput 只包含可安全回传的字段。
