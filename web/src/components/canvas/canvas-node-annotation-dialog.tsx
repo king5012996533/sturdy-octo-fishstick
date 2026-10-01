@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Brush, LoaderCircle, Redo2, Save, Square, Type, Undo2, X } from "lucide-react";
 import { Tooltip } from "@/components/ui/base/tooltip";
+import { registerCanvasLiveScaleTarget } from "@/lib/canvas/canvas-live-viewport";
 import { imageToDataUrl } from "@/services/image-storage";
 import { annotationHistory, normalizeAnnotationRect, type AnnotationHistory, type AnnotationOperation, type AnnotationPoint } from "./canvas-image-annotation-model";
 
@@ -9,6 +10,9 @@ const colors = ["#ef4444", "#f59e0b", "#22c55e", "#14b8a6", "#3b82f6", "#a855f7"
 
 export function CanvasImageAnnotationEditor({ image, scale, onCancel, onConfirm }: { image: { url: string; storageKey?: string }; scale: number; onCancel: () => void; onConfirm: (dataUrl: string) => void | Promise<void> }) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const toolbarRef = useRef<HTMLDivElement>(null);
+    // 工具条要跟着画布缩放保持屏幕尺寸：注册后由实时视口逐帧写逆倍率，不依赖 React 提交。
+    useLayoutEffect(() => registerCanvasLiveScaleTarget(toolbarRef.current), []);
     const sourceImageRef = useRef<HTMLImageElement | null>(null);
     const draftRef = useRef<AnnotationOperation | null>(null);
     const rectOriginRef = useRef<AnnotationPoint | null>(null);
@@ -81,7 +85,7 @@ export function CanvasImageAnnotationEditor({ image, scale, onCancel, onConfirm 
     return <div data-image-annotation-inline="true" className="absolute inset-0 z-[calc(var(--node-z-overlay)+3)] overflow-visible rounded-[inherit]" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
         <canvas ref={canvasRef} width={size.width || 1} height={size.height || 1} aria-label="图片标注画布" className="absolute inset-0 h-full w-full touch-none cursor-crosshair rounded-[inherit]" onPointerDown={begin} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} />
         {textDraft ? <input autoFocus aria-label="标注文字" value={textDraft.value} onChange={(event) => setTextDraft({ ...textDraft, value: event.target.value })} onBlur={commitText} onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Enter") commitText(); if (event.key === "Escape") setTextDraft(null); }} className="absolute z-20 min-w-24 border-b-2 bg-black/55 px-1 py-0.5 text-white outline-none" style={{ left: `${textDraft.point.x / Math.max(1, size.width) * 100}%`, top: `${textDraft.point.y / Math.max(1, size.height) * 100}%`, borderColor: color, fontSize: Math.max(12, textSize * 0.45) }} /> : null}
-        <div data-canvas-no-zoom="true" className="absolute bottom-[calc(100%+14px)] left-1/2 flex h-14 items-center gap-1 rounded-2xl border border-white/10 bg-[#242424]/96 p-1.5 text-white shadow-2xl backdrop-blur-xl" style={{ transform: `translateX(-50%) scale(var(--canvas-live-inverse-scale, ${1 / Math.max(scale, 0.01)}))`, transformOrigin: "center bottom" }}>
+        <div ref={toolbarRef} data-canvas-no-zoom="true" className="absolute bottom-[calc(100%+14px)] left-1/2 flex h-14 items-center gap-1 rounded-2xl border border-white/10 bg-[#242424]/96 p-1.5 text-white shadow-2xl backdrop-blur-xl" style={{ transform: `translateX(-50%) scale(var(--canvas-live-inverse-scale, ${1 / Math.max(scale, 0.01)}))`, transformOrigin: "center bottom" }}>
             <ToolButton title="关闭标注" onClick={onCancel}><X /></ToolButton><Divider />
             <ToolButton title="画笔" active={tool === "brush"} onClick={() => setTool("brush")}><Brush /></ToolButton><ToolButton title="矩形" active={tool === "rectangle"} onClick={() => setTool("rectangle")}><Square /></ToolButton><ToolButton title="文字" active={tool === "text"} onClick={() => setTool("text")}><Type /></ToolButton><Divider />
             <label className="relative grid size-9 cursor-pointer place-items-center rounded-xl hover:bg-white/10" title="颜色"><span className="size-5 rounded-full border border-white/70" style={{ background: color }} /><input aria-label="标注颜色" type="color" value={color} onChange={(event) => setColor(event.target.value)} className="absolute inset-0 cursor-pointer opacity-0" /></label>

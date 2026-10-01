@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { InfiniteCanvas } from "../src/components/canvas/infinite-canvas";
 import { canvasAppearanceForTheme } from "../src/lib/canvas/canvas-appearance";
-import { applyCanvasLiveViewport, CANVAS_GRAPHICS_VIEWPORT_PREVIEW_EVENT, CANVAS_VIEWPORT_PREVIEW_EVENT } from "../src/lib/canvas/canvas-live-viewport";
+import { applyCanvasLiveViewport, CANVAS_GRAPHICS_VIEWPORT_PREVIEW_EVENT, CANVAS_VIEWPORT_PREVIEW_EVENT, registerCanvasLiveScaleTarget } from "../src/lib/canvas/canvas-live-viewport";
 import { viewportAtScale } from "../src/lib/canvas/canvas-viewport";
 import type { CanvasBackgroundMode } from "../src/lib/canvas-theme";
 import type { ViewportTransform } from "../src/types/canvas";
@@ -61,6 +61,13 @@ describe("canvas screen-space background", () => {
             dataset: { canvasViewportInteracting: "true" },
             querySelector: (selector: string) => (selector === "[data-canvas-world-layer]" ? world : grid),
         });
+        // 外置节点标题这类逐帧消费者：只有它自己需要实时逆倍率。
+        const header = {
+            isConnected: true,
+            style: { values: new Map<string, string>(), getPropertyValue(name: string) { return this.values.get(name) ?? ""; }, setProperty(name: string, value: string) { this.values.set(name, value); } },
+            closest: (selector: string) => (selector === "[data-canvas-viewport]" ? container : null),
+        };
+        const unregisterHeader = registerCanvasLiveScaleTarget(header as unknown as HTMLElement);
         const graphics: ViewportTransform[] = [];
         const previews: ViewportTransform[] = [];
         let scrolls = 0;
@@ -69,18 +76,30 @@ describe("canvas screen-space background", () => {
         container.addEventListener("scroll", () => scrolls++);
 
         for (const viewport of viewports) {
-            applyCanvasLiveViewport(container as unknown as HTMLDivElement, viewport, false);
+            applyCanvasLiveViewport(container as unknown as HTMLDivElement, viewport, { notify: false });
             expect(world.style.transform).toBe(`translate3d(${viewport.x}px, ${viewport.y}px, 0) scale(${viewport.k / 0.5})`);
-            expect(properties.get("--canvas-live-x")).toBe(String(viewport.x));
-            expect(properties.get("--canvas-live-y")).toBe(String(viewport.y));
-            expect(properties.get("--canvas-live-scale")).toBe(String(viewport.k));
-            expect(properties.get("--canvas-live-inverse-scale")).toBe(String(1 / viewport.k));
+            // 逐帧不再往画布容器写继承型自定义属性：容器是整棵画布子树的祖先，
+            // 每帧写一次会让全部节点重新计算样式，Windows 上就是缩放掉帧的来源。
+            expect(properties.get("--canvas-live-x")).toBeUndefined();
+            expect(properties.get("--canvas-live-y")).toBeUndefined();
+            expect(properties.get("--canvas-live-scale")).toBeUndefined();
+            // 逆倍率只写在注册过、真正读它的元素（外置节点标题）身上。
+            expect(header.style.getPropertyValue("--canvas-live-inverse-scale")).toBe(String(1 / viewport.k));
+            expect(properties.get("--canvas-live-inverse-scale")).toBeUndefined();
             expect(gridWrites).toEqual([]);
         }
         expect(graphics).toEqual(viewports);
         expect(previews).toEqual([]);
         expect(scrolls).toBe(0);
         expect(world.style.willChange).toBe("transform");
+        unregisterHeader();
+
+        // 提交态才把实时相机写回容器变量，供静止期布局与外部读取。
+        applyCanvasLiveViewport(container as unknown as HTMLDivElement, viewports[0], { commit: true, notify: false });
+        expect(properties.get("--canvas-live-x")).toBe(String(viewports[0].x));
+        expect(properties.get("--canvas-live-y")).toBe(String(viewports[0].y));
+        expect(properties.get("--canvas-live-scale")).toBe(String(viewports[0].k));
+        expect(properties.get("--canvas-live-inverse-scale")).toBe(String(1 / viewports[0].k));
 
         container.dataset.canvasViewportInteracting = "false";
         applyCanvasLiveViewport(container as unknown as HTMLDivElement, viewports[0]);

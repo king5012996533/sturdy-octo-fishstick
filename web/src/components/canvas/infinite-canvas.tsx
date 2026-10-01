@@ -95,7 +95,7 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
         if (interactingRef.current) return;
         viewportRef.current = viewport;
         scaleRef.current = viewport.k;
-        applyCanvasLiveViewport(containerRef.current, viewport);
+        applyCanvasLiveViewport(containerRef.current, viewport, { commit: true });
     }, [containerRef, viewport]);
 
     useEffect(() => {
@@ -125,7 +125,8 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
             scaleRef.current = next.k;
             onViewportPreviewChange?.(next);
             const container = containerRef.current;
-            if (container) container.dataset.canvasViewportInteracting = "true";
+            // 与视口无关的属性重复写会反复触发 [data-canvas-viewport-interacting] 子树失效，只写变化。
+            if (container && container.dataset.canvasViewportInteracting !== "true") container.dataset.canvasViewportInteracting = "true";
             nextViewportRef.current = next;
             if (frameRef.current) return;
             frameRef.current = requestAnimationFrame((now) => {
@@ -133,7 +134,7 @@ export function InfiniteCanvas({ interactive = true, containerRef, viewport, app
                 const pending = nextViewportRef.current;
                 if (!pending) return;
                 const notify = now - lastPreviewNotifyRef.current >= 32;
-                applyCanvasLiveViewport(containerRef.current, pending, notify);
+                applyCanvasLiveViewport(containerRef.current, pending, { notify });
                 if (notify) lastPreviewNotifyRef.current = now;
             });
             if (!commitAfterIdle) return;

@@ -81,6 +81,14 @@ description: 当前项目已实现的核心工作台能力与使用入口
 - `web/src/lib/canvas/tool-registry/definitions/selection-toolbar-tools.tsx`：多选悬浮栏默认工具。
 - `web/src/lib/canvas/canvas-layout.ts`：`spreadCanvasNodes` 按相对占位加大边距。
 
+## 画布平移缩放的性能约束
+
+交互期视口只走合成层：`web/src/lib/canvas/canvas-live-viewport.ts` 逐帧写世界层的 transform，把实时逆倍率写在真正消费它的元素自己身上（外置节点标题、标注与局部重绘工具条），画布容器上的 `--canvas-live-*` 只在提交态或框选轮廓需要实时值时才更新。
+
+不要把逐帧值改回往画布容器写：容器是整棵画布子树的祖先，一次继承型自定义属性写入会让所有节点重新参与样式计算。实测 24 节点 / 23 连线、90 次滚轮缩放在 4 倍 CPU 降频下，「重算样式」会从 18ms/步 涨到 43ms/步，长任务从 0 变成 42 个（2.3s）——这正是用户在 Windows 上感到的缩放掉帧。`web/test/canvas-grid-viewport.test.tsx` 钉住了这条契约。
+
+交互路径里也不要用 `getBoundingClientRect()` 读尺寸：样式刚变脏时它会强制同步重排一整棵树。连线图形层改用 `ResizeObserver` 缓存的容器尺寸，dock 放大动效在指针不在 dock 上时直接短路返回（motion 每次父组件重渲染都会重跑映射函数）。
+
 ## 图片节点多角度、宫格切分与多选框
 
 图片节点「多角度」使用贴在节点下方的 3D 编辑器（天空盒/摄像头、常用角度、方向箭头），拖动节点或平移画布时面板跟着走。宫格切分放在「图片工具」菜单的「拆分与标记」里，提供 4/9/16/25 预设和 5×5 自定义点选；自定义面板留在菜单内，切分后的子图按网格排开。框选多张图后拖动，虚线选框跟随被选节点。

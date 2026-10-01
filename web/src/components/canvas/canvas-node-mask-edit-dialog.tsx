@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Brush, Eraser, LoaderCircle, RotateCcw, Settings2, WandSparkles, X } from "lucide-react";
 
 import { ImageSettingsPanel } from "@/components/image-settings-panel";
 import { ModelPicker } from "@/components/model-picker";
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { registerCanvasLiveScaleTarget } from "@/lib/canvas/canvas-live-viewport";
 import { defaultImageParamsForModel } from "@/lib/model-selection";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import type { AiConfig } from "@/stores/use-config-store";
@@ -29,6 +30,17 @@ export function CanvasImageMaskEditor({ imageDimensions, scale, config, onCancel
 }) {
     const maskCanvasRef = useRef<HTMLCanvasElement>(null);
     const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+    const topToolbarRef = useRef<HTMLDivElement>(null);
+    const bottomToolbarRef = useRef<HTMLDivElement>(null);
+    // 上下两个工具条都要在缩放期保持屏幕尺寸，注册后由实时视口逐帧写逆倍率。
+    useLayoutEffect(() => {
+        const unregisterTop = registerCanvasLiveScaleTarget(topToolbarRef.current);
+        const unregisterBottom = registerCanvasLiveScaleTarget(bottomToolbarRef.current);
+        return () => {
+            unregisterTop();
+            unregisterBottom();
+        };
+    }, []);
     const drawingRef = useRef<{ active: boolean; last: { x: number; y: number } | null }>({ active: false, last: null });
     const [prompt, setPrompt] = useState("");
     const [brushSize, setBrushSize] = useState(defaultBrushSize);
@@ -88,7 +100,7 @@ export function CanvasImageMaskEditor({ imageDimensions, scale, config, onCancel
         <canvas ref={maskCanvasRef} width={imageDimensions.width} height={imageDimensions.height} className="hidden" />
         <canvas ref={previewCanvasRef} width={imageDimensions.width} height={imageDimensions.height} aria-label="局部重绘蒙版" className="absolute inset-0 h-full w-full cursor-crosshair touch-none rounded-[inherit]" onPointerDown={startDraw} onPointerMove={moveDraw} onPointerUp={stopDraw} onPointerCancel={stopDraw} />
 
-        <div data-canvas-no-zoom="true" className="absolute bottom-[calc(100%+14px)] left-1/2 flex h-14 items-center gap-1 rounded-2xl border border-white/10 bg-[#242424]/96 p-1.5 text-white shadow-2xl backdrop-blur-xl" style={{ transform: screenTransform, transformOrigin: "center bottom" }}>
+        <div ref={topToolbarRef} data-canvas-no-zoom="true" className="absolute bottom-[calc(100%+14px)] left-1/2 flex h-14 items-center gap-1 rounded-2xl border border-white/10 bg-[#242424]/96 p-1.5 text-white shadow-2xl backdrop-blur-xl" style={{ transform: screenTransform, transformOrigin: "center bottom" }}>
             <ToolButton title="关闭局部重绘" onClick={onCancel}><X /></ToolButton><Divider />
             <ToolButton title="画笔" active={mode === "paint"} onClick={() => setMode("paint")}><Brush /></ToolButton>
             <ToolButton title="擦除" active={mode === "erase"} onClick={() => setMode("erase")}><Eraser /></ToolButton>
@@ -97,7 +109,7 @@ export function CanvasImageMaskEditor({ imageDimensions, scale, config, onCancel
             <ToolButton title="重置蒙版" onClick={resetMask}><RotateCcw /></ToolButton>
         </div>
 
-        <div data-canvas-no-zoom="true" className="absolute left-1/2 top-[calc(100%+14px)] flex w-[min(520px,90vw)] items-center gap-1.5 rounded-2xl border border-white/10 bg-[#242424]/96 p-1.5 text-white shadow-2xl backdrop-blur-xl" style={{ transform: screenTransform, transformOrigin: "center top" }}>
+        <div ref={bottomToolbarRef} data-canvas-no-zoom="true" className="absolute left-1/2 top-[calc(100%+14px)] flex w-[min(520px,90vw)] items-center gap-1.5 rounded-2xl border border-white/10 bg-[#242424]/96 p-1.5 text-white shadow-2xl backdrop-blur-xl" style={{ transform: screenTransform, transformOrigin: "center top" }}>
             <div className="relative min-w-0 flex-1">
                 <input aria-label="局部重绘要求" type="text" value={prompt} placeholder="描述选中区域需要如何修改…" onChange={(event) => { setPrompt(event.target.value); setError(""); }} onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Enter") void submit(); }} className="block h-9 w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-white/25" />
                 {error ? <div className="absolute left-1 top-[calc(100%+8px)] whitespace-nowrap rounded-lg bg-[#242424]/96 px-2 py-1 text-xs font-medium text-red-400 shadow-lg">{error}</div> : null}

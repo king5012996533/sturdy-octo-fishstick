@@ -45,8 +45,10 @@ export function useCanvasViewportController({
 
     const previewViewport = useCallback((next: ViewportTransform) => {
         viewportRef.current = next;
-        if (containerRef.current) containerRef.current.dataset.canvasViewportInteracting = "true";
-        applyCanvasLiveViewport(containerRef.current, next);
+        const container = containerRef.current;
+        // 过渡动画每帧都会经过这里，重复写同一个属性会让整棵交互子树反复失效。
+        if (container && container.dataset.canvasViewportInteracting !== "true") container.dataset.canvasViewportInteracting = "true";
+        applyCanvasLiveViewport(container, next);
     }, [containerRef, viewportRef]);
 
     const commitViewport = useCallback((next: ViewportTransform) => {

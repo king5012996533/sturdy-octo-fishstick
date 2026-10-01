@@ -30,8 +30,48 @@ export type CanvasNodeSelectionPreview = {
 const nodeDragPreviewDomStates = new WeakMap<HTMLDivElement, NodeDragPreviewDomState>();
 const nodeSelectionPreviewDomStates = new WeakMap<HTMLDivElement, NodeSelectionPreviewDomState>();
 const liveViewportElements = new WeakMap<HTMLDivElement, { worldLayer: HTMLElement | null }>();
+/**
+ * 逐帧消费实时倍率的元素（目前是外置节点标题），按画布容器分组。
+ *
+ * 曾经这些值统一写在画布容器的内联样式上，容器是整棵画布子树的祖先，
+ * 一次继承型自定义属性写入会让全部节点重新参与样式计算：实测 24 节点 /
+ * 90 次滚轮缩放在 4 倍降频下「重算样式」从 18ms/步 涨到 43ms/步，
+ * Windows 上就是用户感受到的缩放掉帧。改成只写真正读它的元素后，
+ * 失效范围从整棵子树收敛到这几个标题元素本身。
+ */
+const liveScaleTargets = new WeakMap<HTMLElement, Set<HTMLElement>>();
+/** 框选轮廓用 calc() 读实时逆倍率，只有它需要容器级变量逐帧更新。 */
+const containerLiveScaleConsumers = new WeakSet<HTMLElement>();
 
-export function applyCanvasLiveViewport(container: HTMLDivElement | null, viewport: ViewportTransform, notify = true) {
+/**
+ * 注册需要在缩放期保持屏幕尺寸的元素。返回注销函数，元素卸载时必须调用，
+ * 否则集合会留下游离节点（每帧多写一次样式）。
+ */
+export function registerCanvasLiveScaleTarget(element: HTMLElement | null) {
+    if (!element) return () => {};
+    const container = element.closest<HTMLElement>("[data-canvas-viewport]");
+    if (!container) return () => {};
+    let targets = liveScaleTargets.get(container);
+    if (!targets) {
+        targets = new Set();
+        liveScaleTargets.set(container, targets);
+    }
+    targets.add(element);
+    return () => {
+        targets.delete(element);
+        if (targets.size === 0) liveScaleTargets.delete(container);
+    };
+}
+
+export type CanvasLiveViewportOptions = {
+    /** 通知浮层 / 小地图等订阅方，按 32ms 节流而非每帧。 */
+    notify?: boolean;
+    /** 提交态：把视口写回容器变量，供静止期布局与非交互期 CSS 继承读取。 */
+    commit?: boolean;
+};
+
+export function applyCanvasLiveViewport(container: HTMLDivElement | null, viewport: ViewportTransform, options: CanvasLiveViewportOptions = {}) {
+    const { notify = true, commit = false } = options;
     if (!container) return;
     const committedScale = Number(container.style.getPropertyValue("--canvas-committed-scale")) || viewport.k;
     let elements = liveViewportElements.get(container);
@@ -48,13 +88,27 @@ export function applyCanvasLiveViewport(container: HTMLDivElement | null, viewpo
         worldLayer.style.transform = `translate3d(${viewport.x}px, ${viewport.y}px, 0) scale(${viewport.k / committedScale})`;
         worldLayer.style.willChange = container.dataset.canvasViewportInteracting === "true" ? "transform" : "";
     }
+    // 外置节点标题用同一帧逆倍率抵消世界层缩放，避免等待 React 提交后再校正尺寸。
+    // 只写注册过的元素本身；容器变量仅在提交态或框选轮廓需要时更新。
+    const inverseScale = String(1 / Math.max(viewport.k, 0.05));
+    // 交互期提交路径拿到的 React 视口最多滞后一次虚拟化刷新（64ms），
+    // 用它覆盖逐帧值会让标题在缩放中途突然跳大小；此时交给逐帧写入。
+    const interacting = container.dataset.canvasViewportInteracting === "true";
+    const targets = liveScaleTargets.get(container);
+    if (targets && !(commit && interacting)) {
+        for (const target of targets) {
+            if (!target.isConnected) continue;
+            target.style.setProperty("--canvas-live-inverse-scale", inverseScale);
+        }
+    }
     // Keep the live camera coordinates observable to overlays and automation
     // while the world layer is moved through a compositor transform.
-    container.style.setProperty("--canvas-live-x", String(viewport.x));
-    container.style.setProperty("--canvas-live-y", String(viewport.y));
-    container.style.setProperty("--canvas-live-scale", String(viewport.k));
-    // 外置节点标题用同一帧逆倍率抵消世界层缩放，避免等待 React 提交后再校正尺寸。
-    container.style.setProperty("--canvas-live-inverse-scale", String(1 / Math.max(viewport.k, 0.05)));
+    if (commit || containerLiveScaleConsumers.has(container)) {
+        container.style.setProperty("--canvas-live-x", String(viewport.x));
+        container.style.setProperty("--canvas-live-y", String(viewport.y));
+        container.style.setProperty("--canvas-live-scale", String(viewport.k));
+        container.style.setProperty("--canvas-live-inverse-scale", inverseScale);
+    }
     // 图形层必须逐帧跟随 DOM 世界层；浮层和滚动通知仍可按原频率节流。
     container.dispatchEvent(new CustomEvent<ViewportTransform>(CANVAS_GRAPHICS_VIEWPORT_PREVIEW_EVENT, { detail: viewport }));
     if (notify) {
@@ -170,6 +224,8 @@ export function applyCanvasNodeSelectionPreview(container: HTMLDivElement | null
     }
 
     state.previousStates = nextStates;
+    if (nextStates.size > 0) containerLiveScaleConsumers.add(container);
+    else containerLiveScaleConsumers.delete(container);
     if (!preview) state.elementsById.clear();
 }
 

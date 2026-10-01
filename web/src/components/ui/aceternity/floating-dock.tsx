@@ -230,8 +230,12 @@ function DockCommandButton({ command, mouseX, metrics, motionEnabled, compact, s
     const [focused, setFocused] = useState(false);
     const [hovered, setHovered] = useState(false);
     const distance = useTransform(mouseX, (value) => {
+        // motion 的 useTransform 每次父组件重渲染都会重跑这个映射函数；
+        // 指针不在 dock 上时（画布缩放期间每 64ms 就会重渲染一次）先短路，
+        // 否则 20 个按钮会在一次重渲染里各强制一次 layout。
+        if (!Number.isFinite(value)) return Number.POSITIVE_INFINITY;
         const bounds = ref.current?.getBoundingClientRect();
-        if (!bounds || !Number.isFinite(value)) return Number.POSITIVE_INFINITY;
+        if (!bounds) return Number.POSITIVE_INFINITY;
         return value - bounds.left - bounds.width / 2;
     });
     const itemTarget = useTransform(distance, (value) => proximitySize(value, metrics.base, metrics.magnified, metrics.distance, motionEnabled));
