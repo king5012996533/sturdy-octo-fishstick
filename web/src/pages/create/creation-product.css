@@ -140,7 +140,6 @@
 .creation-inspiration-footer summary:hover { color: var(--user-ink); }
 .creation-inspiration-footer p { line-height: 1.7; margin: 8px 0; }
 .creation-inspiration-footer a { color: var(--user-accent); }
-.creation-inspiration-footer .creation-inspiration-sources { display: flex; flex-wrap: wrap; gap: 4px 16px; }
 @media (max-width: 620px) {
     .creation-agent-entry { grid-template-columns: 1fr; padding: 20px; gap: 12px; }
     .creation-agent-orb { display: none; }
@@ -442,24 +441,6 @@ html:not(.dark) .app-product-overlays .creation-control-popover-surface {
     display: flex;
     align-items: center;
     gap: 10px;
-}
-
-.creation-inspiration-player-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    color: rgba(244, 245, 247, .62);
-    font-size: 12px;
-    text-decoration: none;
-}
-
-.creation-inspiration-player-link:hover {
-    color: #f4f5f7;
-}
-
-.creation-inspiration-player-link svg {
-    width: 13px;
-    height: 13px;
 }
 
 .creation-inspiration-player-use {

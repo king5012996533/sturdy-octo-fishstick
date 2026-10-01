@@ -1,5 +1,5 @@
 import type Hls from "hls.js";
-import { ArrowUpRight, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { AppModal } from "@/components/ui/product/app-modal";
@@ -14,6 +14,11 @@ import type { CreationInspiration } from "./creation-inspirations";
  * 组件因此必须守住两条：广场列表里不挂任何 <video>，弹层关闭即销毁；hls.js 也只在真
  * 要播 HLS 时才动态加载，首页不为它多付一次体积。播放流量走的是上游 CDN，本站只提供
  * 一个地址字符串。
+ */
+
+/**
+ * 刻意不放"原站作品"外链：弹层是站内的终点，往外送一条链接等于把看过这条作品的人交给
+ * 上游。署名（作者名）留在标题下方，那是版权归属，与跳转是两件事。
  */
 
 /** 上游那三档是 1080p(12.6Mbps) / 720p(2.8Mbps) / 480p(1.2Mbps)，选档交给 ABR。 */
@@ -118,12 +123,6 @@ export function CreationInspirationPlayer({ item, onUse, onClose }: {
                         <span>{[item.category, item.author].filter(Boolean).join(" · ")}</span>
                     </div>
                     <div className="creation-inspiration-player-actions">
-                        {item.sourceUrl ? (
-                            <a href={item.sourceUrl} target="_blank" rel="noreferrer noopener" className="creation-inspiration-player-link">
-                                原站作品
-                                <ArrowUpRight aria-hidden="true" />
-                            </a>
-                        ) : null}
                         <button type="button" className="creation-inspiration-player-use" onClick={onUse}>
                             <Sparkles aria-hidden="true" />
                             使用这个创意
