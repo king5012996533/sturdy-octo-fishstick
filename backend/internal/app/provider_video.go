@@ -70,6 +70,18 @@ func (s *Service) validateResolvedVideoCapability(input *canvasGenerationInput) 
 	return validateVideoTask(normalized.Video, *input)
 }
 
+func restoreBeefAPISeedanceAudioControl(config providerConfig, video *VideoCapabilityConfig) {
+	if config.VideoCapabilitiesVersion != nil {
+		return
+	}
+	// Saved built-in profiles predate the supported audio switch. This is a
+	// BeefAPI contract correction, not an override of custom provider settings.
+	contract, known := providerpreset.BeefAPIVideoContract(config.Model)
+	if isBeefAPIVideoConfig(config) && known && contract.Protocol == "newapi" && isSeedance2Family("newapi", config.Model) {
+		video.GenerateAudio.Supported = true
+	}
+}
+
 func runVideoTask(ctx context.Context, input canvasGenerationInput) (map[string]interface{}, error) {
 	return runVideoTaskWithPolicy(ctx, input, defaultVideoPollPolicy())
 }
