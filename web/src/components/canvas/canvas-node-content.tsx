@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
-import { AlertCircle, BookOpenCheck, Clock3, Download, FileText, Image as ImageIcon, LoaderCircle, Music2, Pencil, Play, RefreshCw, Square, Video } from "lucide-react";
+import { AlertCircle, BookOpenCheck, Clock3, Download, FileText, LoaderCircle, Music2, Pencil, Play, RefreshCw, Square, Video } from "lucide-react";
 
 import { VideoPlayer } from "@/components/video-player";
 import { CachedResourceImage } from "@/components/cached-resource-image";
@@ -11,15 +11,13 @@ import { fitNodeSize } from "@/lib/canvas/canvas-node-size";
 import { loadCanvasDrawingPreview } from "@/lib/canvas/canvas-drawing-storage";
 import { canvasNodeVideoPreviewUrl } from "@/lib/canvas/canvas-media-preview";
 import { bindCanvasVideoHoverPreview } from "@/lib/canvas/canvas-video-hover-preview";
-import { buildLibTVImagePreviewUrl, buildLibTVVideoSourceUrl } from "@/lib/canvas/libtv-import";
+import { buildLibTVVideoSourceUrl } from "@/lib/canvas/libtv-import";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import type { CanvasTheme } from "@/lib/canvas-theme";
 import { formatBytes } from "@/lib/image-utils";
-import { resourceIdFromStorageKey } from "@/services/api/resources";
 import type { GenerationTask } from "@/services/api/task-center";
-import { cacheResourceObjectUrl, getCachedResourceObjectUrl, peekCachedResourceObjectUrl, scheduleResourceBlobCache } from "@/services/resource-blob-cache";
+import { scheduleResourceBlobCache } from "@/services/resource-blob-cache";
 import { resolveMediaUrl } from "@/services/file-storage";
-import { resolveImageUrl } from "@/services/image-storage";
 import { hydrateCanvasVideoPreview } from "@/services/canvas-video-preview";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
@@ -27,7 +25,9 @@ import { ART_CRITIQUE_NODE_TYPE } from "@/lib/art-critique/contracts";
 import { createDefaultSubtitleStyle } from "@/types/timeline";
 import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textarea";
 import { CanvasAudioPlayer } from "./canvas-audio-player";
+import { CanvasImageNodePlaceholder } from "./canvas-image-node-placeholder";
 import { useCanvasNodeActions } from "./canvas-node-action-context";
+import { useCanvasNodeNearViewport, useCanvasNodeResourceUrl } from "./use-canvas-node-resource-url";
 import { CanvasSubtitleOverlay } from "./canvas-subtitle-overlay";
 import { CanvasFileUploadContent } from "./canvas-file-upload-content";
 import { MarkdownNodeContent } from "./nodes/markdown-node";
@@ -397,7 +397,10 @@ function skillOutputModeLabel(mode?: string) {
 }
 
 function ImageNodeContent(props: CanvasNodeContentProps) {
-    if (!props.node.metadata?.content && props.isBatchRoot) {
+    // 只要节点还挂着任何媒体引用就不算空节点：旧节点可能只留 storageKey，
+    // 直接判 content 会把它当成空白节点，图片反而永远不显示。
+    const hasMediaReference = Boolean(props.node.metadata?.content || props.node.metadata?.storageKey || props.node.metadata?.previewContent);
+    if (!hasMediaReference && props.isBatchRoot) {
         const content = props.node.metadata?.status === "loading"
             ? <LoadingContent node={props.node} theme={props.theme} />
             : props.node.metadata?.status === "error"
@@ -405,21 +408,19 @@ function ImageNodeContent(props: CanvasNodeContentProps) {
                 : <EmptyImageContent {...props} isBatchRoot={false} />;
         return <BatchFrame batchPreviewNodes={props.batchPreviewNodes} batchCount={props.batchCount} batchExpanded={props.batchExpanded} batchOpening={props.batchOpening} batchRecovering={props.batchRecovering} theme={props.theme} onToggleBatch={props.onToggleBatch}>{content}</BatchFrame>;
     }
-    if (!props.node.metadata?.content) return <EmptyImageContent {...props} />;
+    if (!hasMediaReference) return <EmptyImageContent {...props} />;
     return <ImageContent batchPreviewNodes={props.batchPreviewNodes} node={props.node} theme={props.theme} isBatchRoot={props.isBatchRoot} batchCount={props.batchCount} batchExpanded={props.batchExpanded} batchOpening={props.batchOpening} batchRecovering={props.batchRecovering} onToggleBatch={props.onToggleBatch} />;
 }
 
 function EmptyImageContent({ node, theme, isBatchRoot, batchCount, batchPreviewNodes, batchExpanded, batchOpening, batchRecovering, onToggleBatch }: CanvasNodeContentProps) {
     const isCharacterReference = node.metadata?.workflowKind === "character" && node.metadata?.characterView === "multi";
     const content = (
-        <div className="flex h-full w-full flex-col items-center justify-center overflow-hidden" style={{ color: theme.node.muted }}>
-            <ImageIcon className="canvas-node-empty-image-mark size-14 opacity-30" strokeWidth={1.35} aria-hidden />
-            {isCharacterReference ? (
-                <div className="max-w-[80%] text-center">
-                    <div className="truncate text-xs font-medium" title={node.metadata?.characterName || node.title} style={{ color: theme.node.muted }}>{node.metadata?.characterName || node.title}</div>
-                    <div className="mt-1 text-[var(--fs-tiny)] tracking-[0.12em] opacity-50">多视角参考 · 待生成</div>
-                </div>
-            ) : null}
+        <div className="h-full w-full overflow-hidden">
+            <CanvasImageNodePlaceholder
+                theme={theme}
+                state="empty"
+                hint={isCharacterReference ? `${node.metadata?.characterName || node.title} · 多视角参考待生成` : undefined}
+            />
         </div>
     );
     if (isBatchRoot) return <BatchFrame batchPreviewNodes={batchPreviewNodes} batchCount={batchCount} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} theme={theme} onToggleBatch={onToggleBatch}>{content}</BatchFrame>;
@@ -542,7 +543,7 @@ function AudioNodeContent({ node, theme }: CanvasNodeContentProps) {
 
 function InactiveVideoPreview({ node, theme, onPlay }: Pick<CanvasNodeContentProps, "node" | "theme"> & { onPlay: () => void }) {
     const previewRef = useRef<HTMLDivElement>(null);
-    const nearViewport = useNearViewport(previewRef);
+    const nearViewport = useCanvasNodeNearViewport(previewRef);
     const previewUrl = canvasNodeVideoPreviewUrl(node);
     const { updateMetadata } = useCanvasNodeActions();
     const updateMetadataRef = useRef(updateMetadata);
@@ -641,8 +642,9 @@ function EmptyAudioContent({ theme }: { theme: CanvasTheme }) {
 
 function ImageContent({ node, theme, isBatchRoot, batchCount, batchPreviewNodes, batchExpanded, batchOpening, batchRecovering, onToggleBatch }: Pick<CanvasNodeContentProps, "node" | "theme" | "isBatchRoot" | "batchCount" | "batchPreviewNodes" | "batchExpanded" | "batchOpening" | "batchRecovering" | "onToggleBatch">) {
     const imageContainerRef = useRef<HTMLDivElement>(null);
-    const nearViewport = useNearViewport(imageContainerRef);
-    const { url, loading } = useNodeResourceUrl(node, nearViewport);
+    const nearViewport = useCanvasNodeNearViewport(imageContainerRef);
+    const { url, loading, failed, retry, reportImageError } = useCanvasNodeResourceUrl(node, nearViewport);
+    const hasMediaReference = Boolean(node.metadata?.content || node.metadata?.storageKey || node.metadata?.previewContent);
     const importedFromLibTV = node.metadata?.importSource?.provider === "libtv";
     const { updateMediaNode } = useCanvasNodeActions();
     const measuredSizeRef = useRef<{ width: number; height: number } | null>(null);
@@ -685,109 +687,10 @@ function ImageContent({ node, theme, isBatchRoot, batchCount, batchPreviewNodes,
     return (
         <BatchFrame batchPreviewNodes={batchPreviewNodes} batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} theme={theme} onToggleBatch={onToggleBatch}>
             <div ref={imageContainerRef} className="h-full w-full overflow-hidden rounded-[var(--node-radius)]">
-                {url ? <img src={url} alt={node.title} loading="lazy" decoding="async" draggable={false} onDragStart={(event) => event.preventDefault()} onLoad={(event) => fitToImage(event.currentTarget)} className={`pointer-events-none block h-full w-full select-none ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`} /> : <div className="grid size-full place-items-center" style={{ color: theme.node.muted }}>{loading ? <LoaderCircle className="size-5 animate-spin" /> : <ImageIcon className="size-5 opacity-45" />}</div>}
+                {url ? <img src={url} alt={node.title} loading="lazy" decoding="async" draggable={false} onDragStart={(event) => event.preventDefault()} onLoad={(event) => fitToImage(event.currentTarget)} onError={reportImageError} className={`pointer-events-none block h-full w-full select-none ${node.metadata?.freeResize ? "object-fill" : "object-contain"}`} /> : <CanvasImageNodePlaceholder theme={theme} state={failed ? "failed" : loading || hasMediaReference ? "loading" : "empty"} onRetry={retry} />}
             </div>
         </BatchFrame>
     );
-}
-
-function useNodeResourceUrl(node: CanvasNodeData, eager: boolean) {
-    const storageKey = node.metadata?.storageKey || "";
-    const rawContent = node.metadata?.content || "";
-    const content = node.type === CanvasNodeType.Video && node.metadata?.importSource?.provider === "libtv"
-        ? buildLibTVVideoSourceUrl(rawContent)
-        : rawContent;
-    // `previewContent` is intentionally passive-only.  When a media node is
-    // activated, VideoPlayer/Audio must receive the playable asset, never the
-    // LibTV OSS snapshot URL stored for the thumbnail.
-    const fallback = node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio
-        ? content
-        : node.metadata?.previewContent
-            || (node.type === CanvasNodeType.Image && node.metadata?.importSource?.provider === "libtv" ? buildLibTVImagePreviewUrl(content) : content);
-    const resourceId = resourceIdFromStorageKey(storageKey);
-    const isRemoteResource = Boolean(resourceId);
-    // 远程资源接口受登录/桌面令牌保护，原生 `<img>` 无法附带该令牌。
-    // 重登后只能先通过 cacheResourceObjectUrl() 走鉴权下载，再挂载 Blob URL。
-    const synchronousUrl = eager && isRemoteResource && node.type === CanvasNodeType.Image ? peekCachedResourceObjectUrl(storageKey) : "";
-    // Inline data URLs are already local, but decoding thousands of them is
-    // still expensive. Images must wait for the same viewport gate as remote
-    // resources; otherwise DOM virtualization does not reduce image work.
-    const isLazyVisual = node.type === CanvasNodeType.Image;
-    const initialUrl = synchronousUrl || (isRemoteResource || isLazyVisual ? "" : fallback);
-    const [url, setUrl] = useState(() => initialUrl);
-    const [loading, setLoading] = useState(() => !initialUrl && isRemoteResource && eager);
-
-    useEffect(() => {
-        let cancelled = false;
-        if (!isRemoteResource && isLazyVisual && storageKey) {
-            if (!eager) {
-                setUrl("");
-                setLoading(false);
-                return;
-            }
-            setLoading(true);
-            void resolveImageUrl(storageKey, fallback)
-                .then((resolved) => {
-                    if (!cancelled) setUrl(resolved);
-                })
-                .catch(() => {
-                    if (!cancelled) setUrl("");
-                })
-                .finally(() => {
-                    if (!cancelled) setLoading(false);
-                });
-            return () => { cancelled = true; };
-        }
-        if (!isRemoteResource) {
-            setUrl(isLazyVisual && !eager ? "" : fallback);
-            setLoading(false);
-            return;
-        }
-        const cachedSync = peekCachedResourceObjectUrl(storageKey);
-        if (cachedSync) {
-            setUrl(cachedSync);
-            setLoading(false);
-            return;
-        }
-        if (!url) {
-            setLoading(eager);
-        }
-        // 只有进入视口或被激活的节点才下载远程媒体；缓存层会复用已有 Blob URL 和 in-flight 请求。
-        const resolve = eager ? cacheResourceObjectUrl(storageKey) : getCachedResourceObjectUrl(storageKey);
-        void resolve.then((cached) => {
-            if (!cancelled && cached) setUrl(cached);
-            // Never hand a protected resource URL to a native <img> after a
-            // cache miss. It cannot attach the auth header and would render
-            // as a broken image after relogin.
-        }).catch(() => {
-            if (!cancelled && eager) setUrl(synchronousUrl);
-        }).finally(() => {
-            if (!cancelled) setLoading(false);
-        });
-        return () => { cancelled = true; };
-    }, [eager, fallback, isLazyVisual, isRemoteResource, storageKey]);
-
-    return { url, loading };
-}
-
-function useNearViewport(ref: RefObject<Element | null>) {
-    const [nearViewport, setNearViewport] = useState(false);
-    useEffect(() => {
-        const element = ref.current;
-        if (!element || typeof IntersectionObserver === "undefined") {
-            setNearViewport(true);
-            return;
-        }
-        const observer = new IntersectionObserver((entries) => {
-            if (entries.some((entry) => entry.isIntersecting)) {
-                setNearViewport(true);
-                observer.disconnect();
-            }
-        }, { rootMargin: "600px" });
-        observer.observe(element);
-        return () => observer.disconnect();
-    }, [ref]);
-    return nearViewport;
 }
 
 export function CanvasNodeImageInfo({ node }: { node: CanvasNodeData }) {
@@ -799,8 +702,8 @@ export function CanvasNodeImageInfo({ node }: { node: CanvasNodeData }) {
 
 function BatchPreviewImage({ node }: { node: CanvasNodeData }) {
     const ref = useRef<HTMLDivElement>(null);
-    const nearViewport = useNearViewport(ref);
-    const { url } = useNodeResourceUrl(node, nearViewport);
+    const nearViewport = useCanvasNodeNearViewport(ref);
+    const { url } = useCanvasNodeResourceUrl(node, nearViewport);
     return <div ref={ref} className="h-full w-full overflow-hidden rounded-[inherit]">{url ? <img src={url} alt={`子图预览：${node.title}`} className="h-full w-full object-contain" draggable={false} /> : null}</div>;
 }
 
