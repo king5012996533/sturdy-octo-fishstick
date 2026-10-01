@@ -73,7 +73,7 @@ export function HoverBorderGradient<T extends ElementType = "button">({
             {reducedMotion ? null : (
                 <motion.div
                     aria-hidden
-                    className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[inherit]"
+                    className="creation-composer-sheen pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[inherit]"
                     style={{ filter: "blur(1px)" }}
                     initial={{ background: movingMap[direction] }}
                     animate={{ background: hovered ? [movingMap[direction], highlight] : movingMap[direction] }}

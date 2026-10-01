@@ -28,6 +28,7 @@ import { CanvasImagePreview } from "@/components/canvas/canvas-image-preview";
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
 import { VoiceRecordingButton } from "@/components/conversation/voice-recording-button";
 import { HoverBorderGradient } from "@/components/ui/aceternity/hover-border-gradient";
+import { ComposerBorderStream } from "@/components/ui/aceternity/composer-border-stream";
 import { SpotlightSurface } from "@/components/ui/aceternity/spotlight-surface";
 import { ModelPicker } from "@/components/model-picker";
 import { ASSET_CATEGORY_LABELS } from "@/lib/asset-category";
@@ -652,6 +653,7 @@ export function CreationComposer(props: ComposerProps) {
         </footer>
         <CreationMediaPreviewModal url={previewUrl} type={previewType} onClose={() => setPreviewUrl("")} />
         </SpotlightSurface>
+        <ComposerBorderStream />
     </HoverBorderGradient>;
 
     if (!promptOptimizerOpen) return composer;

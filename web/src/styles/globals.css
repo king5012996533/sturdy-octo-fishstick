@@ -19762,7 +19762,7 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 /* 首页各区块共用同一个内容基准线，横幅与输入卡都从这条线起算。 */
 .app-user-workspace .creation-home .creation-home-hero-copy,
 .app-user-workspace .creation-home .creation-launchpad {
-    width: min(100%, 1040px);
+    width: min(100%, 1240px);
     margin-inline: auto;
 }
 .app-user-workspace .creation-home > .creation-empty-workspace::-webkit-scrollbar { display: none; width: 0; }
@@ -19889,6 +19889,9 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     --creation-text: #f3f4f6;
     --creation-muted: rgba(255, 255, 255, .64);
     --creation-faint: rgba(255, 255, 255, .44);
+    /* 首页输入卡的流光配色：一束紫、一束蓝紫，跟提交按钮的渐变同源。 */
+    --composer-stream-violet: #a273ff;
+    --composer-stream-indigo: #5b7dff;
     position: relative;
     z-index: 3;
     margin-top: -88px !important;
@@ -19897,6 +19900,7 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     border-radius: 26px !important;
     backdrop-filter: blur(40px) saturate(150%);
     -webkit-backdrop-filter: blur(40px) saturate(150%);
+    transition: box-shadow var(--motion-dur-base-calc) var(--motion-ease-out);
     box-shadow: 0 30px 100px rgba(0, 0, 0, .35) !important;
 }
 .app-user-workspace .creation-home .creation-empty-composer .creation-chat-composer {
@@ -19993,21 +19997,79 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 .app-user-workspace .creation-launchpad .creation-chat-composer.is-empty .creation-reference-panel:has(.creation-reference-track.is-empty) {
     display: none;
 }
-/* 卡高按参考稿收：写作区只留两行起步，输入多少长多少。
+/* 卡高按参考稿收：写作区留三行起步，输入多少长多少。
    之前 152px 的写作区在横幅下面就是四行纯空白，把玻璃卡撑成一块黑板。 */
 .app-user-workspace .creation-launchpad .creation-chat-composer.is-empty .creation-chat-writing-surface {
-    min-height: 96px !important;
-    padding: 20px 24px 6px !important;
+    min-height: 116px !important;
+    padding: 26px 28px 6px !important;
 }
 .app-user-workspace .creation-launchpad .creation-chat-composer.is-empty .creation-chat-mention-editor {
-    min-height: 58px !important;
+    min-height: 84px !important;
     font-size: 18px !important;
 }
 .app-user-workspace .creation-launchpad .creation-chat-dock {
     min-height: 56px !important;
-    padding: 4px 16px 12px !important;
+    padding: 10px 16px 12px !important;
     border-top: 0 !important;
 }
+/* ---- 首页输入卡的双向对撞流光（结构见 components/ui/aceternity/composer-border-stream.tsx）----
+   两束光跑的是 SVG 描边的 dash，绕周长匀速、四条边上光斑一样长；conic-gradient 在这么扁
+   又这么宽的卡上会把高光抹成一条几百像素的横带，读不出"一束光"。描边路径从顶部正中起笔，
+   两束光相位相同、方向相反 ⇒ 每圈只在顶/底正中各相遇一次。相交处 plus-lighter 加法混合，
+   两层叠起来才是"撞"的那一下最亮。 */
+.composer-border-stream {
+    position: absolute;
+    inset: -1px;
+    display: none;
+    border-radius: inherit;
+    pointer-events: none;
+}
+.app-user-workspace .creation-empty-composer .composer-border-stream { display: block; }
+.composer-border-stream-art { display: block; isolation: isolate; }
+.composer-border-stream-track { transition: opacity 240ms linear; }
+.composer-border-stream-track.is-cruise { --composer-stream-lap: 5.5s; opacity: .76; }
+.composer-border-stream-track.is-boost { --composer-stream-lap: 2.6s; opacity: 0; }
+.creation-composer-shell:focus-within .composer-border-stream-track.is-cruise { opacity: 0; }
+.creation-composer-shell:focus-within .composer-border-stream-track.is-boost { opacity: 1; }
+.composer-border-stream-beam {
+    fill: none;
+    stroke: var(--composer-stream-color);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-dasharray: var(--composer-stream-dash);
+    mix-blend-mode: plus-lighter;
+}
+.composer-border-stream-beam.is-violet { --composer-stream-color: var(--composer-stream-violet); animation: composer-stream-cw var(--composer-stream-lap) linear infinite; }
+.composer-border-stream-beam.is-indigo { --composer-stream-color: var(--composer-stream-indigo); animation: composer-stream-ccw var(--composer-stream-lap) linear infinite; }
+/* 位移写死在 pathLength 刻度（1000）上，换屏幕宽度不用重算关键帧。
+   关键帧里不能再嵌 var()/calc()——Chrome 会把这帧当离散值处理，光斑直接瞬移。 */
+@keyframes composer-stream-cw { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -1000; } }
+@keyframes composer-stream-ccw { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 1000; } }
+/* 聚焦提速时把光晕也点亮一档，配合快轨道一起"拉满"。 */
+.app-user-workspace .creation-home .creation-empty-composer .creation-composer-shell:focus-within {
+    box-shadow:
+        0 30px 100px rgba(0, 0, 0, .35),
+        0 0 0 1px color-mix(in srgb, var(--composer-stream-violet) 26%, transparent),
+        0 22px 64px color-mix(in srgb, var(--composer-stream-indigo) 24%, transparent) !important;
+}
+/* 降级：光停在原地，改成一条静态双色描边（上半圈紫、下半圈蓝紫），不再有"跑动"的信息。
+   起笔点让出过半个光斑，静态分界线要按这个让位量补回来，才落在顶/底正中。 */
+@media (prefers-reduced-motion: reduce) {
+    .composer-border-stream-track.is-boost { display: none; }
+    .composer-border-stream-track.is-cruise { opacity: 1; }
+    .composer-border-stream-beam { stroke-dasharray: 500 500; stroke-dashoffset: calc(var(--composer-stream-back) * -1); }
+    .composer-border-stream-beam.is-violet,
+    .composer-border-stream-beam.is-indigo { animation: none; }
+    .composer-border-stream-beam.is-indigo { stroke-dashoffset: calc((var(--composer-stream-back) + 500) * -1); }
+}
+.no-motion .composer-border-stream-track.is-boost { display: none; }
+.no-motion .composer-border-stream-track.is-cruise { opacity: 1; }
+.no-motion .composer-border-stream-beam { stroke-dasharray: 500 500; stroke-dashoffset: calc(var(--composer-stream-back) * -1); }
+.no-motion .composer-border-stream-beam.is-violet,
+.no-motion .composer-border-stream-beam.is-indigo { animation: none; }
+.no-motion .composer-border-stream-beam.is-indigo { stroke-dashoffset: calc((var(--composer-stream-back) + 500) * -1); }
+/* 首页卡片已经有了双束流光，默认那圈中性高光再跑一遍只会糊在一起。 */
+.app-user-workspace .creation-empty-composer .creation-composer-sheen { display: none; }
 .app-user-workspace .creation-launchpad .creation-chat-controls .creation-chat-control,
 .app-user-workspace .creation-launchpad .creation-model-picker.canvas-composer-model-picker {
     min-height: 36px !important;
