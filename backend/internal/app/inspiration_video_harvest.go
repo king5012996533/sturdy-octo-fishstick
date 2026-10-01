@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,29 +12,27 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"infinite-canvas/backend/internal/asset"
 )
 
 const (
-	// inspirationVideoDetailTimeout 抓一个作品页的预算。作品页只有几百 KB，
+	// inspirationVideoDetailTimeout 拉一个模板详情的预算。详情接口只有几百 KB，
 	// 但上游偶发慢响应，一次抓取应该坏掉一条而不是卡住整批。
 	inspirationVideoDetailTimeout = 30 * time.Second
-	// inspirationVideoDetailMaxBytes 是作品页的读取上限：我们要的只是其中一行
-	// 成片地址，页面再长也不该把整段 HTML 读进内存。
-	inspirationVideoDetailMaxBytes = 4 << 20
+	// inspirationVideoDetailMaxBytes 是详情响应的读取上限：我们要的只是成片地址与快照，
+	// 上游再返回什么也不该把整段响应读进内存。
+	inspirationVideoDetailMaxBytes = 8 << 20
 )
 
 var (
 	// 作品页地址形如 https://www.liblib.tv/detail/<32 位十六进制>。
 	liblibDetailPathPattern = regexp.MustCompile(`^/(?:[a-z-]+/)*detail/([0-9a-fA-F]{32})/?$`)
-	// 成片地址在 Next.js 的流式载荷里，可能被转义成 \"finalOutput\"。
-	// 成片后缀不固定：同一个作品池里 mp4 与 m4v 都有，只认 .mp4 会让一条作品
-	// 被误判成"没有成片"。
-	liblibFinalOutputPattern = regexp.MustCompile(`finalOutput\\?"?\s*:\s*\\?"(https?://[^"\\]+\.(?:mp4|m4v|mov|webm))`)
 )
 
-// InspirationVideoHarvestOptions 控制一次成片地址抓取。
+// InspirationVideoHarvestOptions 控制一次成片地址与配方抓取。
 type InspirationVideoHarvestOptions struct {
-	// Overwrite 为真时重新取一遍已有地址，用于上游换了成片但作品页没变的情况。
+	// Overwrite 为真时重新取一遍已有数据，用于上游换了成片或改了配方的情况。
 	Overwrite bool
 	// Limit 限制本次处理的条目数（0 表示不限制）。
 	Limit int
@@ -45,6 +44,10 @@ type InspirationVideoHarvestItem struct {
 	Title         string `json:"title"`
 	DetailURL     string `json:"detailUrl"`
 	VideoURL      string `json:"videoUrl"`
+	// RecipeVideoModel 与 RecipeImages 是这次同时抓到的复刻配方摘要：只有提示词的
+	// 条目复刻不出来，命令的输出必须能看出配方到底有没有落到库里。
+	RecipeVideoModel string `json:"recipeVideoModel,omitempty"`
+	RecipeImages     int    `json:"recipeImages"`
 	// State 取 harvested / kept / skipped / failed。
 	State string `json:"state"`
 	Error string `json:"error,omitempty"`
@@ -52,23 +55,28 @@ type InspirationVideoHarvestItem struct {
 
 // InspirationVideoHarvestResult 汇总一次抓取。
 type InspirationVideoHarvestResult struct {
-	Scanned   int                           `json:"scanned"`
-	Harvested int                           `json:"harvested"`
-	Kept      int                           `json:"kept"`
-	Skipped   int                           `json:"skipped"`
-	Failed    int                           `json:"failed"`
-	Items     []InspirationVideoHarvestItem `json:"items"`
+	Scanned   int `json:"scanned"`
+	Harvested int `json:"harvested"`
+	Kept      int `json:"kept"`
+	Skipped   int `json:"skipped"`
+	Failed    int `json:"failed"`
+	// Images / ImageFailures 是参考图的落库与失败张数：参考图缺一张不影响成片能否播放，
+	// 但它正是"复刻不出来"的主因，所以必须单独报出来，不能被条目级的成功掩盖。
+	Images        int                           `json:"images"`
+	ImageFailures int                           `json:"imageFailures"`
+	Items         []InspirationVideoHarvestItem `json:"items"`
 }
 
-// HarvestInspirationVideos 把广场视频条目的成片地址记进 VideoURL，供前台按需播放。
+// HarvestInspirationVideos 把广场视频条目的成片地址与复刻配方写进条目。
 //
 // 为什么只记地址、不把成片抓回来：成片中位 292MB、最大 1.5GB，整池 80 条合计 32GB，
 // 平台存不下也不该存。封面那种几十 KB 的静态图抓回本地是对的，成片只能留在上游，
 // 由浏览器直连、按需拉分片——本站既不代理也不占带宽，这也是这条路径唯一的承载约束。
 //
-// 优先取 HLS 播放列表而不是原片：同一个作品有 1080p(12.6Mbps) / 720p(2.8Mbps) /
-// 480p(1.2Mbps) 三档，原片是那个 1080p 原件（几百 MB），直接播等于让每个看灵感的人
-// 都下一部三五百兆的片子。播放列表取不到时才回落原片。
+// 同时摘出复刻配方：上游的"模板"是整张画布，提示词只是其中一个文本节点，真正决定
+// 画面的是参考图、视频模型与时长比例。只搬提示词的话，用户拿到的输入框看起来一样，
+// 生成的却是另一个东西（库里那条《时尚服饰TVC》的提示词引用着 {{Portrait 1..4}}，
+// 没有图就只能生成四张随机脸）。参考图落本地资源库，见 harvestInspirationReferenceImages。
 func (s *Service) HarvestInspirationVideos(ctx context.Context, options InspirationVideoHarvestOptions) (*InspirationVideoHarvestResult, error) {
 	if s.repo == nil {
 		return nil, errors.New("仓库未初始化")
@@ -77,7 +85,10 @@ func (s *Service) HarvestInspirationVideos(ctx context.Context, options Inspirat
 	if err != nil {
 		return nil, err
 	}
+	store := asset.NewFileStore(s.dataDir)
 	client := &http.Client{Timeout: inspirationVideoDetailTimeout}
+	// 参考图单独一个客户端，理由见 inspirationReferenceDownloadLimit。
+	imageClient := &http.Client{Timeout: inspirationReferenceDownloadLimit}
 	result := &InspirationVideoHarvestResult{Items: make([]InspirationVideoHarvestItem, 0, len(records))}
 	for index := range records {
 		record := &records[index]
@@ -94,14 +105,20 @@ func (s *Service) HarvestInspirationVideos(ctx context.Context, options Inspirat
 		}
 		result.Scanned++
 		item := InspirationVideoHarvestItem{InspirationID: record.ID, Title: record.Title, DetailURL: detail}
-		if record.VideoURL != "" && !options.Overwrite {
+		// 成片地址与配方各自判断是否缺项：库里现存的 55 条只有成片地址、没有配方，
+		// 整条按"已抓过"跳过的话，它们永远补不上配方。
+		needVideo := strings.TrimSpace(record.VideoURL) == "" || options.Overwrite
+		needRecipe := strings.TrimSpace(record.RecipeVideoModel) == "" || options.Overwrite
+		if !needVideo && !needRecipe {
 			item.State = "kept"
 			item.VideoURL = record.VideoURL
+			item.RecipeVideoModel = record.RecipeVideoModel
+			item.RecipeImages = len(splitInspirationRecipeImageIDs(record.RecipeImageIDs))
 			result.Kept++
 			result.Items = append(result.Items, item)
 			continue
 		}
-		videoURL, err := fetchInspirationVideoURL(ctx, client, uuid)
+		template, err := fetchInspirationTemplateDetail(ctx, client, uuid)
 		if err != nil {
 			item.State = "failed"
 			item.Error = err.Error()
@@ -109,7 +126,32 @@ func (s *Service) HarvestInspirationVideos(ctx context.Context, options Inspirat
 			result.Items = append(result.Items, item)
 			continue
 		}
-		record.VideoURL = videoURL
+		if needVideo {
+			videoURL, err := playableInspirationVideoURL(ctx, client, template.FinalOutput)
+			if err != nil {
+				item.State = "failed"
+				item.Error = err.Error()
+				result.Failed++
+				result.Items = append(result.Items, item)
+				continue
+			}
+			record.VideoURL = videoURL
+			item.VideoURL = videoURL
+		}
+		if needRecipe {
+			recipe := inspirationRecipeFromSnapshot(template.FinalOutput, template.SnapshotData)
+			record.RecipeVideoModel = recipe.VideoModel
+			record.RecipeVideoMode = recipe.VideoMode
+			record.RecipeRatio = recipe.Ratio
+			record.RecipeResolution = recipe.Resolution
+			record.RecipeDurationSeconds = recipe.DurationSeconds
+			imageIDs, failed, _ := s.harvestInspirationReferenceImages(ctx, imageClient, store, recipe.ImageURLs, options.Overwrite)
+			record.RecipeImageIDs = joinInspirationRecipeImageIDs(imageIDs)
+			item.RecipeVideoModel = recipe.VideoModel
+			item.RecipeImages = len(imageIDs)
+			result.Images += len(imageIDs)
+			result.ImageFailures += failed
+		}
 		record.UpdatedAt = time.Now()
 		if err := s.repo.SaveCreationInspiration(record); err != nil {
 			item.State = "failed"
@@ -119,59 +161,83 @@ func (s *Service) HarvestInspirationVideos(ctx context.Context, options Inspirat
 			continue
 		}
 		item.State = "harvested"
-		item.VideoURL = videoURL
 		result.Harvested++
 		result.Items = append(result.Items, item)
 	}
 	return result, nil
 }
 
-// liblibDetailBaseURL 是作品页基地址；测试里替换成本地假页面，
+// liblibTemplateDetailBaseURL 是模板详情接口的基地址；测试里替换成本地假服务，
 // 只有这一处拼接，不需要为可测性往 Service 上挂一个永远只有生产值的字段。
-var liblibDetailBaseURL = "https://www.liblib.tv"
+var liblibTemplateDetailBaseURL = "https://api.liblib.tv"
 
-// fetchInspirationVideoURL 打开作品页，取出成片地址并挑一个能播的形态。
-func fetchInspirationVideoURL(ctx context.Context, client *http.Client, uuid string) (string, error) {
-	detail := strings.TrimRight(liblibDetailBaseURL, "/") + "/detail/" + uuid
-	page, err := getInspirationVideoPage(ctx, client, detail)
+// liblibTemplateDetail 是一次详情抓取里我们真正要用的两样东西。
+type liblibTemplateDetail struct {
+	FinalOutput  string
+	SnapshotData string
+}
+
+// fetchInspirationTemplateDetail 拉一次模板详情。
+//
+// 走详情接口而不是抓作品页 HTML：一次请求同时拿到成片地址与整张画布快照，体积减半，
+// 也不必再对转义过的页面载荷做正则——配方是结构化的，用正则去抠只会写出一个随上游
+// 转义方式变化而碎的解析器。
+func fetchInspirationTemplateDetail(ctx context.Context, client *http.Client, uuid string) (*liblibTemplateDetail, error) {
+	endpoint := strings.TrimRight(liblibTemplateDetailBaseURL, "/") +
+		"/api/community/project/template/detail?projectTemplateUuid=" + url.QueryEscape(uuid)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	output := extractLiblibFinalOutput(page)
+	request.Header.Set("Accept", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("模板详情返回 %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, inspirationVideoDetailMaxBytes))
+	if err != nil {
+		return nil, err
+	}
+	var payload liblibTemplateDetailResponse
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("模板详情不是合法 JSON：%w", err)
+	}
+	// 上游用 code 而不是 HTTP 状态表达业务失败，0 之外都当没有这条作品处理。
+	if payload.Code != 0 {
+		return nil, fmt.Errorf("模板详情返回业务码 %d", payload.Code)
+	}
+	return &liblibTemplateDetail{
+		FinalOutput:  strings.TrimSpace(payload.Data.Detail.FinalOutput),
+		SnapshotData: payload.Data.Detail.SnapshotData,
+	}, nil
+}
+
+// playableInspirationVideoURL 从成片地址挑一个能播的形态。
+//
+// 优先 HLS 播放列表：同一个作品有 1080p(12.6Mbps) / 720p(2.8Mbps) / 480p(1.2Mbps)
+// 三档，原片就是那个 1080p 原件（几百 MB），直接播等于让每个看灵感的人都下一部
+// 三五百兆的片子。播放列表探测失败不算错误——上游不是每个作品都转过码，原片至少能播。
+func playableInspirationVideoURL(ctx context.Context, client *http.Client, finalOutput string) (string, error) {
+	output := strings.TrimSpace(finalOutput)
 	if output == "" {
-		return "", errors.New("作品页里没有成片地址（可能已下架，或这条只有图）")
+		return "", errors.New("这条作品没有成片地址（可能已下架，或这条只有图）")
 	}
 	if playlist := hlsPlaylistFromOutput(output); playlist != "" {
 		if err := probeInspirationVideoPlaylist(ctx, client, playlist); err == nil {
 			return playlist, nil
 		}
 	}
-	// 播放列表探测失败不算错误：上游不是每个作品都转过码，原片至少能播。
 	return output, nil
-}
-
-// extractLiblibFinalOutput 从作品页里取出本条作品的成片地址。
-//
-// 先锚到 initialDetail：那是"这一条作品"的载荷，页面别处（相关推荐之类）也可能出现
-// finalOutput。当前上游页面里它确实只有一份，但"取第一个 finalOutput"是一种巧合式的
-// 正确——上游哪天把相关推荐也塞进同一段载荷，取到的就是别人的成片，而卡片上不会有
-// 任何迹象。锚不到时才退回整页搜，保住对页面结构调整的容忍度。
-func extractLiblibFinalOutput(page string) string {
-	scope := page
-	if index := strings.Index(page, "initialDetail"); index >= 0 {
-		scope = page[index:]
-	}
-	match := liblibFinalOutputPattern.FindStringSubmatch(scope)
-	if len(match) != 2 {
-		return ""
-	}
-	return match[1]
 }
 
 // hlsPlaylistFromOutput 由成片地址推导 HLS 播放列表地址。
 //
-// 推导而不是去页面里另找一个地址：作品页同时挂着十几个作品的成片（相关推荐），
-// 按"页面里第一个 m3u8"取会张冠李戴；而上游把播放列表固定放在成片的同名目录下。
+// 推导而不是去详情里另找一个地址：快照里存着一条作品流程里每个视频节点的产物，
+// 按"第一个 m3u8"取会张冠李戴；而上游把播放列表固定放在成片的同名目录下。
 func hlsPlaylistFromOutput(rawURL string) string {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || parsed.Path == "" {
@@ -183,27 +249,6 @@ func hlsPlaylistFromOutput(rawURL string) string {
 	}
 	parsed.Path = strings.TrimSuffix(parsed.Path, extension) + "/master.m3u8"
 	return parsed.String()
-}
-
-func getInspirationVideoPage(ctx context.Context, client *http.Client, rawURL string) (string, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return "", err
-	}
-	request.Header.Set("Accept", "text/html")
-	response, err := client.Do(request)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("作品页返回 %d", response.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, inspirationVideoDetailMaxBytes))
-	if err != nil {
-		return "", err
-	}
-	return string(body), nil
 }
 
 // probeInspirationVideoPlaylist 确认播放列表真的可用。

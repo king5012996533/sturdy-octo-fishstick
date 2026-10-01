@@ -79,6 +79,21 @@ type CreationInspiration struct {
 	Status    CreationInspirationStatus `json:"status" gorm:"index;size:16"`
 	Featured  bool                      `json:"featured" gorm:"index"`
 	SortOrder int                       `json:"sortOrder" gorm:"index"`
+	// 以下六个字段是"复刻配方"：一条作品的生成配比，由抓取命令写、运营在后台只读。
+	//
+	// 为什么光有 Prompt 复刻不出来：上游的模板不是一段提示词，而是一整张画布快照，
+	// 真正决定画面的是参考图、视频模型与这几个参数。库里那条《时尚服饰TVC》的提示词
+	// 写着 {{Portrait 1}}..{{Portrait 4}}，没有图就只能生成四张随机脸。提示词是"话"，
+	// 配方才是"话 + 谁在说 + 用什么说"。
+	//
+	// RecipeImageIDs 是本地资源 ID 的逗号分隔串（顺序即原作参考图顺序），与 Tags 同样
+	// 的理由：只有 2-4 项、ID 是十六进制不含逗号，为它单开一张关联表换不来任何查询能力。
+	RecipeImageIDs        string `json:"recipeImageIds" gorm:"size:600"`
+	RecipeVideoModel      string `json:"recipeVideoModel" gorm:"size:80"`
+	RecipeVideoMode       string `json:"recipeVideoMode" gorm:"size:32"`
+	RecipeRatio           string `json:"recipeRatio" gorm:"size:16"`
+	RecipeResolution      string `json:"recipeResolution" gorm:"size:16"`
+	RecipeDurationSeconds int    `json:"recipeDurationSeconds"`
 	// 以下字段是"用户投稿"引入的：平台条目下 Origin 为 PLATFORM、
 	// AuthorUserID 为空、ReviewStatus 恒为 APPROVED。
 	Origin       CreationInspirationOrigin       `json:"origin" gorm:"size:16;index"`

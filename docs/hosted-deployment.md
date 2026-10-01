@@ -127,31 +127,93 @@ CANVAS_BACKEND_DATA_DIR=/opt/kinotv/data CANVAS_DATABASE_DRIVER=sqlite /tmp/insp
 `cover_url` 列仍然保留原外链，只在签名不可用（没配 `CANVAS_PUBLIC_BASE_URL`）时兜底；
 运营在后台改封面地址会顺手清掉 `resource_id`，否则签名地址会一直压过新填的 URL。
 
-## 广场成片地址抓取
+## 广场成片地址与复刻配方抓取
 
-播放入口和封面一样，缺的只是一个地址，但成片**不能自存**：池子里 80 条的中位体量是
-292MB、最大 1.5GB，合计 32.6GB，而机器只剩 20G。所以口径是"封面自持、成片热链"——
-数据库只存一个几百字节的 URL，实际字节永远留在上游 CDN，播放时由浏览器直接去取。
+一条灵感要能"照着做"，需要三样东西：提示词、成片、以及**配方**——参考图、视频模型、
+时长比例。提示词早就在库里，成片和配方靠 `cmd/inspiration-videos` 从上游补齐。
+
+### 成片：热链，不落盘
+
+成片**不能自存**：池子里 80 条的中位体量是 292MB、最大 1.5GB，合计 32.6GB，而机器只剩
+20G。所以口径是"封面自持、成片热链"——数据库只存一个几百字节的 URL，实际字节永远留在
+上游 CDN，播放时由浏览器直接去取。
+
+### 配方：为什么它才是这条链的重点
+
+上游的"模板"是整张画布（`nodes` + `edges`），提示词只是其中一个文本节点。同一条提示词
+配上不同的参考图与模型是两个作品——库里那条《时尚服饰TVC》的提示词引用着
+`{{Portrait 1..4}}`，只搬提示词就只能生成四张随机脸。实测 58 条里 46 条带参考图、0 条的
+首帧图等于我们挂的封面，所以"光有提示词复刻不出来"不是错觉。
+
+成片地址与整张画布快照来自同一个接口：
+
+```bash
+# snapshotData 是字符串化的 JSON，内容为 {nodes, edges, savedAt}
+curl 'https://api.liblib.tv/api/community/project/template/detail?projectTemplateUuid=<32位uuid>'
+```
+
+早期做法是抓作品页 HTML 再对载荷做正则，现在走这个接口：体积减半，配方也是结构化的。
+**不要再退回正则**——上游转义方式一变，解析器就碎，而且是静默地碎。
+
+两处已经踩过的坑，改这块之前先看一眼：
+
+- 快照里"资源地址"字段有字符串与数组两种形态，同一条作品里还混着出现。解码时按
+  `liblibSnapshotMediaURL` 两种都收；整份文档一次解码的话，一个字段换形态赔上的是整条
+  作品的配方。
+- 节点要逐个解码（`decodeLibrarySnapshotNodes`），坏的跳过。画布是用户自由编织的，
+  129 个节点里什么形状都有。
+
+节点选择见 `app.inspirationRecipeFromSnapshot`：先用成片地址锚节点，锚不到再按"有参考图的
+生成节点 > 有参考图的任意节点 > 任意生成节点"取最后一个。锚点只是兜底——`finalOutput`
+是导出产物，58 条实测只有 1 条能在节点里对上；而"取最后一个"会撞上末尾的纯文生视频或
+放大节点，所以带参考图的生成节点优先。
+
+### 参考图：落本地、重编码、按需签名
+
+参考图必须落本地（`data/resources/users/platform-inspiration-references/`）："使用这个创意"
+时它要作为素材进入用户自己的资源库，热链的话上游一加防盗链，用户在点下去的那一刻才发现
+图没了。
+
+- 落库前统一重编码成 1280px 的 JPEG（`app.downscaleToJPEG`）：实测单张从 3MB 降到 150KB
+  上下，全池 121 张合计 21MB。
+- 请求时让上游先缩再传：`?x-oss-process=image/resize,m_lfit,w_2048,h_2048/format,jpg/ignore-error,1`。
+  上游原图是 5504×3072 的 19MB PNG（`m_lfit` 只缩不放，实测 1920×1080 的图原样返回）。
+  挂上之后全量一轮的图片流量从几百 MB 降到 74MB。这个参数只挂给已知图床
+  （`*.liblib.art`）且地址本身不带查询串的情况。
+- 资源 ID 由**原始**地址派生（`inspirationReferenceResourceID`），重跑只复用、不会重复下载；
+  上游换了图但地址没变时加 `-overwrite`。
 
 ```bash
 cd /tmp/kinotv-src/backend
 CGO_ENABLED=1 GOFLAGS=-mod=mod GOSUMDB=off GOPROXY=https://goproxy.cn,direct \
   go build -o /tmp/inspiration-videos ./cmd/inspiration-videos
 cd /opt/kinotv
-CANVAS_BACKEND_DATA_DIR=/opt/kinotv/data CANVAS_DATABASE_DRIVER=sqlite /tmp/inspiration-videos -limit 20
+# 只补缺项；加 -limit 5 分批；加 -overwrite 重抓已有条目
+CANVAS_BACKEND_DATA_DIR=/opt/kinotv/data CANVAS_DATABASE_DRIVER=sqlite /tmp/inspiration-videos
 ```
 
 要点：
 
-- 每条要打开一次作品页（几百 KB），命令是**串行**的；`-limit` 用来分批，**避开晚高峰**。
+- 命令是**串行**的，每条一次详情请求 + 最多 4 张参考图（`inspirationRecipeMaxImages`，与前端
+  `creationRecipeMaxImages` 对齐）；`-limit` 用来分批，**避开晚高峰**。
+- 成片地址与配方各自判断缺项：库里存量的 55 条只有成片、没有配方，整条按"已抓过"跳过的话
+  它们永远补不上配方。
+- 有参考图抓失败时返回非零退出码。条目级输出会给出 `recipeVideoModel` 与 `recipeImages`，
+  用来判断配方到底有没有落到库里——静默成功比失败更难查。
 - 优先存 HLS 播放列表（`master.m3u8`，带 1080p/720p/480p 三档），探测不到才回落原片。
-  播放列表地址由原片地址推导，不去页面里另找——页面上挂着相关推荐，抓错就是放别人片子。
+  播放列表地址由原片地址推导，不去详情里另找——快照里存着每个视频节点的产物，按"第一个
+  m3u8"取会张冠李戴。
 - 上游 CORS 是 `access-control-allow-origin: *`，因此播放走**浏览器直连上游**：服务端不中转、
   不占出口带宽，`kinotv` 只负责发页面和接口。这是这条链能上的前提，改前端播放器时不要
   退回成服务端代理。
 - 前端 `hls.js` 是**动态 import**，只在真要播 HLS 时才加载；列表里不挂 `<video>`，只在弹层
   里创建、关掉即销毁。列表页并发打开几十张卡片不会拉起几十个解码器。
-- 没有地址的条目（`image` 类型）只是不显示播放入口，不是故障。
+- 没有地址的条目（`image` 类型）只是不显示播放入口，不是故障；上游没有生成节点的条目
+  （实测 2 条）拿不到配方，同样是正常状态。
+- 配方图库里只存 `recipe_image_ids`，接口出口时现场签名（12 小时）成 `recipeImageUrls`，
+  广场不会因为一张图失效变成死图。
+- 后台保存灵感**不清空配方**：配方由抓取命令写，表单里没有它的编辑入口（见
+  `TestSaveCreationInspirationKeepsRecipe`）。运营改文案时顺手清空配方会静默毁掉复刻入口。
 
 ## 磁盘维护
 

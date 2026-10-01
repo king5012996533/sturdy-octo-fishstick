@@ -64,6 +64,18 @@ type CreationInspirationView struct {
 	ReviewNote   string     `json:"reviewNote"`
 	ReviewedAt   *time.Time `json:"reviewedAt"`
 	ReuseCount   int        `json:"reuseCount"`
+	// 以下字段是"复刻配方"（见 model.CreationInspiration 的 Recipe* 字段与
+	// app.HarvestInspirationVideos）。它们由抓取命令写入，后台表单不提供编辑入口，
+	// 因此也不在 CreationInspirationInput 里——保存一次后台表单不该清空复刻配方。
+	//
+	// RecipeImageURLs 是现场签名的地址：和封面同样的理由，把某一刻签好的链接写进库，
+	// 过期后用户"使用这个创意"就会带着一个 403 的参考图去生成。
+	RecipeImageURLs       []string `json:"recipeImageUrls"`
+	RecipeVideoModel      string   `json:"recipeVideoModel"`
+	RecipeVideoMode       string   `json:"recipeVideoMode"`
+	RecipeRatio           string   `json:"recipeRatio"`
+	RecipeResolution      string   `json:"recipeResolution"`
+	RecipeDurationSeconds int      `json:"recipeDurationSeconds"`
 }
 
 // CreationInspirationInput 是新建 / 编辑精选灵感的入参。
@@ -245,6 +257,13 @@ func (s *Service) creationInspirationView(record *model.CreationInspiration) *Cr
 		ReviewNote:   record.ReviewNote,
 		ReviewedAt:   record.ReviewedAt,
 		ReuseCount:   record.ReuseCount,
+
+		RecipeImageURLs:       s.creationInspirationRecipeImageURLs(record),
+		RecipeVideoModel:      record.RecipeVideoModel,
+		RecipeVideoMode:       record.RecipeVideoMode,
+		RecipeRatio:           record.RecipeRatio,
+		RecipeResolution:      record.RecipeResolution,
+		RecipeDurationSeconds: record.RecipeDurationSeconds,
 	}
 }
 
@@ -285,4 +304,30 @@ func (s *Service) creationInspirationCoverURL(record *model.CreationInspiration)
 		return record.CoverURL
 	}
 	return signed
+}
+
+// creationInspirationRecipeImageURLs 把配方里的参考图换成现场签名的地址。
+//
+// 单张签不出来就跳过那一张，而不是整条都不给：参考图缺一张，用户仍然能复刻出八成；
+// 因为一张图让整条作品的"使用这个创意"退化成一段光秃秃的提示词，才是真正的损失。
+// 全部签不出来时返回空数组——前台据此不给参考图，但提示词与参数照常可用。
+func (s *Service) creationInspirationRecipeImageURLs(record *model.CreationInspiration) []string {
+	if record == nil {
+		return []string{}
+	}
+	ids := splitInspirationRecipeImageIDs(record.RecipeImageIDs)
+	urls := make([]string, 0, len(ids))
+	expiresAt := time.Now().Add(creationInspirationCoverTTL)
+	for _, id := range ids {
+		resource, err := s.repo.Resource(id)
+		if err != nil || resource == nil {
+			continue
+		}
+		signed, err := s.signedPublicResourceURL(resource, expiresAt)
+		if err != nil {
+			continue
+		}
+		urls = append(urls, signed)
+	}
+	return urls
 }

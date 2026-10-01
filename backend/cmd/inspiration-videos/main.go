@@ -76,5 +76,10 @@ func run() error {
 		// 静默成功会让"广场上有一半卡片点不动"变成一个没人发现的常态。
 		return fmt.Errorf("%d 条成片地址抓取失败", result.Failed)
 	}
+	if result.ImageFailures > 0 {
+		// 参考图失败同样返回非零：参考图正是"复刻不出来"的主因，而它失败时成片
+		// 仍能播放，条目级的成功会把它盖住。解不出来的格式（webp 之类）会成片出现。
+		return fmt.Errorf("%d 张参考图抓取失败", result.ImageFailures)
+	}
 	return nil
 }

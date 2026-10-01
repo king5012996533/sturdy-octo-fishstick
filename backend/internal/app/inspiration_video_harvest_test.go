@@ -2,7 +2,11 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,28 +15,86 @@ import (
 	"infinite-canvas/backend/internal/model"
 )
 
-// fakeLibtvDetail 起一个假作品页：页面里的成片地址指回这个假服务器自己，
-// 这样 HLS 播放列表也落在同一处，探测路径能被真实走一遍。
-func fakeLibtvDetail(t *testing.T, uuid string, withPlaylist bool) *httptest.Server {
+// fakeLibtvTemplateDetail 起一个假模板详情接口：成片与参考图地址都指回这个假服务器
+// 自己，这样 HLS 播放列表探测与参考图下载都能被真实走一遍。
+type fakeLibtvTemplateDetail struct {
+	server      *httptest.Server
+	finalOutput string
+	images      int
+}
+
+func newFakeLibtvTemplateDetail(t *testing.T, uuid string, withPlaylist bool, images int) *fakeLibtvTemplateDetail {
 	t.Helper()
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	fake := &fakeLibtvTemplateDetail{images: images}
+	fake.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/detail/"+uuid:
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			// 形状照抄 Next.js 流式载荷：键被转义，值是绝对地址。
-			fmt.Fprintf(w, `<html><script>self.__next_f.push([1,"{\"initialDetail\":{\"finalOutput\":\"%s\"}}"])</script></html>`, server.URL+"/upload/"+uuid+".mp4")
-		case strings.HasSuffix(r.URL.Path, "/master.m3u8") && withPlaylist:
+		case r.URL.Path == "/api/community/project/template/detail":
+			fake.finalOutput = fake.server.URL + "/upload/" + uuid + ".mp4"
+			payload := map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"detail": map[string]any{
+						"finalOutput":  fake.finalOutput,
+						"snapshotData": fake.snapshot(uuid),
+					},
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(payload)
+		case r.URL.Path == "/upload/"+uuid+"/master.m3u8" && withPlaylist:
 			w.Header().Set("Content-Type", "application/x-mpegURL")
 			fmt.Fprint(w, "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2800000\n720p/index.m3u8\n")
+		case strings.HasPrefix(r.URL.Path, "/ref/"):
+			w.Header().Set("Content-Type", "image/png")
+			_ = png.Encode(w, testGradientImage(1600, 900))
 		default:
 			// 上游对不存在的转码目录常回 200 的 XML 错误体，这里也照那个形状来。
 			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprint(w, `<?xml version="1.0"?><Error><Code>NoSuchKey</Code></Error>`)
 		}
 	}))
-	t.Cleanup(server.Close)
-	return server
+	t.Cleanup(fake.server.Close)
+	return fake
+}
+
+// snapshot 造一份形状照抄上游的画布快照：一个文本节点 + 一个带参考图的视频节点。
+func (f *fakeLibtvTemplateDetail) snapshot(uuid string) string {
+	images := make([]map[string]any, 0, f.images)
+	for index := 0; index < f.images; index++ {
+		images = append(images, map[string]any{"nodeId": fmt.Sprintf("i-%d", index), "url": fmt.Sprintf("%s/ref/%s-%d.png", f.server.URL, uuid, index)})
+	}
+	snapshot := map[string]any{
+		"nodes": []map[string]any{
+			{"type": "text", "data": map[string]any{"action": "text_generate", "params": map[string]any{"model": "aurora-3-prime"}}},
+			{
+				"type": "video",
+				"data": map[string]any{
+					"action": "video_generate",
+					"url":    []string{f.finalOutput},
+					"params": map[string]any{
+						"model":     "star-video2",
+						"modeType":  "mixed2video",
+						"imageList": images,
+						"settings":  map[string]any{"ratio": "16:9", "resolution": "720p", "duration": 15},
+					},
+				},
+			},
+		},
+		"edges": []any{},
+	}
+	encoded, _ := json.Marshal(snapshot)
+	return string(encoded)
+}
+
+// testGradientImage 造一张有渐变的图，便于断言缩放后的尺寸而不是像素全等。
+func testGradientImage(width, height int) image.Image {
+	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			canvas.Set(x, y, color.RGBA{R: uint8(x % 256), G: uint8(y % 256), B: 128, A: 255})
+		}
+	}
+	return canvas
 }
 
 func seedVideoInspiration(t *testing.T, svc *Service, id string, detail string) *model.CreationInspiration {
@@ -54,14 +116,19 @@ func seedVideoInspiration(t *testing.T, svc *Service, id string, detail string) 
 	return record
 }
 
+func withTemplateDetailBaseURL(t *testing.T, baseURL string) {
+	t.Helper()
+	previous := liblibTemplateDetailBaseURL
+	liblibTemplateDetailBaseURL = baseURL
+	t.Cleanup(func() { liblibTemplateDetailBaseURL = previous })
+}
+
 // 同一个作品有 1080p/720p/480p 三档 HLS，也有 1080p 的 mp4 原件。
 // 直接存 mp4 等于让每个看灵感的人都下一部三五百兆的片子，所以必须优先取播放列表。
 func TestHarvestInspirationVideosPrefersHlsPlaylist(t *testing.T) {
 	const uuid = "10b86d68aa3b4d9db915f0f8b53fdd3c"
-	server := fakeLibtvDetail(t, uuid, true)
-	previous := liblibDetailBaseURL
-	liblibDetailBaseURL = server.URL
-	defer func() { liblibDetailBaseURL = previous }()
+	fake := newFakeLibtvTemplateDetail(t, uuid, true, 2)
+	withTemplateDetailBaseURL(t, fake.server.URL)
 
 	svc := newInspirationTestService(t)
 	record := seedVideoInspiration(t, svc, "INSP_VIDEO_1", "https://www.liblib.tv/detail/"+uuid)
@@ -77,7 +144,7 @@ func TestHarvestInspirationVideosPrefersHlsPlaylist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := server.URL + "/upload/" + uuid + "/master.m3u8"; saved.VideoURL != want {
+	if want := fake.server.URL + "/upload/" + uuid + "/master.m3u8"; saved.VideoURL != want {
 		t.Fatalf("应优先存 HLS 播放列表：预期 %q，实际 %q", want, saved.VideoURL)
 	}
 }
@@ -86,10 +153,8 @@ func TestHarvestInspirationVideosPrefersHlsPlaylist(t *testing.T) {
 // 而不是把这条判成失败、让卡片彻底没有播放入口。
 func TestHarvestInspirationVideosFallsBackToMP4(t *testing.T) {
 	const uuid = "8a8fe0fb83aa4bf186a764d59f9cd66f"
-	server := fakeLibtvDetail(t, uuid, false)
-	previous := liblibDetailBaseURL
-	liblibDetailBaseURL = server.URL
-	defer func() { liblibDetailBaseURL = previous }()
+	fake := newFakeLibtvTemplateDetail(t, uuid, false, 0)
+	withTemplateDetailBaseURL(t, fake.server.URL)
 
 	svc := newInspirationTestService(t)
 	record := seedVideoInspiration(t, svc, "INSP_VIDEO_2", "https://www.liblib.tv/detail/"+uuid)
@@ -105,7 +170,7 @@ func TestHarvestInspirationVideosFallsBackToMP4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := server.URL + "/upload/" + uuid + ".mp4"; saved.VideoURL != want {
+	if want := fake.server.URL + "/upload/" + uuid + ".mp4"; saved.VideoURL != want {
 		t.Fatalf("应回落 mp4 原件：预期 %q，实际 %q", want, saved.VideoURL)
 	}
 }
@@ -138,12 +203,15 @@ func TestHarvestInspirationVideosSkipsUnknownRows(t *testing.T) {
 	}
 }
 
-// 已有地址默认不动：成片地址是上游资源，重跑一次就再打一次作品页纯属浪费。
-func TestHarvestInspirationVideosKeepsExistingAddress(t *testing.T) {
+// 成片地址与配方都已经在库里时不再打上游：重跑一次就再拉一次详情纯属浪费，
+// 而这条命令是要在线上跑的，上游流量要能省则省。
+func TestHarvestInspirationVideosKeepsCompleteRows(t *testing.T) {
 	const uuid = "385c4036c86441a29994f53d57011e64"
 	svc := newInspirationTestService(t)
 	record := seedVideoInspiration(t, svc, "INSP_VIDEO_5", "https://www.liblib.tv/detail/"+uuid)
 	record.VideoURL = "https://cdn.example.com/existing/master.m3u8"
+	record.RecipeVideoModel = "star-video2"
+	record.RecipeImageIDs = "aaa,bbb"
 	if err := svc.repo.SaveCreationInspiration(record); err != nil {
 		t.Fatal(err)
 	}
@@ -152,10 +220,57 @@ func TestHarvestInspirationVideosKeepsExistingAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Kept != 1 || result.Harvested != 0 {
-		t.Fatalf("已有地址应原样保留，实际 %+v", result)
+		t.Fatalf("成片与配方都齐的条目应原样保留，实际 %+v", result)
 	}
-	if result.Items[0].VideoURL != record.VideoURL {
-		t.Fatalf("保留的地址应与库中一致，实际 %q", result.Items[0].VideoURL)
+	if result.Items[0].RecipeImages != 2 {
+		t.Fatalf("保留的条目应报出已有参考图数量，实际 %d", result.Items[0].RecipeImages)
+	}
+}
+
+// 库里现存的条目只有成片地址、没有配方（这一版之前抓的）。它们必须被补上配方，
+// 而不是因为"已经有成片地址"整条跳过——否则这些条目永远复刻不出来。
+func TestHarvestInspirationVideosBackfillsRecipe(t *testing.T) {
+	const uuid = "9499e87df0e94098a420ec36061977ec"
+	fake := newFakeLibtvTemplateDetail(t, uuid, true, 3)
+	withTemplateDetailBaseURL(t, fake.server.URL)
+
+	svc := newInspirationTestService(t)
+	record := seedVideoInspiration(t, svc, "INSP_VIDEO_6", "https://www.liblib.tv/detail/"+uuid)
+	existing := "https://cdn.example.com/existing/master.m3u8"
+	record.VideoURL = existing
+	if err := svc.repo.SaveCreationInspiration(record); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := svc.HarvestInspirationVideos(context.Background(), InspirationVideoHarvestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Harvested != 1 || result.Images != 3 || result.ImageFailures != 0 {
+		t.Fatalf("应补齐配方并收下 3 张参考图，实际 %+v", result)
+	}
+	saved, err := svc.repo.CreationInspirationByID(record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.VideoURL != existing {
+		t.Fatalf("已有成片地址不该被改写：预期 %q，实际 %q", existing, saved.VideoURL)
+	}
+	if saved.RecipeVideoModel != "star-video2" || saved.RecipeDurationSeconds != 15 || saved.RecipeRatio != "16:9" {
+		t.Fatalf("配方应落库，实际 model=%q duration=%d ratio=%q", saved.RecipeVideoModel, saved.RecipeDurationSeconds, saved.RecipeRatio)
+	}
+	if ids := splitInspirationRecipeImageIDs(saved.RecipeImageIDs); len(ids) != 3 {
+		t.Fatalf("参考图应记下 3 个资源 ID，实际 %v", ids)
+	}
+	// 参考图必须真的落进本地资源库，否则前台拿到的签名地址会指向不存在的文件。
+	for _, id := range splitInspirationRecipeImageIDs(saved.RecipeImageIDs) {
+		resource, err := svc.repo.Resource(id)
+		if err != nil || resource == nil {
+			t.Fatalf("参考图资源 %q 没有落库：%v", id, err)
+		}
+		if resource.UserID != InspirationReferenceOwnerID || resource.MimeType != "image/jpeg" {
+			t.Fatalf("参考图资源形态不对：%+v", resource)
+		}
 	}
 }
 
@@ -193,43 +308,25 @@ func TestHlsPlaylistFromOutput(t *testing.T) {
 	}
 }
 
-// 作品页里除了本条作品的成片，还挂着相关推荐的成片；播放列表必须由本条成片推导，
-// 而不是取页面里第一个 m3u8。
-func TestHarvestInspirationVideosUsesOwnOutput(t *testing.T) {
-	const uuid = "9499e87df0e94098a420ec36061977ec"
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/detail/"+uuid:
-			// 相关推荐排在本条前面，模拟真实页面顺序。
-			fmt.Fprintf(w, `<script>self.__next_f.push([1,"{\"other\":{\"finalOutput\":\"%s\"},\"initialDetail\":{\"finalOutput\":\"%s\"}}"])</script>`,
-				server.URL+"/upload/other.mp4", server.URL+"/upload/"+uuid+".m4v")
-		case strings.HasSuffix(r.URL.Path, "/master.m3u8"):
-			w.Header().Set("Content-Type", "application/x-mpegURL")
-			fmt.Fprint(w, "#EXTM3U\n")
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
+// 详情接口的成片地址为空（作品已下架、或这条只有图）时记失败并说明原因，
+// 不要写一个空地址进去让卡片以为有播放入口。
+func TestHarvestInspirationVideosFailsWithoutOutput(t *testing.T) {
+	const uuid = "5fbec0d3d2e9430a98466231431b90e6"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"code":0,"data":{"detail":{"finalOutput":"","snapshotData":"{\"nodes\":[]}"}}}`)
 	}))
 	defer server.Close()
-	previous := liblibDetailBaseURL
-	liblibDetailBaseURL = server.URL
-	defer func() { liblibDetailBaseURL = previous }()
+	withTemplateDetailBaseURL(t, server.URL)
 
 	svc := newInspirationTestService(t)
-	record := seedVideoInspiration(t, svc, "INSP_VIDEO_6", "https://www.liblib.tv/detail/"+uuid)
+	seedVideoInspiration(t, svc, "INSP_VIDEO_7", "https://www.liblib.tv/detail/"+uuid)
+
 	result, err := svc.HarvestInspirationVideos(context.Background(), InspirationVideoHarvestOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Harvested != 1 {
-		t.Fatalf("预期抓取成功，实际 %+v", result)
-	}
-	saved, err := svc.repo.CreationInspirationByID(record.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := server.URL + "/upload/" + uuid + "/master.m3u8"; saved.VideoURL != want {
-		t.Fatalf("应取本条作品的播放列表：预期 %q，实际 %q", want, saved.VideoURL)
+	if result.Failed != 1 || result.Items[0].Error == "" {
+		t.Fatalf("没有成片地址时应记失败并带上原因，实际 %+v", result)
 	}
 }
