@@ -15,6 +15,8 @@ function catalogRecord(overrides: Partial<CreationInspirationRecord> = {}): Crea
         prompt: "雨夜城市街口，霓虹灯倒映在湿润路面",
         mode: "video",
         category: "精选",
+        duration: "",
+        tags: [],
         author: "",
         likes: 0,
         sourceUrl: "",
@@ -87,7 +89,21 @@ describe("后台目录映射成广场卡片", () => {
             author: undefined,
             likes: undefined,
             sourceUrl: undefined,
+            category: "精选",
+            // 题材/时长/标签同样是"没有就 undefined"，卡片才能整块不渲染而不是留个空位。
+            duration: undefined,
+            tags: undefined,
         });
+    });
+    test("题材、时长与标签原样带到卡片上，空值一律收敛成 undefined", () => {
+        const card = inspirationFromRecord(catalogRecord({ category: "情感 · 叙事", duration: "02:18", tags: ["科幻", "群像"] }));
+        expect(card?.category).toBe("情感 · 叙事");
+        expect(card?.duration).toBe("02:18");
+        expect(card?.tags).toEqual(["科幻", "群像"]);
+        const bare = inspirationFromRecord(catalogRecord({ category: "", duration: "", tags: [] }));
+        expect(bare?.category).toBeUndefined();
+        expect(bare?.duration).toBeUndefined();
+        expect(bare?.tags).toBeUndefined();
     });
     test("点赞数与署名原样带上，示例素材保留可追溯的原始链接", () => {
         const card = inspirationFromRecord(catalogRecord({ likes: 2285, author: "YOUNG", sourceUrl: "https://www.liblib.tv/detail/abc", mode: "image" }));

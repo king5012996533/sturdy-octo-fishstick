@@ -22,6 +22,10 @@ import (
 // 版权口径不在这里改变：示例素材仍带 sourceUrl 与作者署名，前台照旧标注「示例素材」，
 // 上线前仍需替换为自有内容或取得授权。
 //
+// category（题材）、duration（时长角标）与 tags（主推荐标签排）同样只服务于这一批占位
+// 内容：题材与标签是编辑判断，时长是手填的样值、不是抓取结果，替换真实内容时要连它们
+// 一起改。前台在这三个字段为空时整块不渲染，不做任何推断。
+//
 //go:embed seeddata/creation_inspirations.json
 var creationInspirationSeedJSON []byte
 
@@ -39,11 +43,15 @@ type creationInspirationSeedEntry struct {
 	Category    string `json:"category"`
 	Author      string `json:"author"`
 	Likes       int    `json:"likes"`
-	SourceURL   string `json:"sourceUrl"`
-	Source      string `json:"source"`
-	Status      string `json:"status"`
-	Featured    bool   `json:"featured"`
-	SortOrder   int    `json:"sortOrder"`
+	Duration    string `json:"duration"`
+	// Tags 在种子里写成数组，落库时压成逗号分隔串——种子的作者视角是"这条内容带了
+	// 哪些标签"，不是"这一列存了什么"。
+	Tags      []string `json:"tags"`
+	SourceURL string   `json:"sourceUrl"`
+	Source    string   `json:"source"`
+	Status    string   `json:"status"`
+	Featured  bool     `json:"featured"`
+	SortOrder int      `json:"sortOrder"`
 }
 
 // SeedCreationInspirations 在精选灵感表为空时灌入种子内容。
@@ -92,15 +100,19 @@ func SeedCreationInspirations(db *gorm.DB) error {
 			Prompt:      entry.Prompt,
 			Mode:        entry.Mode,
 			Category:    entry.Category,
-			Author:      entry.Author,
-			Likes:       entry.Likes,
-			SourceURL:   entry.SourceURL,
-			Source:      entry.Source,
-			Status:      model.CreationInspirationStatus(entry.Status),
-			Featured:    entry.Featured,
-			SortOrder:   entry.SortOrder,
-			CreatedAt:   seededAt,
-			UpdatedAt:   seededAt,
+			Duration:    entry.Duration,
+			// 直接拼串：标签的归一化（去重、截断）在读取侧统一做，种子这一路
+			// 再多一份同样的规则，早晚会和主路径跑偏。
+			Tags:      strings.Join(entry.Tags, ","),
+			Author:    entry.Author,
+			Likes:     entry.Likes,
+			SourceURL: entry.SourceURL,
+			Source:    entry.Source,
+			Status:    model.CreationInspirationStatus(entry.Status),
+			Featured:  entry.Featured,
+			SortOrder: entry.SortOrder,
+			CreatedAt: seededAt,
+			UpdatedAt: seededAt,
 		})
 	}
 	// 整批一次写入：播种只发生在空表上，没有并发写入者，逐条插入只会放大启动耗时。

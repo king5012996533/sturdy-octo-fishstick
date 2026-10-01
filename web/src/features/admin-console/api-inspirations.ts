@@ -21,6 +21,10 @@ export type AdminCreationInspiration = {
     prompt: string;
     mode: string;
     category: string;
+    /** 卡片右下角的时长角标；图片与文本条目留空。 */
+    duration: string;
+    /** 主推荐卡底部的题材标签排；服务端按数组收发。 */
+    tags: string[];
     author: string;
     likes: number;
     /** 原始作品链接：非空表示这是外部示例素材，前台据此显示「示例素材 · 作者」。 */
@@ -41,6 +45,8 @@ export type AdminCreationInspirationInput = {
     prompt: string;
     mode: CreationInspirationMode;
     category: string;
+    duration: string;
+    tags: string[];
     author: string;
     likes: number;
     sourceUrl: string;

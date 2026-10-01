@@ -19889,9 +19889,6 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     --creation-text: #f3f4f6;
     --creation-muted: rgba(255, 255, 255, .64);
     --creation-faint: rgba(255, 255, 255, .44);
-    /* 首页输入卡的流光配色：一束紫、一束蓝紫，跟提交按钮的渐变同源。 */
-    --composer-stream-violet: #a273ff;
-    --composer-stream-indigo: #5b7dff;
     position: relative;
     z-index: 3;
     margin-top: -88px !important;
@@ -20012,63 +20009,17 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     padding: 10px 16px 12px !important;
     border-top: 0 !important;
 }
-/* ---- 首页输入卡的双向对撞流光（结构见 components/ui/aceternity/composer-border-stream.tsx）----
-   两束光跑的是 SVG 描边的 dash，绕周长匀速、四条边上光斑一样长；conic-gradient 在这么扁
-   又这么宽的卡上会把高光抹成一条几百像素的横带，读不出"一束光"。描边路径从顶部正中起笔，
-   两束光相位相同、方向相反 ⇒ 每圈只在顶/底正中各相遇一次。相交处 plus-lighter 加法混合，
-   两层叠起来才是"撞"的那一下最亮。 */
-.composer-border-stream {
-    position: absolute;
-    inset: -1px;
-    display: none;
-    border-radius: inherit;
-    pointer-events: none;
-}
-.app-user-workspace .creation-empty-composer .composer-border-stream { display: block; }
-.composer-border-stream-art { display: block; isolation: isolate; }
-.composer-border-stream-track { transition: opacity 240ms linear; }
-.composer-border-stream-track.is-cruise { --composer-stream-lap: 5.5s; opacity: .76; }
-.composer-border-stream-track.is-boost { --composer-stream-lap: 2.6s; opacity: 0; }
-.creation-composer-shell:focus-within .composer-border-stream-track.is-cruise { opacity: 0; }
-.creation-composer-shell:focus-within .composer-border-stream-track.is-boost { opacity: 1; }
-.composer-border-stream-beam {
-    fill: none;
-    stroke: var(--composer-stream-color);
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-dasharray: var(--composer-stream-dash);
-    mix-blend-mode: plus-lighter;
-}
-.composer-border-stream-beam.is-violet { --composer-stream-color: var(--composer-stream-violet); animation: composer-stream-cw var(--composer-stream-lap) linear infinite; }
-.composer-border-stream-beam.is-indigo { --composer-stream-color: var(--composer-stream-indigo); animation: composer-stream-ccw var(--composer-stream-lap) linear infinite; }
-/* 位移写死在 pathLength 刻度（1000）上，换屏幕宽度不用重算关键帧。
-   关键帧里不能再嵌 var()/calc()——Chrome 会把这帧当离散值处理，光斑直接瞬移。 */
-@keyframes composer-stream-cw { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -1000; } }
-@keyframes composer-stream-ccw { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 1000; } }
-/* 聚焦提速时把光晕也点亮一档，配合快轨道一起"拉满"。 */
+/* 聚焦时给卡片一圈冷色光晕：它是"光标在这里"的反馈，只在聚焦态静态亮起，
+   不跑动，所以留下来了。 */
 .app-user-workspace .creation-home .creation-empty-composer .creation-composer-shell:focus-within {
     box-shadow:
         0 30px 100px rgba(0, 0, 0, .35),
-        0 0 0 1px color-mix(in srgb, var(--composer-stream-violet) 26%, transparent),
-        0 22px 64px color-mix(in srgb, var(--composer-stream-indigo) 24%, transparent) !important;
+        0 0 0 1px rgba(162, 115, 255, .26),
+        0 22px 64px rgba(91, 125, 255, .24) !important;
 }
-/* 降级：光停在原地，改成一条静态双色描边（上半圈紫、下半圈蓝紫），不再有"跑动"的信息。
-   起笔点让出过半个光斑，静态分界线要按这个让位量补回来，才落在顶/底正中。 */
-@media (prefers-reduced-motion: reduce) {
-    .composer-border-stream-track.is-boost { display: none; }
-    .composer-border-stream-track.is-cruise { opacity: 1; }
-    .composer-border-stream-beam { stroke-dasharray: 500 500; stroke-dashoffset: calc(var(--composer-stream-back) * -1); }
-    .composer-border-stream-beam.is-violet,
-    .composer-border-stream-beam.is-indigo { animation: none; }
-    .composer-border-stream-beam.is-indigo { stroke-dashoffset: calc((var(--composer-stream-back) + 500) * -1); }
-}
-.no-motion .composer-border-stream-track.is-boost { display: none; }
-.no-motion .composer-border-stream-track.is-cruise { opacity: 1; }
-.no-motion .composer-border-stream-beam { stroke-dasharray: 500 500; stroke-dashoffset: calc(var(--composer-stream-back) * -1); }
-.no-motion .composer-border-stream-beam.is-violet,
-.no-motion .composer-border-stream-beam.is-indigo { animation: none; }
-.no-motion .composer-border-stream-beam.is-indigo { stroke-dashoffset: calc((var(--composer-stream-back) + 500) * -1); }
-/* 首页卡片已经有了双束流光，默认那圈中性高光再跑一遍只会糊在一起。 */
+/* 输入卡只留一条静态细边（1px / white 13%，见上面 .creation-chat-composer）。
+   卡片默认还带一层每 2.2 秒换一次方向的渐变高光（HoverBorderGradient 的 sheen），
+   它和刚拿掉的双束流光一样是"边框上永远有东西在跑"，一并关掉。 */
 .app-user-workspace .creation-empty-composer .creation-composer-sheen { display: none; }
 .app-user-workspace .creation-launchpad .creation-chat-controls .creation-chat-control,
 .app-user-workspace .creation-launchpad .creation-model-picker.canvas-composer-model-picker {
@@ -20197,15 +20148,17 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
     width: 100% !important;
     height: 100% !important;
     object-fit: cover;
-    /* 广场封面来自各家，红车绿树黄房子混在一屏就是图库。统一压成低饱和的
-       黑蓝灰调，整页才像同一部片子的截图；悬停时再把颜色还回来一点作为反馈。
+    /* 广场封面来自各家，红车绿树黄房子混在一屏就是图库。统一往冷调压一档，
+       整屏才像同一部片子的截图；悬停时把颜色还满作为反馈。
+       压得不能太重：卡片角标与标签排也是白色文字，封面一旦灰到没有层次，
+       压在右下角的时长就和背景糊在一起了。
        这里必须 !important：product-image-reveal 的 to 关键帧把 filter 钉在
        blur(0)，动画填充值压过普通声明，不加 !important 这层调色永远不生效。 */
-    filter: saturate(.62) contrast(1.08) brightness(.9) !important;
+    filter: saturate(.82) contrast(1.06) brightness(.94) !important;
 }
 .app-user-workspace .creation-featured-card:not(.creation-skill-card):hover .creation-featured-media img,
 .app-user-workspace .creation-featured-card:not(.creation-skill-card):focus-visible .creation-featured-media img {
-    filter: saturate(.84) contrast(1.06) brightness(.96) !important;
+    filter: saturate(1) contrast(1.04) brightness(1) !important;
     transform: scale(1.035);
 }
 .app-user-workspace .creation-featured-card:not(.creation-skill-card) .creation-featured-copy {

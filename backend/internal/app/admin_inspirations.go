@@ -46,6 +46,8 @@ type CreationInspirationView struct {
 	Category    string    `json:"category"`
 	Author      string    `json:"author"`
 	Likes       int       `json:"likes"`
+	Duration    string    `json:"duration"`
+	Tags        []string  `json:"tags"`
 	SourceURL   string    `json:"sourceUrl"`
 	Source      string    `json:"source"`
 	Status      string    `json:"status"`
@@ -74,11 +76,15 @@ type CreationInspirationInput struct {
 	Category    string `json:"category"`
 	Author      string `json:"author"`
 	Likes       int    `json:"likes"`
-	SourceURL   string `json:"sourceUrl"`
-	Source      string `json:"source"`
-	Status      string `json:"status"`
-	Featured    bool   `json:"featured"`
-	SortOrder   int    `json:"sortOrder"`
+	Duration    string `json:"duration"`
+	// Tags 用数组而不是逗号分隔串：存储格式是这一层的实现细节，后台表单和前台卡片
+	// 都只应该拿到"一组标签"，让它们各自去 split 就会有两份不一致的解析规则。
+	Tags      []string `json:"tags"`
+	SourceURL string   `json:"sourceUrl"`
+	Source    string   `json:"source"`
+	Status    string   `json:"status"`
+	Featured  bool     `json:"featured"`
+	SortOrder int      `json:"sortOrder"`
 }
 
 // AdminCreationInspirations 返回后台灵感列表（含已下架）。
@@ -159,6 +165,8 @@ func (s *Service) SaveCreationInspiration(input CreationInspirationInput) (*Crea
 	record.Category = creationInspirationCategory(input.Category)
 	record.Author = truncateRunes(strings.TrimSpace(input.Author), 80)
 	record.Likes = likes
+	record.Duration = truncateRunes(strings.TrimSpace(input.Duration), 16)
+	record.Tags = joinCreationInspirationTags(input.Tags)
 	record.SourceURL = truncateRunes(strings.TrimSpace(input.SourceURL), 1000)
 	record.Source = truncateRunes(strings.TrimSpace(input.Source), 120)
 	record.Status = status
@@ -210,6 +218,8 @@ func (s *Service) creationInspirationView(record *model.CreationInspiration) *Cr
 		Category:     record.Category,
 		Author:       record.Author,
 		Likes:        record.Likes,
+		Duration:     record.Duration,
+		Tags:         splitCreationInspirationTags(record.Tags),
 		SourceURL:    record.SourceURL,
 		Source:       record.Source,
 		Status:       string(record.Status),

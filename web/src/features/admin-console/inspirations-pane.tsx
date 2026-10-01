@@ -42,6 +42,8 @@ type InspirationFormValues = {
     title: string;
     mode: CreationInspirationMode;
     category?: string;
+    duration?: string;
+    tags?: string[];
     description?: string;
     coverUrl?: string;
     prompt?: string;
@@ -58,6 +60,8 @@ const emptyInspiration: InspirationFormValues = {
     title: "",
     mode: "video",
     category: "",
+    duration: "",
+    tags: [],
     description: "",
     coverUrl: "",
     prompt: "",
@@ -75,6 +79,8 @@ function valuesOf(inspiration: AdminCreationInspiration): InspirationFormValues 
         title: inspiration.title,
         mode: (modeMeta[inspiration.mode as CreationInspirationMode] ? (inspiration.mode as CreationInspirationMode) : "video"),
         category: inspiration.category,
+        duration: inspiration.duration,
+        tags: inspiration.tags ?? [],
         description: inspiration.description,
         coverUrl: inspiration.coverUrl,
         prompt: inspiration.prompt,
@@ -97,6 +103,8 @@ function inputOf(values: InspirationFormValues): AdminCreationInspirationInput {
         prompt: (values.prompt ?? "").trim(),
         mode: values.mode,
         category: (values.category ?? "").trim(),
+        duration: (values.duration ?? "").trim(),
+        tags: (values.tags ?? []).map((tag) => tag.trim()).filter(Boolean),
         author: (values.author ?? "").trim(),
         likes: Number(values.likes ?? 0),
         sourceUrl: (values.sourceUrl ?? "").trim(),
@@ -221,7 +229,17 @@ export function InspirationsPane() {
                 return meta ? <Tag color={meta.color}>{meta.label}</Tag> : <Tag>{value}</Tag>;
             },
         },
-        { title: "分类", dataIndex: "category", key: "category", width: 110, render: (value: string) => value || "精选" },
+        {
+            title: "分类 / 时长",
+            key: "category",
+            width: 140,
+            render: (_, row) => (
+                <span className="admin-user-cell admin-inspiration-cell">
+                    <span className="admin-user-name">{row.category || "精选"}</span>
+                    <span className="admin-user-sub">{row.duration || "—"}</span>
+                </span>
+            ),
+        },
         { title: "署名", key: "credit", width: 150, render: (_, row) => <span className="admin-user-sub">{creditOf(row)}</span> },
         {
             title: "状态",
@@ -367,8 +385,14 @@ export function InspirationsPane() {
                     <Form.Item label="创作模式" name="mode" extra="决定这条灵感出现在哪个筛选项下，也决定套用后进入哪种创作。">
                         <Select options={modeOptions} />
                     </Form.Item>
-                    <Form.Item label="分类" name="category" extra="自由文本，不填默认为「精选」。">
-                        <Input placeholder="精选" />
+                    <Form.Item label="分类" name="category" extra="自由文本，前台用作卡片左上角的题材小标（如「情感 · 叙事」）；留空时前台回落到署名文案。">
+                        <Input placeholder="情感 · 叙事" />
+                    </Form.Item>
+                    <Form.Item label="时长角标" name="duration" extra="卡片右下角显示，形如 01:42；图片与文本条目留空即不显示。">
+                        <Input placeholder="01:42" />
+                    </Form.Item>
+                    <Form.Item label="题材标签" name="tags" extra="只出现在首页主推荐卡底部，最多 4 个；回车分隔。">
+                        <Select mode="tags" open={false} suffixIcon={null} tokenSeparators={[","]} placeholder="科幻、冒险、史诗" />
                     </Form.Item>
                     <Form.Item label="说明" name="description" extra="卡片上的一行摘要，不超过 200 个字符。">
                         <Input.TextArea rows={2} placeholder="宽银幕构图、环境反光与缓慢推进镜头" />

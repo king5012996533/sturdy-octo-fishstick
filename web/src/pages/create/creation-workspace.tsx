@@ -28,7 +28,6 @@ import { CanvasImagePreview } from "@/components/canvas/canvas-image-preview";
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
 import { VoiceRecordingButton } from "@/components/conversation/voice-recording-button";
 import { HoverBorderGradient } from "@/components/ui/aceternity/hover-border-gradient";
-import { ComposerBorderStream } from "@/components/ui/aceternity/composer-border-stream";
 import { SpotlightSurface } from "@/components/ui/aceternity/spotlight-surface";
 import { ModelPicker } from "@/components/model-picker";
 import { ASSET_CATEGORY_LABELS } from "@/lib/asset-category";
@@ -49,9 +48,11 @@ import { creationAttachmentKind, creationMediaAspectRatio, removeCreationAttachm
 import { conversationTimestamp, isImageAttachment, isVideoAttachment } from "./creation-conversations";
 import { conversationTimeFormatter, countOptions, historyDayFormatter, messageTimeFormatter, modeLabels, qualityOptions, ratioOptions, resolutionOptions, shotScriptLabels, type CreationConversation, type CreationMessage, type CreationShotRailEntry, type CreationStatus } from "./creation-types";
 import "./creation-product.css";
-import { creationFeaturedWorks, inspirationSource, type CreationInspiration } from "./creation-inspirations";
+import { creationFeaturedWorks, type CreationInspiration } from "./creation-inspirations";
 import { loadCreationInspirations } from "./creation-inspirations-source";
-import { creationLibtvInspirations, libtvSampleSource } from "./creation-inspirations-libtv";
+import { creationLibtvInspirations } from "./creation-inspirations-libtv";
+import { CreationInspirationCard } from "./creation-inspiration-card";
+import { CreationInspirationFooter } from "./creation-inspiration-footer";
 
 const CanvasPromptOptimizerDrawer = lazy(() => import("@/components/canvas/canvas-prompt-optimizer-drawer").then((module) => ({ default: module.CanvasPromptOptimizerDrawer })));
 
@@ -425,7 +426,7 @@ export function CreationComposer(props: ComposerProps) {
         : props.mode === "image"
             ? "描述画面、人物、场景、构图与风格"
             : "描述镜头内容、运动、光线与节奏";
-    const emptyPlaceholder = "输入你的镜头、画面或故事。也可以添加参考图开始创作";
+    const emptyPlaceholder = "输入你的创意想法，画面或故事。也可以添加参考图来开始创作…";
     const imageReferencesSupported = props.imageProfile.references.maxImages > 0;
     const referencesSupported = props.mode === "image" ? imageReferencesSupported : props.mode !== "video" || props.videoProfile.operations.includes("image_to_video");
     const canAddMoreReferences = referencesSupported && props.attachments.length < props.maxReferences;
@@ -653,7 +654,6 @@ export function CreationComposer(props: ComposerProps) {
         </footer>
         <CreationMediaPreviewModal url={previewUrl} type={previewType} onClose={() => setPreviewUrl("")} />
         </SpotlightSurface>
-        <ComposerBorderStream />
     </HoverBorderGradient>;
 
     if (!promptOptimizerOpen) return composer;
@@ -675,11 +675,6 @@ export function CreationComposer(props: ComposerProps) {
             {composer}
         </CanvasPromptOptimizerDrawer></Suspense>
     );
-}
-
-function inspirationCredit(item: CreationInspiration) {
-    if (item.sourceUrl) return item.author ? `示例素材 · ${item.author}` : "示例素材";
-    return item.source ? "开源改编 · CC0" : "原创提示词";
 }
 
 /** 模式收进输入框：收起时只占一个控件的宽度，展开才列出四个入口，避免空态被一整行胶囊占掉。 */
@@ -820,7 +815,7 @@ export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode:
             {/* 这一行照抄参考页的字卡节奏：栏目名 + 全大写小标，展开入口挪到最右侧。 */}
             <div className="creation-featured-heading-main">
                 <div className="flex items-center gap-6">
-                    <button type="button" className={`creation-collection-tab ${!isSkill ? "is-active" : ""}`} aria-pressed={!isSkill} onClick={() => setCollection("inspiration")}>精选灵感</button>
+                    <button type="button" className={`creation-collection-tab ${!isSkill ? "is-active" : ""}`} aria-pressed={!isSkill} onClick={() => setCollection("inspiration")}>灵感推荐</button>
                     <button type="button" className={`creation-collection-tab ${isSkill ? "is-active" : ""}`} aria-pressed={isSkill} onClick={() => setCollection("skill")}>Skill</button>
                 </div>
                 <span className="creation-featured-eyebrow">Inspiration</span>
@@ -846,13 +841,10 @@ export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode:
                     <span className="creation-featured-media"><img src={item.image} alt="" loading="lazy" /><span className="creation-skill-type">视频</span><span className="creation-skill-hover-use"><Sparkles />使用</span></span>
                     <span className="creation-featured-copy"><strong>{item.title}</strong><span>{item.description}</span><em><Sparkles />{item.author} · {item.uses}</em>
                     </span>
-                </button>) : filtered.slice(0, limit).map((item, index) => <button key={item.title} type="button" className={`product-collection-card creation-featured-card ${index === 0 ? "is-featured-hero" : ""}`} onClick={() => onStartPrompt(item.mode, item.prompt)}>
-                    <span className="creation-featured-media"><img src={item.image} alt="" loading="lazy" referrerPolicy={item.sourceUrl ? "no-referrer" : undefined} /><span className="creation-inspiration-overlay"><ArrowUp />使用这个创意</span></span>
-                    <span className="creation-featured-copy"><strong>{item.title}</strong><span>{item.description}</span><em><Sparkles />{index === 0 ? `${inspirationCredit(item)} · ${modeLabels[item.mode]}` : modeLabels[item.mode]}</em></span>
-                </button>)}
+                </button>) : filtered.slice(0, limit).map((item, index) => <CreationInspirationCard key={item.title} item={item} hero={index === 0} onStart={() => onStartPrompt(item.mode, item.prompt)} />)}
         </div>
         {isSkill && skillSection === "mine" && mySkillsLoaded && !visibleSkills.length ? <div className="creation-skill-empty"><Sparkles /><strong>还没有安装 Skill</strong><span>上传、安装或创建一个 Skill 后，它会显示在这里。</span></div> : null}
-        <footer className="creation-inspiration-footer">{isSkill ? <span>已展示 {visibleSkills.length} 个 Skill</span> : <><span>已展示 {Math.min(limit, filtered.length)} / {filtered.length} 个创意</span><details><summary>模板与封面来源</summary><p>{inspirationSource.notice}</p><p>{libtvSampleSource.notice}</p><div className="creation-inspiration-sources"><a href={inspirationSource.repository} target="_blank" rel="noreferrer">awesome-chatgpt-prompts · CC0</a><a href={libtvSampleSource.site} target="_blank" rel="noreferrer">LibTV 公开作品页 · 示例素材</a></div></details></>}</footer>
+        <CreationInspirationFooter shown={isSkill ? visibleSkills.length : Math.min(limit, filtered.length)} total={isSkill ? undefined : filtered.length} unit={isSkill ? "个 Skill" : "个创意"} />
     </section>;
 }
 

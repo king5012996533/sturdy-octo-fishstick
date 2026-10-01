@@ -1,6 +1,7 @@
 package app
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -82,6 +83,44 @@ func TestCreationInspirationSaveNormalizes(t *testing.T) {
 	if !strings.HasPrefix(created.Prompt, strings.Repeat("词", creationInspirationPromptMaxLen)) || len([]rune(created.Prompt)) > creationInspirationPromptMaxLen+3 {
 		t.Fatalf("提示词应按上限截断：%d", len([]rune(created.Prompt)))
 	}
+}
+
+// TestCreationInspirationSaveCardMeta 覆盖卡片元数据的落库与回读：时长只去空白，
+// 标签压成逗号分隔串存一个列，但接口吐出来的必须还是数组——存储格式不能漏给前台。
+func TestCreationInspirationSaveCardMeta(t *testing.T) {
+	svc := newInspirationTestService(t)
+	created, err := svc.SaveCreationInspiration(CreationInspirationInput{
+		Title:    "星际边境",
+		Mode:     "video",
+		Status:   "ONLINE",
+		Duration: "  01:42  ",
+		Tags:     []string{"科幻", "  ", "科幻", "冒险", "史诗", "群像"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Duration != "01:42" {
+		t.Fatalf("时长应去掉首尾空白，实际 %q", created.Duration)
+	}
+	if want := []string{"科幻", "冒险", "史诗", "群像"}; !reflect.DeepEqual(created.Tags, want) {
+		t.Fatalf("标签应去重并按上限截断，实际 %v，want %v", created.Tags, want)
+	}
+
+	// 后台列表与前台目录走同一条视图映射，这里读后台列表即可确认回读形状。
+	listed, err := svc.AdminCreationInspirations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range listed {
+		if item.ID != created.ID {
+			continue
+		}
+		if item.Duration != "01:42" || !reflect.DeepEqual(item.Tags, created.Tags) {
+			t.Fatalf("回读的卡片元数据不一致：%#v", item)
+		}
+		return
+	}
+	t.Fatalf("新建的灵感没有出现在后台列表里：%s", created.ID)
 }
 
 // TestCreationInspirationCatalogAndEdit 覆盖上下架过滤、排序与"编辑不存在的 id"。

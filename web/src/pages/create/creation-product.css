@@ -28,7 +28,9 @@
 .app-product-workspace .creation-home .creation-submit.is-icon-only .creation-submit-action { display: grid; width: 46px; height: 46px; place-items: center; padding: 0; border-radius: 50%; background: var(--creation-submit-gradient); color: #fff; box-shadow: 0 8px 22px rgba(86, 96, 255, .38); transition: background var(--user-motion), box-shadow var(--user-motion), transform var(--user-motion); }
 .app-product-workspace .creation-home .creation-submit.is-icon-only .creation-submit-action span { display: none; }
 .app-product-workspace .creation-home .creation-submit.is-icon-only .creation-submit-action svg { width: 18px; height: 18px; }
-.app-product-workspace .creation-home .creation-submit.is-icon-only.ant-btn:disabled .creation-submit-action { background: rgba(255, 255, 255, .16); color: rgba(255, 255, 255, .58); box-shadow: none; }
+/* 禁用态保留渐变、只压暗：换成灰底会让"空输入"看起来像按钮坏了，而这里是"还没写
+   东西"，按钮本身仍然告诉用户它是什么。 */
+.app-product-workspace .creation-home .creation-submit.is-icon-only.ant-btn:disabled .creation-submit-action { background: var(--creation-submit-gradient); color: #fff; box-shadow: 0 6px 18px rgba(86, 96, 255, .16); opacity: .58; }
 .app-product-workspace .creation-home .creation-submit.is-icon-only.ant-btn:not(:disabled):hover .creation-submit-action { box-shadow: 0 12px 28px rgba(86, 96, 255, .48); transform: translateY(-1px); }
 .creation-submit-cost { display: inline-flex; align-items: center; gap: 4px; color: var(--user-ink-muted); font-size: 12px; padding-inline: 8px; }
 .creation-submit-cost svg { width: 14px; height: 14px; }
@@ -66,9 +68,76 @@
 .creation-inspiration-overlay { position: absolute; inset: auto 12px 12px; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 12px; border-radius: var(--user-radius-control); background: var(--user-surface); color: var(--user-ink); font-size: 12px; transform: translateY(6px); opacity: 0; transition: opacity var(--user-motion), transform var(--user-motion); }
 .creation-inspiration-overlay svg { width: 14px; height: 14px; transform: rotate(45deg); }
 .creation-featured-card:hover .creation-inspiration-overlay, .creation-featured-card:focus-visible .creation-inspiration-overlay { opacity: 1; transform: translateY(0); }
+/* ---- 卡片角标（时长）与主推荐标签排（结构见 creation-inspiration-card.tsx）----
+   这两块都压在封面图上，所以用白色的不同透明度而不是主题色：主题色在浅色模式下是深色，
+   落到一张亮度随机的封面上会时隐时现。 */
+.app-user-workspace .creation-featured-card .creation-featured-duration {
+    position: absolute !important;
+    right: 22px;
+    bottom: 22px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: rgba(255, 255, 255, .75) !important;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .02em;
+    pointer-events: none;
+}
+.app-user-workspace .creation-featured-card .creation-featured-duration svg { width: 10px; height: 10px; fill: currentColor; opacity: .75; }
+.app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-duration { right: 32px; bottom: 34px; font-size: 13px; }
+/* 主推荐的时长与标签排同处最后一行，小卡的时长与标题同处一行；两种排布都贴自家卡片的
+   padding 定位，不需要再包一层行容器。小卡必须给标题留出角标的宽度，否则长标题会压上去。 */
+.app-user-workspace .creation-featured-card:not(.is-featured-hero):has(.creation-featured-duration) .creation-featured-copy { padding-right: 84px !important; }
+
+.app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-copy > span.creation-featured-tags {
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 10px;
+    max-width: none !important;
+    margin-top: 12px;
+    color: inherit !important;
+}
+.app-user-workspace .creation-featured-card .creation-featured-tags i {
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 14px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, .08);
+    color: rgba(255, 255, 255, .78);
+    font-size: 13px;
+    font-style: normal;
+    font-weight: 400;
+    line-height: 1;
+}
+/* 小卡的题材小标比主推荐小一号、字距也收紧：它离标题更近，原来的 .25em 会把标题推开。 */
+.app-user-workspace .creation-featured-card:not(.is-featured-hero):not(.creation-skill-card) .creation-featured-copy em {
+    font-size: 11px !important;
+    letter-spacing: .12em !important;
+}
+
+/* 窄屏（≤1240）主推荐只剩不到 520px 宽，而文案块多了标签排这一行：不收缩的话
+   小标 + 两行标题 + 两行描述 + 标签排会把整张卡从图片卡压成一张字卡。 */
+@media (max-width: 1240px) {
+    .app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-copy { gap: 8px; padding: 22px 22px 24px !important; }
+    .app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-copy strong { font-size: 22px !important; }
+    .app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-copy > span { font-size: 12px !important; line-height: 1.7 !important; }
+    .app-user-workspace .creation-featured-card .creation-featured-tags i { padding: 6px 12px; font-size: 12px; }
+    .app-user-workspace .creation-featured-card.is-featured-hero .creation-featured-duration { right: 22px; bottom: 26px; font-size: 12px; }
+}
+
 .creation-inspiration-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-top: 24px; color: var(--user-ink-muted); font-size: 12px; }
 .creation-inspiration-footer details { max-width: 60ch; }
-.creation-inspiration-footer summary { cursor: pointer; padding-block: 8px; }
+.creation-inspiration-motto { color: color-mix(in srgb, var(--user-ink) 32%, transparent); font-size: 10px; letter-spacing: .3em; text-transform: uppercase; }
+.creation-inspiration-index { display: flex; align-items: center; gap: 22px; }
+.creation-inspiration-pagebar { display: inline-flex; align-items: center; gap: 12px; color: color-mix(in srgb, var(--user-ink) 42%, transparent); font-size: 10px; font-variant-numeric: tabular-nums; letter-spacing: .1em; }
+.creation-inspiration-pagebar i { display: block; width: 92px; height: 1px; background: currentColor; opacity: .55; }
+.creation-inspiration-footer summary { cursor: pointer; padding-block: 8px; list-style: none; }
+/* 去掉 <details> 的默认三角：它和右边的索引条挤在一起时像一个错位的列表符号，
+   展开入口靠 hover 变亮来表达。 */
+.creation-inspiration-footer summary::-webkit-details-marker { display: none; }
+.creation-inspiration-footer summary:hover { color: var(--user-ink); }
 .creation-inspiration-footer p { line-height: 1.7; margin: 8px 0; }
 .creation-inspiration-footer a { color: var(--user-accent); }
 .creation-inspiration-footer .creation-inspiration-sources { display: flex; flex-wrap: wrap; gap: 4px 16px; }

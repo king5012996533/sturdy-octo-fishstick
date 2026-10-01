@@ -55,20 +55,25 @@ const (
 // 业务口径。SourceURL / Source 与 Author 一起决定前台的署名口径：带 SourceURL 的是
 // 外部示例素材，带 Source 的是开源提示词改编，两者都为空才是本平台原创。
 type CreationInspiration struct {
-	ID          string                    `json:"id" gorm:"primaryKey;size:64"`
-	Title       string                    `json:"title" gorm:"size:120"`
-	Description string                    `json:"description" gorm:"type:text"`
-	CoverURL    string                    `json:"coverUrl" gorm:"size:1000"`
-	Prompt      string                    `json:"prompt" gorm:"type:text"`
-	Mode        string                    `json:"mode" gorm:"size:16;index"`
-	Category    string                    `json:"category" gorm:"size:80;index"`
-	Author      string                    `json:"author" gorm:"size:80"`
-	Likes       int                       `json:"likes"`
-	SourceURL   string                    `json:"sourceUrl" gorm:"size:1000"`
-	Source      string                    `json:"source" gorm:"size:120"`
-	Status      CreationInspirationStatus `json:"status" gorm:"index;size:16"`
-	Featured    bool                      `json:"featured" gorm:"index"`
-	SortOrder   int                       `json:"sortOrder" gorm:"index"`
+	ID          string `json:"id" gorm:"primaryKey;size:64"`
+	Title       string `json:"title" gorm:"size:120"`
+	Description string `json:"description" gorm:"type:text"`
+	CoverURL    string `json:"coverUrl" gorm:"size:1000"`
+	Prompt      string `json:"prompt" gorm:"type:text"`
+	Mode        string `json:"mode" gorm:"size:16;index"`
+	Category    string `json:"category" gorm:"size:80;index"`
+	Author      string `json:"author" gorm:"size:80"`
+	Likes       int    `json:"likes"`
+	// Duration 是卡片右下角的时长角标（形如 "01:42"）；图片类条目留空，前台整块不渲染。
+	// Tags 是主推荐卡底部那排题材标签，逗号分隔存一个列：标签都是 2–4 字的短词、不会自带
+	// 逗号，为最多四个短词开一张关联表换不来任何查询能力，对外视图仍还原成数组。
+	Duration  string                    `json:"duration" gorm:"size:16"`
+	Tags      string                    `json:"tags" gorm:"size:200"`
+	SourceURL string                    `json:"sourceUrl" gorm:"size:1000"`
+	Source    string                    `json:"source" gorm:"size:120"`
+	Status    CreationInspirationStatus `json:"status" gorm:"index;size:16"`
+	Featured  bool                      `json:"featured" gorm:"index"`
+	SortOrder int                       `json:"sortOrder" gorm:"index"`
 	// 以下字段是"用户投稿"引入的：平台条目下 Origin 为 PLATFORM、
 	// AuthorUserID 为空、ReviewStatus 恒为 APPROVED。
 	Origin       CreationInspirationOrigin       `json:"origin" gorm:"size:16;index"`

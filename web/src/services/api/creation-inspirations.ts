@@ -17,6 +17,10 @@ export type CreationInspirationRecord = {
     prompt: string;
     mode: string;
     category: string;
+    /** 卡片右下角的时长角标（形如 01:42）；图片与文本条目为空串。 */
+    duration: string;
+    /** 主推荐卡底部的题材标签排；小卡不使用。 */
+    tags: string[];
     author: string;
     likes: number;
     sourceUrl: string;
