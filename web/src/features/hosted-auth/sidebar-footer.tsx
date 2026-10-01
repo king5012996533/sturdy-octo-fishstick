@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
-import { ChevronsUpDown, CircleUserRound, LogOut } from "lucide-react";
+import { ChevronsUpDown, CircleUserRound, LogOut, UserRound } from "lucide-react";
 import { Popover } from "antd";
+import { Link } from "react-router";
 
 import { UserAvatar } from "@/components/layout/user-avatar";
 import { useUserStore } from "@/stores/use-user-store";
@@ -46,7 +47,7 @@ export function hostedAuthIdentityLabel(user: { username?: string; email?: strin
  * 从 Popover 里抽出来是为了让它能在不打开浮层的情况下被断言 —— 浮层内容在收起时
  * 根本不渲染，否则「退出登录到底还在不在」这件事就只能靠手工点开确认。
  */
-export function HostedAuthAccountPanel({ onLogout, pending }: { onLogout: () => void; pending: boolean }) {
+export function HostedAuthAccountPanel({ onLogout, pending, onNavigate }: { onLogout: () => void; pending: boolean; onNavigate?: () => void }) {
     const user = useUserStore((state) => state.user);
     const label = user ? user.displayName || user.username : "账户";
     const identity = hostedAuthIdentityLabel(user);
@@ -63,6 +64,20 @@ export function HostedAuthAccountPanel({ onLogout, pending }: { onLogout: () => 
             </div>
 
             <div className="mx-1 mb-1 h-px bg-foreground/10" role="presentation" />
+
+            {/* 用户中心（/settings）在托管形态下没有侧栏入口：模型配置被摇掉之后，
+                这一页就从工作区导航里消失了。放进账户菜单而不是侧栏，是因为它答的是
+                "我是谁、我的账号什么状态"，与工作区里的创作入口不同类。
+                点击后由调用方关掉浮层，否则路由换了浮层还悬在新页面上面。 */}
+            <Link
+                to="/settings"
+                onClick={onNavigate}
+                data-testid="hosted-auth-account-center"
+                className="flex h-9 w-full items-center gap-2.5 rounded-[10px] px-2.5 text-[13px] text-foreground/80 transition-colors hover:bg-foreground/5 focus-visible:outline focus-visible:outline-2"
+            >
+                <UserRound className="size-4 shrink-0" />
+                <span>用户中心</span>
+            </Link>
 
             {/* 退出登录是低频破坏性操作：放在面板最底部、用危险色、与身份区隔一条线，
                 而不是侧栏里一个常驻的大按钮。 */}
@@ -111,7 +126,7 @@ export function HostedAuthTopbarAccount() {
     const label = user ? user.displayName || user.username : "账户";
 
     return (
-        <Popover trigger="click" open={open} onOpenChange={setOpen} placement="bottomRight" content={<HostedAuthAccountPanel onLogout={logout} pending={pending} />}>
+        <Popover trigger="click" open={open} onOpenChange={setOpen} placement="bottomRight" content={<HostedAuthAccountPanel onLogout={logout} pending={pending} onNavigate={() => setOpen(false)} />}>
             <button
                 type="button"
                 aria-label="账户菜单与退出登录"
@@ -140,7 +155,7 @@ export function HostedAuthSidebarFooter({ collapsed }: { collapsed: boolean }) {
     // 收起态不渲染任何 span：宽度只剩 40px，除图标外的一切都只会被裁掉半截。
     if (collapsed) {
         return (
-            <Popover trigger="click" open={open} onOpenChange={setOpen} placement="rightBottom" content={<HostedAuthAccountPanel onLogout={handleLogout} pending={pending} />}>
+        <Popover trigger="click" open={open} onOpenChange={setOpen} placement="rightBottom" content={<HostedAuthAccountPanel onLogout={handleLogout} pending={pending} onNavigate={() => setOpen(false)} />}>
                 <button
                     type="button"
                     aria-label="账户菜单与退出登录"
@@ -158,7 +173,7 @@ export function HostedAuthSidebarFooter({ collapsed }: { collapsed: boolean }) {
     const identity = hostedAuthIdentityLabel(user);
 
     return (
-        <Popover trigger="click" open={open} onOpenChange={setOpen} placement="topLeft" content={<HostedAuthAccountPanel onLogout={handleLogout} pending={pending} />}>
+        <Popover trigger="click" open={open} onOpenChange={setOpen} placement="topLeft" content={<HostedAuthAccountPanel onLogout={handleLogout} pending={pending} onNavigate={() => setOpen(false)} />}>
             <button
                 type="button"
                 aria-label="账户菜单与退出登录"

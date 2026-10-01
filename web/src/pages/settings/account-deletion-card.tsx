@@ -1,8 +1,9 @@
-import { Alert, Button, Input, Modal, Radio, Space, message } from "antd";
+import { Alert, App, Button, Input, Modal, Radio, Space } from "antd";
 import { useCallback, useEffect, useState } from "react";
 
 import { sendHostedAuthCode, type HostedAuthMethodType } from "@/features/hosted-auth/api";
 import { formatDateTime } from "@/lib/format-usage";
+import { getAccountBindings } from "@/services/api/account-bindings";
 import { http } from "@/services/api/request";
 
 type AccountDeletionView = {
@@ -34,11 +35,17 @@ function devCodeHintOf(challenge: { devCode?: string }): string {
  * 二是明确写出冷静期与「到期后只匿名化、账务记录依法保留、余额不折现」——
  * 用户按下的是一颗会造成不可逆后果的按钮，代价必须在按下之前写清楚。
  */
-export function AccountDeletionCard({ channels }: { channels: AccountDeletionChannel[] }) {
+export function AccountDeletionCard() {
+    // 注销流程里的每条提示都必须是 ConfigProvider 内的实例：这一步的文案最不能
+    // 在深色主题下变成一条读不清的白条。
+    const { message } = App.useApp();
     const [view, setView] = useState<AccountDeletionView | null>(null);
+    // 可用渠道自己取，不让外层转手：这张卡现在挂在「更多设置」里，外层手里并没有
+    // 绑定关系，为了传一个 prop 再读一次账号总览是本末倒置。
+    const [channels, setChannels] = useState<AccountDeletionChannel[]>([]);
     const [loading, setLoading] = useState(true);
     const [open, setOpen] = useState(false);
-    const [methodType, setMethodType] = useState<HostedAuthMethodType>(channels[0]?.methodType ?? "");
+    const [methodType, setMethodType] = useState<HostedAuthMethodType>("");
     const [code, setCode] = useState("");
     const [reason, setReason] = useState("");
     const [confirmWord, setConfirmWord] = useState("");
@@ -62,6 +69,28 @@ export function AccountDeletionCard({ channels }: { channels: AccountDeletionCha
     useEffect(() => {
         void load();
     }, [load]);
+
+    useEffect(() => {
+        let cancelled = false;
+        // 注销只能用账号自己绑定过的渠道确认身份（服务端也只认绑定值），因此这里
+        // 只把已绑定的邮箱/手机号做成选项：没绑定的渠道点进去只会得到一句"未绑定"。
+        getAccountBindings()
+            .then((bindings) => {
+                if (cancelled) return;
+                const next: AccountDeletionChannel[] = [];
+                if (bindings.email) next.push({ methodType: "EMAIL_CODE", label: "邮箱", target: bindings.email });
+                if (bindings.phone) next.push({ methodType: "PHONE_CODE", label: "手机号", target: bindings.phone });
+                setChannels(next);
+                setMethodType((current) => (next.some((channel) => channel.methodType === current) ? current : next[0]?.methodType ?? ""));
+            })
+            .catch(() => {
+                // 读不到绑定关系时按钮保持禁用；这条路径本来就需要一个收得到的地址。
+                if (!cancelled) setChannels([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     useEffect(() => {
         if (cooldown <= 0) return;

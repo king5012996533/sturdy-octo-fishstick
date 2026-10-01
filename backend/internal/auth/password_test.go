@@ -44,7 +44,9 @@ func TestClassifyPasswordTarget(t *testing.T) {
 }
 
 func TestValidatePassword(t *testing.T) {
-	valid := []string{"abc12345", "a1234567", "P@ssw0rd!", "abcdefg1"}
+	// 策略只有长度与空白两道门槛：不强制字符类别，因此"纯数字 8 位"这类口令必须放行。
+	// 这条用例是那个决策的锚点——把复杂度规则加回来时它会立刻失败。
+	valid := []string{"abc12345", "a1234567", "P@ssw0rd!", "abcdefg1", "12345678", "abcdefgh", "密码密码密码密码"}
 	for _, password := range valid {
 		if err := validatePassword(password); err != nil {
 			t.Fatalf("%q 应通过，却报错: %v", password, err)
@@ -53,10 +55,9 @@ func TestValidatePassword(t *testing.T) {
 	invalid := []string{
 		"",                       // 空
 		"abc123",                 // 太短
-		"12345678",               // 纯数字
-		"abcdefgh",               // 纯字母
+		"abcdefg",                // 7 位，差一位也要拒
 		"abc 12345",              // 含空格
-		"密码密码密码密码",               // 无字母数字
+		"abc\t12345",             // 含制表符
 		strings.Repeat("a1", 33), // 66 位，超长
 	}
 	for _, password := range invalid {

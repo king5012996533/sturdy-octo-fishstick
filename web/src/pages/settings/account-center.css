@@ -1,0 +1,229 @@
+/* 用户中心（托管形态的 /settings）。
+
+   一列 620px 的窄栏 + 三张真卡片：积分、资料、密码。其余能力收进「更多设置」，
+   默认不出现——账号页的第一屏只回答三个问题，不摆仪表盘。
+
+   面料走用户外壳自己的令牌（--user-surface / --user-border / --user-radius-card），
+   与任务库、技能库是同一块面；这里不另起一套颜色，也不写死任何主题值。 */
+
+.account-page {
+    display: flex;
+    width: 100%;
+    max-width: 620px;
+    margin: 0 auto;
+    flex-direction: column;
+    gap: 14px;
+    padding-bottom: 40px;
+}
+
+/* 内容区在设置页里原本跟卡片同色（都是白的），卡片只能靠描边分辨，
+   整页因此糊成一片。账号页把底色降到 --user-page-bg，卡片才立得起来。 */
+.settings-page.is-account-center .settings-content {
+    background: var(--user-page-bg);
+}
+
+.account-card {
+    border: 1px solid var(--user-border);
+    border-radius: var(--user-radius-card);
+    background: var(--user-surface);
+    padding: 20px;
+}
+
+@media (min-width: 640px) {
+    .account-card {
+        padding: 22px 24px;
+    }
+}
+
+.account-card-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.account-card-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 620;
+    color: var(--user-ink);
+}
+
+.account-card-aside {
+    flex: none;
+    font-size: 12px;
+    color: var(--user-ink-soft);
+}
+
+/* ---------- 积分：整页唯一的大字号 ---------- */
+
+.account-credits-value {
+    margin: 14px 0 0;
+    font-family: var(--font-mono);
+    font-size: 40px;
+    font-weight: 500;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+    color: var(--user-ink);
+}
+
+.account-credits-meta {
+    margin: 8px 0 0;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--user-ink-soft);
+}
+
+.account-credits-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+/* 资料卡的页脚：左边一个次要动作（换头像），右边一个保存。
+   两者都与"改了什么"同一行读出来，卡片不会因为多出一个按钮而拔高。 */
+.account-card-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.account-card-foot-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* antd 的文字按钮默认带一段水平内边距，在这一行里会把它推离左边缘。 */
+.account-quiet-button.ant-btn {
+    height: auto;
+    padding: 0;
+}
+
+/* ---------- 资料 ---------- */
+
+.account-identity-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.account-avatar-lg {
+    display: flex;
+    height: 56px;
+    width: 56px;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 1px solid var(--user-border);
+    border-radius: 50%;
+    background: var(--user-surface-muted);
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--user-ink-soft);
+}
+
+.account-avatar-lg > img {
+    height: 100%;
+    width: 100%;
+    object-fit: cover;
+}
+
+.account-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 14px;
+}
+
+/* 身份条里的昵称：它的行距由 .account-identity-row 给，不再叠一层。 */
+.account-field.is-flush {
+    margin-top: 0;
+}
+
+/* 表单不该铺满整张卡：两栏输入拉到最后会变成一条横贯全宽的色带，
+   视线得从标签走到最右侧才能读到值。 */
+.account-form-narrow {
+    max-width: 380px;
+}
+
+.account-field-label {
+    font-size: 12px;
+    color: var(--user-ink-muted);
+}
+
+.account-inline-note {
+    margin: 10px 0 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--user-ink-soft);
+}
+
+.account-error {
+    margin: 12px 0 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--destructive);
+}
+
+/* ---------- 更多设置：一条分隔线 + 一个展开行，不是又一张卡片 ---------- */
+
+.account-more {
+    margin-top: 4px;
+    border-top: 1px solid var(--user-border);
+}
+
+.account-more-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border: 0;
+    background: none;
+    padding: 16px 2px;
+    color: var(--user-ink-muted);
+    font-size: 13px;
+    cursor: pointer;
+    transition: color var(--user-motion);
+}
+
+.account-more-toggle:hover {
+    color: var(--user-ink);
+}
+
+.account-more-toggle > svg {
+    flex: none;
+    transition: transform var(--user-motion);
+}
+
+.account-more-toggle[aria-expanded="true"] > svg {
+    transform: rotate(180deg);
+}
+
+.account-more-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-bottom: 8px;
+}
+
+/* 收进来的四张卡片自带 max-w-2xl 与 mt-4：在 620px 的窄栏里前者多余、后者会和
+   这里的 gap 叠成两倍行距。 */
+.account-more-body .settings-pane {
+    max-width: none;
+    margin-top: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .account-more-toggle,
+    .account-more-toggle > svg {
+        transition: none;
+    }
+}

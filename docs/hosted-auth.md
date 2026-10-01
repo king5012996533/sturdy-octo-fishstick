@@ -175,6 +175,53 @@ curl -s -b cookies.txt localhost:8080/api/workspace/bootstrap
 **保留范围**：订单、积分流水等交易记录按法律法规要求继续保留；账号内剩余积分不折现退还。
 这两条都写在注销弹窗里，用户按下按钮前能看到。
 
+## 用户中心
+
+托管形态的 `/settings` 不摆任何配置表单（上游凭证、渠道与计费都由平台持有），整页就是
+账号自助。入口是账户菜单里的「用户中心」——侧栏里没有它的位置：这一页答的是「我是谁、
+我的账号现在什么状态」，与工作区里的创作入口不同类。侧栏的模型配置入口在托管产物里被
+摇树删除后，`/settings` 就只剩这一页，所以账户菜单里那一条是它唯一的入口。
+
+| 主题 | 接口 | 实现 |
+| --- | --- | --- |
+| 积分（首屏） | `GET /api/finance/wallet` | `hosted/credit.go` → `pages/settings/account-credits-card.tsx` |
+| 资料（昵称 / 头像） | `GET`、`PATCH /api/finance/account/profile` | `auth/account_profile.go` + `hosted/account_profile.go` |
+| 密码 | `GET`、`POST`、`PUT /api/finance/account/password` | `auth/account_password.go` + `hosted/account_password.go` |
+| 登录设备（更多） | `GET /api/finance/account/sessions`、`DELETE /api/finance/account/sessions/:id`、`POST /api/finance/account/sessions/revoke-others` | `auth/account_sessions.go` + `hosted/account_sessions.go` |
+| 身份绑定（更多） | `GET /api/finance/account/bindings`、`POST /api/finance/account/bindings/code`、`POST /api/finance/account/bindings` | `auth/account_bindings.go` + `hosted/account_bindings.go` |
+| 用量与协议留痕（更多） | `GET /api/finance/account` | `hosted/admin.go` → `pages/settings/account-usage-card.tsx` |
+| 我的投稿（更多） | 见「发布到灵感广场」 | `pages/settings/my-creation-posts-card.tsx` |
+| 注销（更多） | `GET`/`POST`/`DELETE /api/finance/account/deletion` | `hosted/account_deletion.go` |
+
+**信息架构**：首屏只有三张卡——积分、资料、密码，按"还剩多少 → 我叫什么 → 密码怎么改"
+排。登录设备、身份绑定、我的投稿、用量与协议、注销账号收进「更多设置」，默认收起且**不收
+起时不渲染**（五张子卡的请求一并不发）。这五个能力低频且多为破坏性动作，摊在首屏会把
+"看一眼余额"变成一次浏览任务。
+
+前端一个功能一个文件，聚合在 `pages/settings/account-center.tsx`，样式单独放
+`pages/settings/account-center.css`（不往 `globals.css` 里再堆一段）；三张主卡各自加载、
+各自失败、各自重试——共享一个请求之后，任何一块抖动都会拖垮整页。接口封装同样按主题
+分文件（`services/api/account-profile.ts` / `account-security.ts` / `account-bindings.ts`）。
+
+**密码卡不依赖绑定接口**：密码状态与绑定关系是两次独立请求（`Promise.allSettled`），
+绑定接口失败只影响"首次设置密码"那一支，已经有密码的账号照样能改——它们本来就不需要
+验证码。第一版用 `Promise.all` 把两者绑死，绑定接口一挂整张卡就只剩一句"读不到状态"。
+
+**账号主体只有会话**：这一组接口的请求体里不接受任何用户标识，因此不存在「传别人的 ID」
+的入口。与 `/finance/*` 其余部分同一条铁律。
+
+**公共前置**：四组写操作共用 `auth/account_guard.go` 的 `accountForSelfService`（账号
+存在且状态可用）、`accountVerificationTarget` 与 `consumeAccountCode`（验证码必须发到并
+校验账号**自己绑定**的地址）。不抽这一段，四条路径会各自长出一份略有差异的校验。
+
+**密码**：没有密码的走「验证码 → 新密码」，已有密码的走「旧密码 → 新密码」。两条路径
+都保留发起操作的这台设备、吊销其余会话——改完密码旧会话继续有效，正是账号被盗后攻击者
+最想要的结果。密码只卡长度（≥8，上下限由服务端下发，表单不写死），不强制字符类别组合。
+
+**换绑**：分两步——先给新地址发码，再带码确认；成功后给**旧地址**发一条变更通知。
+少了新地址这一步，一次手误就能把账号绑到一个永远收不到验证码的地址上，而那种状态下
+用户连注销都做不了（注销同样要验证码）。
+
 ## 尚未完成
 
 - **GitHub OAuth**：需要注册 OAuth App 并把回调填成 `https://<域名>/api/auth/oauth/callback`。
@@ -184,8 +231,10 @@ curl -s -b cookies.txt localhost:8080/api/workspace/bootstrap
   `本地工作区`，`profile` 仍是 `local`；SaaS 前端接入时需要一并调整。
 - **企业连接（BeefAPI）仍是单租户**：其状态与 provider 配置存放在 dataDir 的单一文件里，
   按账号隔离是独立的一块工作。
-- **设置/重置密码**：密码通道已可用，但「验证码 + 新密码」的设置入口还没做，所以用验证码
-  注册的老用户暂时设不上密码，密码注册的用户忘记密码也没有自助找回路径。
+- **忘记密码自助找回**：用户中心已能设置密码（验证码）与修改密码（旧密码），但「已有密码
+  却忘了」这条路径还没有——既没有邮件重置链接，也没有凭验证码直接重设的入口。这类账号
+  不会因此登不进来（验证码通道照常可用），但想恢复密码只能走后台的
+  `POST /api/admin/users/:id/password` 由运营重置。
 - **验证码尝试次数上限**：6 位码在 5 分钟内可被枚举。要封住需要在 CanvasMind 侧加
   「失败次数」列并让 `ConsumeCode` 累加，属于跨仓改动，尚未做。
 

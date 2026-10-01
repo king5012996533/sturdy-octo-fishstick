@@ -138,3 +138,11 @@ func CurrentUserID(c *gin.Context) string {
 	}
 	return user.ID
 }
+
+// SessionTokenHash 是会话令牌的摘要。
+//
+// 对外暴露摘要而不是明文令牌：调用方（宿主的用户中心）需要用它判断"哪一条会话是当前
+// 这一台"，而判断这件事只需要摘要——把明文令牌散进更多层，等于给它更多泄漏面。
+func SessionTokenHash(token string) string {
+	return hashSessionToken(strings.TrimSpace(token))
+}

@@ -1,4 +1,4 @@
-import { Button, message, Popconfirm, Tag } from "antd";
+import { App, Button, Popconfirm, Tag } from "antd";
 import { RefreshCw, Share2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -24,6 +24,8 @@ const reviewLabels: Record<string, { text: string; color: string }> = {
 const modeLabels: Record<string, string> = { image: "图像", video: "视频", text: "文本" };
 
 export function MyCreationPostsCard() {
+    // 撤回结果走 ConfigProvider 内的 message，深色主题下不至于弹出浅色提示条。
+    const { message } = App.useApp();
     const [posts, setPosts] = useState<CreationPostRecord[] | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");

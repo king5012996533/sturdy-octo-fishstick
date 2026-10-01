@@ -408,6 +408,12 @@ type accountOverviewResponse struct {
 // 认证模块自身、却要读写账号信息的接口。
 func (e *Extension) registerAccountRoutes(api *gin.RouterGroup) {
 	api.GET("/finance/account", e.handleAccountOverview)
+	// 用户中心的四个自助模块。全部以会话账号为主体：请求体里不接受任何用户标识，
+	// 因此这里没有、也不该有"传别人的 ID"的入口。
+	e.registerAccountProfileRoutes(api)  // 昵称与头像
+	e.registerAccountPasswordRoutes(api) // 设置 / 修改密码
+	e.registerAccountSessionRoutes(api)  // 登录设备列表与远程下线
+	e.registerAccountBindingRoutes(api)  // 邮箱 / 手机号的绑定与换绑
 	// 自助注销：申请 / 查询状态 / 冷静期内撤销。
 	e.registerAccountDeletionRoutes(api)
 }

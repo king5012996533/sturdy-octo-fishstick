@@ -242,19 +242,12 @@ func (s *Service) RequestAccountDeletion(ctx context.Context, in AccountDeletion
 	if user.Status != StatusActive {
 		return nil, forbidden("账号当前状态不允许自助注销，请联系客服处理")
 	}
-	target, err := accountDeletionTarget(user, in.MethodType)
+	target, err := accountVerificationTarget(user, in.MethodType)
 	if err != nil {
 		return nil, err
 	}
-	code := strings.TrimSpace(in.Code)
-	if code == "" {
-		return nil, invalidArgument("请输入验证码")
-	}
-	if _, err := s.store.ConsumeCode(in.MethodType, target, code, codeScene); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return nil, invalidArgument("验证码不正确或已过期")
-		}
-		return nil, internalFailure(err)
+	if err := s.consumeAccountCode(in.MethodType, target, in.Code); err != nil {
+		return nil, err
 	}
 
 	now := s.now()
@@ -329,30 +322,6 @@ func (s *Service) ExecuteDueAccountDeletions(limit int) (int, error) {
 		executed++
 	}
 	return executed, nil
-}
-
-// accountDeletionTarget 取该账号在指定验证渠道上的标识。
-//
-// 只认账号自己绑定的邮箱/手机号：注销请求里带什么目标都不参与校验，否则用一个
-// 自己收得到的号码就能注销别人的账号。
-func accountDeletionTarget(user *User, methodType MethodType) (string, error) {
-	if user == nil {
-		return "", unauthorized("当前未登录或登录已失效")
-	}
-	switch methodType {
-	case MethodEmailCode:
-		if user.Email == nil || strings.TrimSpace(*user.Email) == "" {
-			return "", invalidArgument("该账号未绑定邮箱，无法用邮箱验证码确认身份")
-		}
-		return strings.ToLower(strings.TrimSpace(*user.Email)), nil
-	case MethodPhoneCode:
-		if user.Phone == nil || strings.TrimSpace(*user.Phone) == "" {
-			return "", invalidArgument("该账号未绑定手机号，无法用短信验证码确认身份")
-		}
-		return strings.TrimSpace(*user.Phone), nil
-	default:
-		return "", invalidArgument("请选择邮箱或手机号接收验证码")
-	}
 }
 
 func accountDeletionViewOf(record *AccountDeletion) *AccountDeletionView {

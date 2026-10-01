@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { App } from "antd";
+import { MemoryRouter } from "react-router";
 
 import { detectHostedAuth, type HostedAuthMethod } from "../src/features/hosted-auth/api";
 import { resolveHostedAuthGatePhase } from "../src/features/hosted-auth/gate";
@@ -238,13 +239,19 @@ describe("hosted auth logout", () => {
 
     test("账户面板里才有退出登录，且带独立 testid", () => {
         const panel = renderToStaticMarkup(
-            <App>
-                <HostedAuthAccountPanel onLogout={() => {}} pending={false} />
-            </App>,
+            <MemoryRouter>
+                <App>
+                    <HostedAuthAccountPanel onLogout={() => {}} pending={false} />
+                </App>
+            </MemoryRouter>,
         );
         expect(panel).toContain("退出登录");
         expect(panel).toContain('data-testid="hosted-auth-logout"');
         expect(panel).toContain('data-testid="hosted-auth-account-panel"');
+        // 托管形态的导航里没有 /settings（模型配置入口被摇掉后那一页就没有入口了），
+        // 用户中心必须从账户菜单进得去，否则整页只能靠手输地址打开。
+        expect(panel).toContain('data-testid="hosted-auth-account-center"');
+        expect(panel).toContain('href="/settings"');
     });
 
     test("身份副标题按邮箱、绑定标识、用户名依次回落", () => {

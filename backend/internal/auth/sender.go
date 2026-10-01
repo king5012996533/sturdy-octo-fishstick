@@ -102,3 +102,39 @@ func (s *SMTPSender) SendLoginCode(_ context.Context, to string, code string, ex
 	address := fmt.Sprintf("%s:%d", s.Host, s.Port)
 	return smtp.SendMail(address, auth, s.From, []string{to}, []byte(message))
 }
+
+// SendSecurityNotice 投递一条账号安全通知（绑定变更、改密等）。
+//
+// 与验证码分开成两个方法而不是共用一个通用发送口：验证码投递失败必须让整个登录流程
+// 失败（用户拿不到码却看到"已发送"是最糟的体验），而安全通知是尽力而为的附加动作，
+// 失败只记日志。把两者放进同一个接口，调用方迟早会把"通知没发出去"当成认证失败。
+func (ConsoleSender) SendSecurityNotice(_ context.Context, to string, subject string, body string) error {
+	log.Printf("auth: 安全通知（本地投递，未真实发送）to=%s subject=%s body=%s", to, subject, body)
+	return nil
+}
+
+func (s *SMTPSender) SendSecurityNotice(_ context.Context, to string, subject string, body string) error {
+	if s == nil {
+		return errors.New("SMTP 投递器未初始化")
+	}
+	from := s.From
+	if s.FromName != "" {
+		from = fmt.Sprintf("%s <%s>", s.FromName, s.From)
+	}
+	message := strings.Join([]string{
+		"From: " + from,
+		"To: " + to,
+		"Subject: " + subject,
+		"MIME-Version: 1.0",
+		"Content-Type: text/plain; charset=UTF-8",
+		"",
+		body,
+	}, "\r\n")
+
+	var auth smtp.Auth
+	if s.Username != "" {
+		auth = smtp.PlainAuth("", s.Username, s.Password, s.Host)
+	}
+	address := fmt.Sprintf("%s:%d", s.Host, s.Port)
+	return smtp.SendMail(address, auth, s.From, []string{to}, []byte(message))
+}

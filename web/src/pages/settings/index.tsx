@@ -5,10 +5,9 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
-import { AccountOverviewPane } from "./account-overview-pane";
+import { AccountCenter } from "./account-center";
 import { ChannelSettingsPane, channelValidationError, focusInvalidChannelField, isChannelReady } from "./channel-settings-pane";
 import { ModelDefaultGrid } from "./model-default-grid";
-import { MyCreationPostsCard } from "./my-creation-posts-card";
 
 type ConfigSectionKey = "channels" | "models";
 
@@ -83,10 +82,11 @@ export default function SettingsPage() {
     // 计费语义），SaaS 产物也不会出现配置面。
     if (__BEEFTV_HOSTED_AUTH__ || !customChannelsEnabled) {
         return (
-            <main className="settings-page app-workspace-page app-user-workspace flex h-full min-h-0 flex-col text-foreground">
+            // is-account-center 把内容区底色压到页面底色：账号页的卡片是白色的，
+            // 卡面同色的话整页只剩描边，六张卡糊成一片表格。
+            <main className="settings-page is-account-center app-workspace-page app-user-workspace flex h-full min-h-0 flex-col text-foreground">
                 <div className="app-workspace-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 md:px-6">
-                    <AccountOverviewPane />
-                    <MyCreationPostsCard />
+                    <AccountCenter />
                 </div>
             </main>
         );

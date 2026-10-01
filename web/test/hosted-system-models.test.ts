@@ -171,9 +171,12 @@ describe("托管形态下模型配置入口一律不出现", () => {
         expect(page).toContain("__BEEFTV_HOSTED_AUTH__ || !customChannelsEnabled");
         // 托管分支必须落在账户页而不是渠道表单：用户在这里能看到自己的账号、用量与
         // 协议留痕，"去配置模型"的引导才不会跳进一个空配置页。
-        expect(page).toContain("<AccountOverviewPane />");
+        expect(page).toContain("<AccountCenter />");
         // 账户分支必须出现在渠道面板之前，否则说明页会被渲染成配置表单。
-        expect(page.indexOf("<AccountOverviewPane />")).toBeLessThan(page.indexOf("const panes: Record<ConfigSectionKey, ReactNode>"));
+        expect(page.indexOf("<AccountCenter />")).toBeLessThan(page.indexOf("const panes: Record<ConfigSectionKey, ReactNode>"));
+        // 用户中心自己就是账户页：用量与协议留痕收在「更多设置」里，但必须还在这一页上。
+        const center = read("../src/pages/settings/account-center.tsx");
+        expect(center).toContain("<AccountUsageCard />");
     });
 });
 

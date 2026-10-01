@@ -8,7 +8,7 @@ import (
 )
 
 // 密码长度下限取 8 而不是 6：6 位纯数字在本地 GPU 上属于秒破，而用户为 6 位密码
-// 付出的记忆成本并不比 8 位低。
+// 付出的记忆成本并不比 8 位低。上限 64 是 scrypt 的输入规模考虑，不是安全要求。
 const (
 	passwordMinLength = 8
 	passwordMaxLength = 64
@@ -61,10 +61,14 @@ func classifyPasswordTarget(value string) (passwordTargetKind, string, error) {
 	return targetUnknown, "", invalidArgument("请输入正确的手机号")
 }
 
-// validatePassword 校验密码强度。
+// validatePassword 校验密码格式。
 //
-// 只要求长度和「字母 + 数字」，不强制大小写与符号：后者在实测里主要制造找回率，
-// 而不是安全性。真正的防线是上面的失败节流。
+// 唯一的硬门槛是长度：8 到 64 位，且不含空白字符。**刻意不强制字符类别组合**
+// （大小写、数字、符号各来一个那类规则）——复杂度规则挡下的绝大多数是"想用一个
+// 好记密码"的正常用户，他们最后会写成 Abc12345 这种既难记又不难猜的形态，而真正
+// 想省事的攻击者本来就从字典和泄漏库出发，字母数字组合是字典里最先被覆盖的部分。
+// 长度才是与猜测成本直接挂钩的那一项，因此这里只守住它，把记忆成本留给用户自己分
+// 配到更长的口令上。超过 64 位拒绝是 scrypt 的输入规模考虑，不是安全要求。
 func validatePassword(password string) error {
 	if strings.ContainsAny(password, " \t\r\n") {
 		return invalidArgument("密码不能包含空格")
@@ -72,18 +76,6 @@ func validatePassword(password string) error {
 	length := len([]rune(password))
 	if length < passwordMinLength || length > passwordMaxLength {
 		return invalidArgument(fmt.Sprintf("请输入 %d-%d 位密码", passwordMinLength, passwordMaxLength))
-	}
-	var hasLetter, hasDigit bool
-	for _, char := range password {
-		switch {
-		case char >= '0' && char <= '9':
-			hasDigit = true
-		case (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z'):
-			hasLetter = true
-		}
-	}
-	if !hasLetter || !hasDigit {
-		return invalidArgument("密码需同时包含字母和数字")
 	}
 	return nil
 }

@@ -19,7 +19,9 @@ export function WorkspaceTopBar({ sidebarOpen, onToggleSidebar }: { sidebarOpen:
     const customChannelsEnabled = useUserStore((state) => state.features.customChannelsEnabled);
     const { pathname } = useLocation();
     const slug = pathname.split("/").filter(Boolean)[0];
-    const pageTitle = slug ? PAGE_TITLES[slug] || brandName : PAGE_TITLES.home;
+    // 托管形态下 /settings 就是用户中心（模型配置面被摇掉，这一页只剩账号自助），
+    // 面包屑沿用"设置"会和账户菜单里的入口对不上号。
+    const pageTitle = slug === "settings" && __BEEFTV_HOSTED_AUTH__ ? "用户中心" : slug ? PAGE_TITLES[slug] || brandName : PAGE_TITLES.home;
     const isHome = pathname === "/";
 
     return (
