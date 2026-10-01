@@ -46,3 +46,5 @@ NewAPI Channel 2 与 BeefAPI 视频的暂时下载断连会保留原任务 ID �
 Agent 的 `budget` 字段是本地运行上限（步数、生成次数、视频秒数），不代表积分、付费或扣费。
 
 内置 BeefAPI 连接成功后，同一份企业凭证用于渠道请求、模型目录和本机 MCP 工具。MCP 工具名为 `beeftv_list_models`、`beeftv_submit_media`、`beeftv_get_task`；媒体提交必须经过本机审批与预算，不能把 `approved=true` 当作授权。
+
+内置 BeefAPI 的 Seedance 视频任务由本机后端上传参考素材后再向上游提交链接；浏览器不直接访问该上传接口，也不把整份参考文件放进本地 `/tasks` 请求。失败时不会自动重提生成。
