@@ -16,6 +16,19 @@ export type CreationInspirationRecord = {
     coverUrl: string;
     /** 成片的可播地址（上游 HLS 播放列表，没有 HLS 时是 mp4）；没有成片时为空串。 */
     videoUrl: string;
+    /**
+     * 复刻配方：原作生成这条作品时用的参考图与参数。提示词只是配方的一部分——上游的
+     * 模板是整张画布，参考图与视频模型同样决定画面，只有提示词是复刻不出来的。
+     *
+     * recipeImageUrls 是现场签名的平台地址（12 小时有效），点"使用这个创意"时才需要
+     * 把它搬进用户自己的资源库；这些字段在库里没有记录时全部为空/空数组。
+     */
+    recipeImageUrls: string[];
+    recipeVideoModel: string;
+    recipeVideoMode: string;
+    recipeRatio: string;
+    recipeResolution: string;
+    recipeDurationSeconds: number;
     prompt: string;
     mode: string;
     category: string;

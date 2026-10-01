@@ -489,3 +489,15 @@ html:not(.dark) .app-product-overlays .creation-control-popover-surface {
     .creation-inspiration-player-bar { padding: 12px 14px; }
     .creation-inspiration-player-actions { width: 100%; justify-content: space-between; }
 }
+
+/* ---- 灵感广场的"复刻配方"提示条（结构见 index.tsx 的 creation-recipe-note）----
+   点"使用这个创意"之后，用户需要知道这次到底带过来了什么：只带提示词和连参考图一起带
+   是两种结果。原作模型与我们用的不同也在这里如实说明——复刻不出同样的画面时，用户
+   至少知道差在哪，而不是怀疑按钮坏了。 */
+.creation-recipe-note { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 9px 12px; border: 1px solid color-mix(in srgb, var(--user-accent) 28%, transparent); border-radius: var(--user-radius-control); background: color-mix(in srgb, var(--user-accent) 8%, transparent); color: var(--user-ink-muted); font-size: 12px; line-height: 1.5; }
+.creation-recipe-note svg { flex: none; width: 14px; height: 14px; color: var(--user-accent-foreground); }
+.creation-recipe-note span { flex: 1; min-width: 0; }
+.creation-recipe-note button { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; transition: background var(--user-motion), color var(--user-motion); }
+.creation-recipe-note button svg { width: 13px; height: 13px; color: inherit; }
+.creation-recipe-note button:hover { background: var(--user-surface-hover); color: var(--user-ink); }
+.creation-recipe-note button:focus-visible { outline: 2px solid var(--user-accent); outline-offset: 2px; }

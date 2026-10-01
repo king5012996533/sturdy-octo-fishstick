@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { App, Spin } from "antd";
 import { Tooltip } from "@/components/ui/base/tooltip";
-import { History, Sparkles, Maximize2 } from "lucide-react";
+import { History, Sparkles, Maximize2, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -66,6 +66,8 @@ import {
 } from "./creation-conversations";
 import { CreationComposer, CreationFeaturedWorks, CreationHistoryDrawer, CreationMessageView, CreationModeMenu, CreationWorkspaceToolbar, creationAssetCategoryLabels } from "./creation-workspace";
 import { CreationAgentEntry } from "./creation-agent-entry";
+import { creationRecipeAttachments, creationRecipePlan, creationRecipeSummary, type CreationRecipePlan } from "./creation-inspiration-recipe";
+import type { CreationInspiration } from "./creation-inspirations";
 import { createDemoConversation } from "./creation-demo-data";
 
 const AssetLibraryPickerModal = lazy(() => import("@/components/assets/asset-library-picker-modal").then((module) => ({ default: module.AssetLibraryPickerModal })));
@@ -144,6 +146,13 @@ export default function CreatePage() {
     const [mode, setMode] = useState<CreationMode>(() => requestedMode || initialComposerPreferences.mode || defaultCreationMode);
     const [prompt, setPrompt] = useState(() => (marketplaceSkill ? `@${marketplaceSkill} ` : requestedPrompt));
     const [attachments, setAttachments] = useState<CreationAttachment[]>([]);
+    // 从灵感广场"使用这个创意"时带过来的复刻配方提示：给用户一句"这次带过来了什么"，
+    // 以及"原作与我们用的模型不同"这件事的如实说明。
+    const [inspirationNotice, setInspirationNotice] = useState<{ summary: string; sourceModel?: string; failed: number; unsupported: boolean } | null>(null);
+    // 配方参数要等模式切到 video 之后才生效：切模式会触发一次按模型能力归一化的 effect，
+    // 它按"上次保存的偏好"重算时长比例，会把刚带过来的参数冲掉。把配方放在这个 ref 里，
+    // 让那次归一化优先用配方值，两边就不会打架。
+    const pendingRecipeRef = useRef<CreationRecipePlan | null>(null);
     const promptRef = useRef(prompt);
     const attachmentsRef = useRef(attachments);
     const [draftReferences, setDraftReferences] = useState<CreationReference[]>([]);
@@ -312,10 +321,14 @@ export default function CreatePage() {
         if (!composerPreferencesHydrated || !composerPreferencesInitialized || mode !== "video") return;
         const saved = useCreationPreferencesStore.getState().preferences.video;
         // 优先恢复用户上次选择；只有当前模型不支持该值时，normalizeVideoValue 才回退到模型默认值。
+        // 刚从灵感广场带过来的配方排在保存偏好之前：用户点"使用这个创意"要的就是原作的参数，
+        // 被上次的偏好覆盖掉会让这个按钮做的事和它的名字不符。
+        const recipe = pendingRecipeRef.current;
+        pendingRecipeRef.current = null;
         const normalized = normalizeVideoValue(videoProfile, {
-            seconds: saved?.seconds || String(videoProfile.duration.default),
-            ratio: saved?.ratio || videoProfile.defaultRatio,
-            resolution: saved?.videoQuality || videoProfile.defaultResolution,
+            seconds: recipe?.seconds || saved?.seconds || String(videoProfile.duration.default),
+            ratio: recipe?.ratio || saved?.ratio || videoProfile.defaultRatio,
+            resolution: recipe?.resolution || saved?.videoQuality || videoProfile.defaultResolution,
         });
         setSeconds(normalized.seconds);
         setRatio(normalized.ratio);
@@ -475,6 +488,49 @@ export default function CreatePage() {
         if (!nextModels.includes(current) && nextModels[0]) {
             updateConfig(next === "text" ? "textModel" : next === "image" ? "imageModel" : "videoModel", nextModels[0]);
         }
+    };
+
+    /**
+     * applyCreationInspiration 处理"使用这个创意"：把提示词、配方参数与参考图一起带进
+     * 本次创作。
+     *
+     * 刻意不做的事：不把原作的模型名写进我们的模型选择。原作用的是 star-video2 / kling
+     * 这类上游专有模型，本平台没有对应项，硬塞一个进来只会让用户在模型列表里看到一个
+     * 不存在的值；模型差异由提示条如实说明，参数与素材这两个跨模型可用的部分照常带走。
+     */
+    const applyCreationInspiration = (item: CreationInspiration) => {
+        setAgentMode(false);
+        selectMode(item.mode);
+        setPrompt(item.prompt);
+        window.requestAnimationFrame(() => composerFocusRef.current?.focus());
+        const plan = creationRecipePlan(item);
+        if (!plan) {
+            setInspirationNotice(null);
+            return;
+        }
+        const summary = creationRecipeSummary(plan);
+        if (item.mode !== "video" || !plan.referenceImages.length) {
+            setInspirationNotice({ summary, sourceModel: plan.sourceModel, failed: 0, unsupported: false });
+            if (item.mode === "video") pendingRecipeRef.current = plan;
+            return;
+        }
+        // 参考图能不能带走取决于当前视频模型：只支持文生视频的模型一个参考位都没有，
+        // 这时候把图挂上去会被附件上限那条 effect 静默裁掉。宁可明说带不了，也不要
+        // 让用户以为带上了。
+        if (!videoProfile.operations.includes("image_to_video") || videoProfile.references.maxImages < 1) {
+            setInspirationNotice({ summary, sourceModel: plan.sourceModel, failed: 0, unsupported: true });
+            pendingRecipeRef.current = plan;
+            return;
+        }
+        pendingRecipeRef.current = plan;
+        setInspirationNotice({ summary, sourceModel: plan.sourceModel, failed: 0, unsupported: false });
+        void (async () => {
+            const { attachments: adopted, failed } = await creationRecipeAttachments(plan);
+            if (adopted.length) {
+                setAttachments((current) => [...current.filter((existing) => !adopted.some((item) => item.id === existing.id)), ...adopted]);
+            }
+            setInspirationNotice({ summary, sourceModel: plan.sourceModel, failed, unsupported: false });
+        })();
     };
 
     const setComposerRatio = (value: string) => {
@@ -1209,6 +1265,18 @@ export default function CreatePage() {
                                         </>
                                     ) : (
                                         <div className="creation-empty-composer">
+                                            {inspirationNotice ? (
+                                                <p className="creation-recipe-note" role="status">
+                                                    <Sparkles aria-hidden="true" />
+                                                    <span>
+                                                        已带上原作配方{inspirationNotice.summary ? `：${inspirationNotice.summary}` : ""}
+                                                        {inspirationNotice.sourceModel ? ` · 原作使用 ${inspirationNotice.sourceModel}` : ""}
+                                                        {inspirationNotice.unsupported ? " · 当前模型不支持参考图，只带过来提示词与参数" : ""}
+                                                        {inspirationNotice.failed > 0 ? ` · ${inspirationNotice.failed} 张参考图没取到` : ""}
+                                                    </span>
+                                                    <button type="button" onClick={() => setInspirationNotice(null)} aria-label="关闭配方提示"><X /></button>
+                                                </p>
+                                            ) : null}
                                             <CreationComposer {...composerProps} variant="empty" />
                                         </div>
                                     )}
@@ -1221,6 +1289,7 @@ export default function CreatePage() {
                                     setPrompt(prompt);
                                     window.requestAnimationFrame(() => composerFocusRef.current?.focus());
                                 }}
+                                onUseInspiration={applyCreationInspiration}
                             />
                         </main>
                     </>

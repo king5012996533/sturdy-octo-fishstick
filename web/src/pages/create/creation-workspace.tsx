@@ -770,7 +770,13 @@ const creationSkillWorks = [
     { title: "POP MV", description: "一句话生成国际流行音乐 MV 创作方案", image: "/short-drama-styles/cyberpunk-neon.jpg", prompt: "@pop-music-video 设计一支 POP MV", author: "鲍鱼chill", uses: "2.6k" },
     { title: "真实感美妆UGC产品种草", description: "把美妆卖点变成可见证据与自然口播", image: "/short-drama-styles/urban-live-action.jpg", prompt: "@beauty-blogger-reviewer 设计一支美妆 UGC", author: "刘不住Wa...", uses: "2.1k" },
 ];
-export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode: CreationMode, prompt: string) => void }) {
+/**
+ * onStartPrompt 只搬提示词，给 Skill 卡片用（它的 prompt 本来就是自包含的一段指令）；
+ * onUseInspiration 会把"复刻配方"（参考图、时长比例）一起带进创作台，见
+ * creation-inspiration-recipe.ts。分成两个回调而不是塞一个可选参数，是为了让两条路径
+ * 在调用点上就看得出一处只搬文字、另一处要搬素材。
+ */
+export function CreationFeaturedWorks({ onStartPrompt, onUseInspiration }: { onStartPrompt: (mode: CreationMode, prompt: string) => void; onUseInspiration: (item: CreationInspiration) => void }) {
     const navigate = useNavigate();
     const [filter, setFilter] = useState<"all" | CreationMode>("all");
     // 首页 bento 是"一张主推荐占 2×2 + 若干单格"，13 张正好铺满四行，末尾不留缺口。
@@ -850,13 +856,13 @@ export function CreationFeaturedWorks({ onStartPrompt }: { onStartPrompt: (mode:
                     <span className="creation-featured-media"><img src={item.image} alt="" loading="lazy" /><span className="creation-skill-type">视频</span><span className="creation-skill-hover-use"><Sparkles />使用</span></span>
                     <span className="creation-featured-copy"><strong>{item.title}</strong><span>{item.description}</span><em><Sparkles />{item.author} · {item.uses}</em>
                     </span>
-                </button>) : filtered.slice(0, limit).map((item, index) => <CreationInspirationCard key={item.title} item={item} hero={index === 0} onStart={() => onStartPrompt(item.mode, item.prompt)} onPlay={item.videoUrl ? () => setPlayingInspiration(item) : undefined} />)}
+                </button>) : filtered.slice(0, limit).map((item, index) => <CreationInspirationCard key={item.title} item={item} hero={index === 0} onStart={() => onUseInspiration(item)} onPlay={item.videoUrl ? () => setPlayingInspiration(item) : undefined} />)}
         </div>
         {isSkill && skillSection === "mine" && mySkillsLoaded && !visibleSkills.length ? <div className="creation-skill-empty"><Sparkles /><strong>还没有安装 Skill</strong><span>上传、安装或创建一个 Skill 后，它会显示在这里。</span></div> : null}
         <CreationInspirationFooter shown={isSkill ? visibleSkills.length : Math.min(limit, filtered.length)} total={isSkill ? undefined : filtered.length} unit={isSkill ? "个 Skill" : "个创意"} />
         {playingInspiration ? <CreationInspirationPlayer
             item={playingInspiration}
-            onUse={() => { setPlayingInspiration(null); onStartPrompt(playingInspiration.mode, playingInspiration.prompt); }}
+            onUse={() => { const item = playingInspiration; setPlayingInspiration(null); onUseInspiration(item); }}
             onClose={() => setPlayingInspiration(null)}
         /> : null}
     </section>;
