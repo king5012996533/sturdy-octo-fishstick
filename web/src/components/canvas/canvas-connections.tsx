@@ -63,7 +63,7 @@ export const ConnectionPath = React.memo(function ConnectionPath({
             {showEmphasis ? <path
                 d={pathD}
                 stroke={theme.accent.primary}
-                strokeWidth="8"
+                strokeWidth="4"
                 vectorEffect="non-scaling-stroke"
                 strokeOpacity={0.18}
                 fill="none"
@@ -91,10 +91,14 @@ export const ConnectionPath = React.memo(function ConnectionPath({
                     onContextMenu?.(event);
                 }}
             />
+            {/* 下面三层的线宽都是屏幕像素（non-scaling-stroke），不随画布缩放变粗变细。
+                整体比初版细一半：几十条线同屏时原点线宽太抢眼，节点和缩略图才是主体。
+                改这里要同步 canvas-leafer-graphics-layer.tsx 的 syncConnectionPath，
+                否则用 Leafer 渲染时粗细会跳。 */}
             {showVisual ? <path
                 d={pathD}
                 stroke={theme.node.muted}
-                strokeWidth={denseReadonlyWire ? 0.35 : emphasized ? 5 : 2.5}
+                strokeWidth={denseReadonlyWire ? 0.35 : emphasized ? 2.5 : 1.25}
                 vectorEffect="non-scaling-stroke"
                 strokeOpacity={denseReadonlyWire ? 0.08 : emphasized ? 0.18 : 0.1}
                 fill="none"
@@ -105,7 +109,7 @@ export const ConnectionPath = React.memo(function ConnectionPath({
             {showVisual ? <path
                 d={pathD}
                 stroke={emphasized ? theme.accent.primary : theme.node.muted}
-                strokeWidth={denseReadonlyWire ? 0.35 : emphasized ? 2.8 : 1.5}
+                strokeWidth={denseReadonlyWire ? 0.35 : emphasized ? 1.4 : 0.75}
                 vectorEffect="non-scaling-stroke"
                 strokeOpacity={denseReadonlyWire ? 0.12 : emphasized ? 0.95 : 0.62}
                 fill="none"
@@ -114,14 +118,14 @@ export const ConnectionPath = React.memo(function ConnectionPath({
                 style={{ pointerEvents: "none" }}
             /> : null}
             {showVisual ? <>
-                <circle cx={startX} cy={startY} r={denseReadonlyWire ? 0.35 : emphasized ? 3.5 : 2} fill={emphasized ? theme.accent.primary : theme.node.muted} fillOpacity={denseReadonlyWire ? 0.12 : emphasized ? 0.9 : 0.56} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />
-                <circle cx={endX} cy={endY} r={denseReadonlyWire ? 0.35 : emphasized ? 3.5 : 2} fill={emphasized ? theme.accent.primary : theme.node.muted} fillOpacity={denseReadonlyWire ? 0.12 : emphasized ? 0.9 : 0.56} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />
+                <circle cx={startX} cy={startY} r={denseReadonlyWire ? 0.35 : emphasized ? 1.75 : 1} fill={emphasized ? theme.accent.primary : theme.node.muted} fillOpacity={denseReadonlyWire ? 0.12 : emphasized ? 0.9 : 0.56} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />
+                <circle cx={endX} cy={endY} r={denseReadonlyWire ? 0.35 : emphasized ? 1.75 : 1} fill={emphasized ? theme.accent.primary : theme.node.muted} fillOpacity={denseReadonlyWire ? 0.12 : emphasized ? 0.9 : 0.56} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />
             </> : null}
             {showVisual && emphasized ? <path
                 className="canvas-connection-flow"
                 d={pathD}
                 stroke={`url(#${gradientId})`}
-                strokeWidth="2.2"
+                strokeWidth="1.1"
                 vectorEffect="non-scaling-stroke"
                 strokeOpacity="0.84"
                 strokeDasharray="18 26"
@@ -136,7 +140,7 @@ export const ConnectionPath = React.memo(function ConnectionPath({
                 className="canvas-connection-comet"
                 d={pathD}
                 stroke={`url(#${gradientId}-comet)`}
-                strokeWidth="2.6"
+                strokeWidth="1.3"
                 vectorEffect="non-scaling-stroke"
                 strokeDasharray="16 118"
                 fill="none"

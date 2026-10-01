@@ -288,7 +288,9 @@ function syncConnectionPath(entry: ConnectionSceneEntry, props: CanvasLeaferGrap
     entry.path.set({
         path: canvasConnectionPath(entry.connection, from, to, props.scriptScrollTopById[entry.from.id] || 0, props.scriptScrollTopById[entry.to.id] || 0).pathD,
         stroke: emphasized ? props.theme.accent.primary : props.theme.node.muted,
-        strokeWidth: denseReadonlyWire ? 1 : emphasized ? 2.8 : 2,
+        // 线宽与 canvas-connections.tsx 保持一致（已整体减半），
+        // strokeScaleFixed 让它同样是屏幕像素，不随缩放变粗。
+        strokeWidth: denseReadonlyWire ? 1 : emphasized ? 1.4 : 1,
         strokeScaleFixed: true,
         strokeCap: "round",
         dashPattern: denseReadonlyWire ? [4, 20] : undefined,
@@ -368,7 +370,7 @@ function syncOverlayContent(scene: OverlayScene, props: CanvasLeaferGraphicsLaye
         scene.batchDrafts.add(new Path({
             path: activeConnectionPath(source, handle, batch.mouseWorld, target, props.scriptScrollTopById[source.id] || 0),
             stroke,
-            strokeWidth: 1.4,
+            strokeWidth: 0.7,
             strokeScaleFixed: true,
             strokeCap: "round",
             dashPattern: [8, 8],
@@ -406,7 +408,7 @@ function syncViewport(viewport: ViewportTransform, width: number, height: number
         dashPattern: [4 / scale, 4 / scale],
         opacity: 0.68,
     });
-    overlay.draft.set({ strokeWidth: 1.4 / scale, dashPattern: [8 / scale, 8 / scale] });
+    overlay.draft.set({ strokeWidth: 0.7 / scale, dashPattern: [8 / scale, 8 / scale] });
     overlay.guides.set({
         visible: typeof props.alignmentGuides.vertical === "number" || typeof props.alignmentGuides.horizontal === "number",
         path: guidePath(viewport, width, height, props.alignmentGuides),
