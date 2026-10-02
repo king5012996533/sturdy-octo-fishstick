@@ -49,7 +49,16 @@ const tierLabels: Record<ModelPricePriceTier, string> = {
     LOW: "低（low）",
     MEDIUM: "中（medium）",
     HIGH: "高（high）",
+    SHORT: "短（≤30 秒）",
+    LONG: "长（>90 秒）",
 };
+
+/**
+ * 音频档位单独一份文案：MEDIUM 这个词图片与音频共用，但图片指「中等质量」、音频指
+ * 「中等时长」。沿用图片文案会让运营在一排时长档里看到「中（medium）」，还得回提示里
+ * 数中档的上边界落在多少秒。SHORT / LONG 与图片不共用，这里一并写全。
+ */
+const audioTierLabels: Record<ModelPricePriceTier, string> = { ...tierLabels, MEDIUM: "中（≤90 秒）" };
 
 /**
  * 档位可选项由能力决定：选到不该选的那一档服务端会直接 400，这里先收窄可选范围。
@@ -61,7 +70,7 @@ const tierOptionsByCapability: Record<ModelPriceCapability, { value: ModelPriceP
     TEXT: (["CACHE", "INPUT", "OUTPUT"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] })),
     IMAGE: (["", "LOW", "MEDIUM", "HIGH"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] })),
     VIDEO: [{ value: "", label: tierLabels[""] }],
-    AUDIO: [{ value: "", label: tierLabels[""] }],
+    AUDIO: (["", "SHORT", "MEDIUM", "LONG"] as ModelPricePriceTier[]).map((value) => ({ value, label: audioTierLabels[value] })),
 };
 
 /** 切能力时档位要重置成该能力的默认值：图片档位（LOW/HIGH）对文本非法，反之亦然。 */
@@ -76,7 +85,9 @@ const tierExtraByCapability: Record<ModelPriceCapability, string> = {
     TEXT: "文本三档必填：缓存命中 / 缓存未命中 / 输出各配一行，缺一档这条模型就用不了。",
     IMAGE: "图片可按质量档配价（low / medium / high）；留空表示不区分，上游按 auto 计费。",
     VIDEO: "视频只有一档：选「不区分」。",
-    AUDIO: "音频只有一档：选「不区分」。",
+    // 音频的空档不是任何一档的别名，它是"取不到时长"时的兜底价（旧前端不带时长参数，
+    // 上游会按缺省产出 60 秒），所以要跟三档一起配，不能只配三档。
+    AUDIO: "能按时长定价的音频模型配四行：短 ≤30 秒 / 中 ≤90 秒 / 长 >90 秒，再配一行「不区分」兜底——客户端没带时长时上游按 60 秒产出，兜底价按中档填。配音与整首歌只需配「不区分」。",
 };
 
 function tierOptionsOf(capability: ModelPriceCapability | undefined) {
@@ -91,12 +102,18 @@ function tierLabel(value: string) {
     return tierLabels[value as ModelPricePriceTier] ?? (value ? value : "不区分");
 }
 
+/** 价目表一列要同时给图片与音频的 MEDIUM 作注解，所以按行的能力挑文案。 */
+function tierLabelFor(capability: string, value: string) {
+    if (capability !== "AUDIO") return tierLabel(value);
+    return audioTierLabels[value as ModelPricePriceTier] ?? (value ? value : "不区分");
+}
+
 /**
- * 提交时的档位口径：TEXT 与 IMAGE 都保留用户选的档位（图片靠它区分三档质量价），
- * VIDEO / AUDIO 服务端只接受空串。把图片档位清空会让三档质量价塌成同一条记录。
+ * 提交时的档位口径：TEXT / IMAGE / AUDIO 都保留用户选的档位（图片靠它区分质量价，
+ * 音频靠它区分时长价），视频服务端只接受空串。把档位清空会让多档价塌成同一条记录。
  */
 function tierForSubmit(values: { capability: ModelPriceCapability; priceTier: ModelPricePriceTier }) {
-    return values.capability === "TEXT" || values.capability === "IMAGE" ? values.priceTier : "";
+    return values.capability === "VIDEO" ? "" : values.priceTier;
 }
 
 const capabilityOptions = (Object.keys(capabilityLabels) as ModelPriceCapability[]).map((value) => ({ value, label: capabilityLabels[value] }));
@@ -448,7 +465,7 @@ export function PricingPane() {
             ),
         },
         { title: "能力", dataIndex: "capability", key: "capability", width: 80, render: (value: string) => <Tag>{priceCapabilityLabel(value)}</Tag> },
-        { title: "档位", dataIndex: "priceTier", key: "priceTier", width: 108, render: (value: string) => <span className="admin-user-sub">{tierLabel(value)}</span> },
+        { title: "档位", dataIndex: "priceTier", key: "priceTier", width: 128, render: (value: string, row) => <span className="admin-user-sub">{tierLabelFor(row.capability, value)}</span> },
         { title: "单位", dataIndex: "unit", key: "unit", width: 108, render: (value: string) => <span className="admin-user-sub">{unitLabel(value)}</span> },
         {
             title: "上游单价（分/单位）",

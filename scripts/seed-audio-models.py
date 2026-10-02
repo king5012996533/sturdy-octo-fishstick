@@ -33,10 +33,26 @@
 | --- | --- | --- | --- |
 | 配音 minimax/speech-2.8-turbo | ¥0.30/次 | $0.06/千 token（30 字文案约 $0.002） | 约 +¥0.28 |
 | 配乐 minimax/music-2.5 | ¥3.00/次 | $0.15/条（约 ¥1.07） | 约 +¥1.93 |
-| 配乐 lucataco/ace-step | ¥0.60/次 | $0.02/条（约 ¥0.14，p50） | 约 +¥0.46 |
+| 配乐 lucataco/ace-step 短档 | ¥0.60/次 | 15 秒约 $0.0035（约 ¥0.025） | 约 +¥0.58 |
+| 配乐 lucataco/ace-step 中档 | ¥1.20/次 | 60 秒约 $0.0053（约 ¥0.037） | 约 +¥1.16 |
+| 配乐 lucataco/ace-step 长档 | ¥2.40/次 | 180 秒约 $0.0139（约 ¥0.10） | 约 +¥2.30 |
 
 配音的价看起来"贵"，是因为它在成本上几乎免费：只要文案不是上万字，一次调用的成本都在
 一分钱以下。定 30 分买的是"这不是一次免费调用"，不是成本加成。
+
+## 为什么 ACE-Step 按次却要分三档
+
+ace-step 是三档里唯一能按秒指定时长的，而三档的上游成本差得极小（15 秒与 3 分钟只差
+约 7 分钱），所以分档不是成本加成，是定价策略：单价一刀切等于鼓励所有人选最长档——
+同样收 60 分没人会选 15 秒，每条的实际收入被锁死在最短档的水平上。
+
+档位边界在代码里（backend/internal/app/audio_price_tier.go）：≤30 秒是短档、≤90 秒是
+中档、更长是长档，正好把前台的 15/30/60/90/120/180 六档劈成 2/2/2。除三档外还要配一行
+「不区分」兜底：客户端没带上时长时上游会按缺省产出 60 秒，那一行按中档价填，否则这批
+请求会被按短档少收一半。
+
+配音与 music-2.5 没有时长维度（时长由文本或上游决定），服务端也不会收到时长参数，
+所以它们只需配「不区分」一行。
 
 ## 为什么两条音乐线路并存
 
@@ -66,26 +82,51 @@ CHANNEL_ID = "CHANNEL_000003"
 # 售价：分 / 次。30 分 = ¥0.30，300 分 = ¥3.00，60 分 = ¥0.60。
 SPEECH_SELL_FEN_PER_REQUEST = 30
 MUSIC_SELL_FEN_PER_REQUEST = 300
-ACE_STEP_SELL_FEN_PER_REQUEST = 60
+
+# ace-step 的三档时长价（tier, 分/次, 前台档位名），边界见 audio_price_tier.go：
+# 短 ≤30 秒、中 ≤90 秒、长 >90 秒。改价改这里再重跑，不用发版。
+ACE_STEP_TIERS: list[tuple[str, int, str]] = [
+    ("SHORT", 60, "短 ≤30 秒"),
+    ("MEDIUM", 120, "中 ≤90 秒"),
+    ("LONG", 240, "长 >90 秒"),
+]
+
+# 兜底价按中档：客户端没带时长（旧前端、参数被清洗）时上游按缺省产出 60 秒，
+# 按短档兜底等于给这批请求打对折。
+ACE_STEP_FALLBACK_SELL_FEN = 120
+
+ACE_STEP_UPSTREAM = "上游按 L40S 算力计费：15 秒约 $0.0035、3 分钟约 $0.0139；可指定 1–240 秒，空歌词即纯器乐"
 
 MODELS: list[dict] = [
     {
         "modelKey": "minimax/speech-2.8-turbo",
         "displayName": "MiniMax Speech 2.8 Turbo 配音",
-        "sellFen": SPEECH_SELL_FEN_PER_REQUEST,
-        "upstream": "上游 $0.06/千 input token，随文案长度变化",
+        "prices": [
+            {"tier": "", "sellFen": SPEECH_SELL_FEN_PER_REQUEST, "upstream": "上游 $0.06/千 input token，随文案长度变化"},
+        ],
     },
     {
         "modelKey": "minimax/music-2.5",
         "displayName": "MiniMax Music 2.5 配乐",
-        "sellFen": MUSIC_SELL_FEN_PER_REQUEST,
-        "upstream": "上游 $0.15/条，与时长无关（最长约 5 分钟）",
+        "prices": [
+            {"tier": "", "sellFen": MUSIC_SELL_FEN_PER_REQUEST, "upstream": "上游 $0.15/条，与时长无关（最长约 5 分钟）"},
+        ],
     },
     {
         "modelKey": "lucataco/ace-step",
         "displayName": "ACE-Step 配乐（可选时长）",
-        "sellFen": ACE_STEP_SELL_FEN_PER_REQUEST,
-        "upstream": "上游 $0.02/条（p50，按算力计费）；可指定 1–240 秒，空歌词即纯器乐",
+        "prices": [
+            {"tier": tier, "sellFen": fen, "label": label, "upstream": ACE_STEP_UPSTREAM}
+            for tier, fen, label in ACE_STEP_TIERS
+        ]
+        + [
+            {
+                "tier": "",
+                "sellFen": ACE_STEP_FALLBACK_SELL_FEN,
+                "label": "不区分（兜底）",
+                "upstream": ACE_STEP_UPSTREAM + "；客户端没带时长时上游按 60 秒产出",
+            },
+        ],
     },
 ]
 
@@ -125,17 +166,20 @@ def price_key(model_key: str) -> str:
     return f"{CHANNEL_ID}::{model_key}"
 
 
-def note_for(model: dict) -> str:
-    return f"{model['upstream']}；按次售价 {Decimal(model['sellFen']) / 100} 元/次"
+def note_for(price: dict) -> str:
+    return f"{price['upstream']}；按次售价 {Decimal(price['sellFen']) / 100} 元/次"
+
+
+def tier_label(price: dict) -> str:
+    return price.get("label") or "不区分"
 
 
 def print_economics() -> None:
     print(f"渠道 {CHANNEL_ID}：上架 {len(MODELS)} 个音频模型，按次计价（{UNIT}）")
     for model in MODELS:
-        print(
-            f"  {model['displayName']:28} {Decimal(model['sellFen']) / 100:>5.2f} 元/次"
-            f"  ·  {model['upstream']}"
-        )
+        print(f"  {model['displayName']}")
+        for price in model["prices"]:
+            print(f"    {tier_label(price):>12}  {Decimal(price['sellFen']) / 100:>5.2f} 元/次  ·  {price['upstream']}")
 
 
 def main() -> int:
@@ -162,42 +206,45 @@ def main() -> int:
         for row in existing_prices
     }
 
-    plan: list[tuple[str, dict]] = []
+    # 计划项带上价目行：同一模型可能有多档，只记模型就分不清这一项要写哪一行。
+    plan: list[tuple[str, dict, dict | None]] = []
     for model in MODELS:
         if model["modelKey"] not in model_index:
-            plan.append(("create-model", model))
-        key = (price_key(model["modelKey"]), CAPABILITY, "")
-        existing = price_index.get(key)
-        if existing is None:
-            plan.append(("create-price", model))
-        elif (
-            existing.get("unit") != UNIT
-            or existing.get("sellUnitPrice") != model["sellFen"]
-            or existing.get("enabled") is not True
-        ):
-            plan.append(("update-price", model))
+            plan.append(("create-model", model, None))
+        for price in model["prices"]:
+            key = (price_key(model["modelKey"]), CAPABILITY, price["tier"])
+            existing = price_index.get(key)
+            if existing is None:
+                plan.append(("create-price", model, price))
+            elif (
+                existing.get("unit") != UNIT
+                or existing.get("sellUnitPrice") != price["sellFen"]
+                or existing.get("enabled") is not True
+            ):
+                plan.append(("update-price", model, price))
 
     if not plan:
         print("音频模型与价目已经是目标状态，无需变更。")
         return 0
 
-    for action, model in plan:
+    for action, model, price in plan:
+        row_name = f"{price_key(model['modelKey'])}[{tier_label(price) if price else ''}]"
         if action == "create-model":
             print(f"上架渠道模型 {CHANNEL_ID}::{model['modelKey']}（{CAPABILITY} / {PROTOCOL}）")
         elif action == "create-price":
-            print(f"新增价目 {price_key(model['modelKey'])}：{model['sellFen']} 分/次")
+            print(f"新增价目 {row_name}：{price['sellFen']} 分/次")
         else:
-            existing = price_index[(price_key(model["modelKey"]), CAPABILITY, "")]
+            existing = price_index[(price_key(model["modelKey"]), CAPABILITY, price["tier"])]
             print(
-                f"更新价目 {price_key(model['modelKey'])}：单位 {existing.get('unit')} → {UNIT}，"
-                f"售价 {existing.get('sellUnitPrice')} → {model['sellFen']} 分/次"
+                f"更新价目 {row_name}：单位 {existing.get('unit')} → {UNIT}，"
+                f"售价 {existing.get('sellUnitPrice')} → {price['sellFen']} 分/次"
             )
 
     if not args.apply:
         print(f"\n预览结束：{len(plan)} 项待写入。加 --apply 才会真正写库。")
         return 0
 
-    for action, model in plan:
+    for action, model, price in plan:
         if action == "create-model":
             request(
                 "POST",
@@ -215,24 +262,25 @@ def main() -> int:
             )
             continue
 
+        assert price is not None
         row = {
             "modelKey": price_key(model["modelKey"]),
             "capability": CAPABILITY,
-            "priceTier": "",
+            "priceTier": price["tier"],
             "unit": UNIT,
             "vendorCode": VENDOR_CODE,
             # 两个价格口径在这里没有干净的倍率关系：配音按 token、配乐按条，所以我们
             # 直接给售价，倍率留空（倍率只用于展示"相对成本加了几个点"）。
             "upstreamUnitPrice": None,
-            "sellUnitPrice": model["sellFen"],
+            "sellUnitPrice": price["sellFen"],
             "multiplier": None,
             "enabled": True,
-            "note": note_for(model),
+            "note": note_for(price),
         }
         if action == "create-price":
             request("POST", args.base_url, "/admin/billing/model-prices", cookie, row)
         else:
-            existing = price_index[(price_key(model["modelKey"]), CAPABILITY, "")]
+            existing = price_index[(price_key(model["modelKey"]), CAPABILITY, price["tier"])]
             request(
                 "PUT",
                 args.base_url,

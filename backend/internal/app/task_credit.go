@@ -300,17 +300,34 @@ func taskChargeQuantity(intent ModelRequestIntent) int64 {
 //
 // 文本的 token 档位（缓存命中 / 未命中 / 输出）在提交时还不知道，要等用量回执才能结算，
 // 因此这里不返回档位；视频与音频目前只有一个价。
+// 价格档位名，与 auth.PriceTier 的取值一一对应。
+//
+// app 不 import auth——两者只在计费端口（TaskCreditLedger）上相接，档位名是这条边界上
+// 唯一要共享的词表。分成两份写是刻意的，代价由 TestAudioPriceTierMatchesPricingDomain
+// 兜底：哪边改了名而另一边没跟，测试会立刻失败，而不是让一批调用静默落到"未定价"。
+const (
+	tierLow    = "LOW"
+	tierMedium = "MEDIUM"
+	tierHigh   = "HIGH"
+	tierShort  = "SHORT"
+	tierLong   = "LONG"
+)
+
 func taskChargeTier(intent ModelRequestIntent) string {
-	if normalizeCapability(intent.Capability) != "image" {
-		return ""
-	}
-	raw, ok := intent.Options["quality"]
-	if !ok || raw == nil {
-		return ""
-	}
-	switch tier := strings.ToUpper(strings.TrimSpace(fmt.Sprint(raw))); tier {
-	case "LOW", "MEDIUM", "HIGH":
-		return tier
+	switch normalizeCapability(intent.Capability) {
+	case "image":
+		raw, ok := intent.Options["quality"]
+		if !ok || raw == nil {
+			return ""
+		}
+		switch tier := strings.ToUpper(strings.TrimSpace(fmt.Sprint(raw))); tier {
+		case tierLow, tierMedium, tierHigh:
+			return tier
+		default:
+			return ""
+		}
+	case "audio":
+		return audioPriceTier(intent.Options["audioDuration"])
 	default:
 		return ""
 	}

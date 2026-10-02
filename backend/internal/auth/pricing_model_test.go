@@ -53,6 +53,35 @@ func TestPriceTierSetsMatchCapability(t *testing.T) {
 	}
 }
 
+// TestAudioPriceTiersCoverDurationBuckets 锁定音频按时长分档的档位集合。
+//
+// 与图片那条用例成对读：图片按上游 quality 分档，音频按输出时长分档，两者都允许留空
+// 表示"这个模型没有这个维度"。音频三档的顺序必须由短到长——账单与后台按同一顺序排列。
+func TestAudioPriceTiersCoverDurationBuckets(t *testing.T) {
+	if len(AudioPriceTiers) != 3 || AudioPriceTiers[0] != PriceTierShort || AudioPriceTiers[2] != PriceTierLong {
+		t.Fatalf("音频三档的顺序应是 SHORT / MEDIUM / LONG，实际 %v", AudioPriceTiers)
+	}
+	if AudioPriceTiers[1] != PriceTierMedium {
+		t.Fatalf("音频中档应复用 MEDIUM，实际 %v", AudioPriceTiers[1])
+	}
+	for _, tier := range AudioPriceTiers {
+		if !validPriceTier("AUDIO", string(tier)) {
+			t.Fatalf("音频档位 %q 应在白名单里", tier)
+		}
+	}
+	// 留空仍然合法：配音与整首歌由上游定长，给它们分档只会逼运营配一堆用不上的价。
+	if !validPriceTier("AUDIO", "") {
+		t.Fatal("音频应允许留空档位")
+	}
+	// 图片专属的高 / 低两档不能漏进音频：它们是质量口径，与时长无关。
+	// （MEDIUM 是两边共用的词，按能力区分，不在此列。）
+	for _, tier := range []PriceTier{PriceTierLow, PriceTierHigh} {
+		if validPriceTier("AUDIO", string(tier)) {
+			t.Fatalf("音频不应接受图片档位 %q", tier)
+		}
+	}
+}
+
 // TestAudioUnitIsPerRequest 锁定"音频按次、视频按秒"这份口径的默认值与约束。
 //
 // 两者分开是有业务原因的：视频时长是用户提交时选的，音频时长要等上游产出才知道。

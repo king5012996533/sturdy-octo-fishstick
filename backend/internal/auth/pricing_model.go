@@ -84,7 +84,9 @@ func DefaultUnitFor(capability ModelCapability) PriceUnit {
 //
 //   - 文本按 token 性质分三档，必须齐备；
 //   - 图片按上游的 quality 参数分三档，另允许留空表示"这个模型不区分质量"；
-//   - 视频与音频目前只有一个价，档位留空。
+//   - 音频按输出时长分三档（能按秒指定时长的音乐模型），另允许留空表示"这个音频模型
+//     不看时长"——配音与整首歌这类时长由上游决定的模型就落在这一档；
+//   - 视频目前只有一个价，档位留空。
 type PriceTier string
 
 const (
@@ -104,6 +106,11 @@ const (
 	PriceTierLow    PriceTier = "LOW"
 	PriceTierMedium PriceTier = "MEDIUM"
 	PriceTierHigh   PriceTier = "HIGH"
+
+	// 音频三档按输出时长划分，边界见 app 层的 audioPriceTier——时长到档位的映射是
+	// 运营口径，与"档位叫什么"分开放在两处，改边界不必动定价域。
+	PriceTierShort PriceTier = "SHORT"
+	PriceTierLong  PriceTier = "LONG"
 )
 
 // TextPriceTiers 是文本能力必须齐备的三个档位，顺序固定，供后台与校验共用。
@@ -114,6 +121,12 @@ var TextPriceTiers = []PriceTier{PriceTierCache, PriceTierInput, PriceTierOutput
 
 // ImagePriceTiers 是图片按上游 quality 参数划分的三个档位，顺序为"由便宜到贵"。
 var ImagePriceTiers = []PriceTier{PriceTierLow, PriceTierMedium, PriceTierHigh}
+
+// AudioPriceTiers 是音频按输出时长划分的三个档位，顺序为"由短到长"。
+//
+// 时长本身是连续值，不能直接当档位键，所以定成短 / 中 / 长三档；同一档内的时长共用
+// 一个价，运营不必为六个时长各配一行。与图片一样允许留空，表示这个音频模型不按时长分档。
+var AudioPriceTiers = []PriceTier{PriceTierShort, PriceTierMedium, PriceTierLong}
 
 // validPriceTier 判定某个能力的档位取值是否合法。
 //
@@ -127,7 +140,10 @@ func validPriceTier(capability string, raw string) bool {
 	case CapabilityImage:
 		// 图片允许留空：上游不是每个图片模型都有 quality 维度，没有维度时一档价就是全部。
 		return tier == PriceTierNone || tier == PriceTierLow || tier == PriceTierMedium || tier == PriceTierHigh
-	case CapabilityVideo, CapabilityAudio:
+	case CapabilityAudio:
+		// 音频允许留空：配音与整首歌的时长由上游决定，给它们分档只会逼运营配一堆用不上的价。
+		return tier == PriceTierNone || tier == PriceTierShort || tier == PriceTierMedium || tier == PriceTierLong
+	case CapabilityVideo:
 		return tier == PriceTierNone
 	default:
 		return false
@@ -248,6 +264,9 @@ func validPriceUnit(raw string) bool {
 // SECOND，账单上就会写出"30 分/秒 × 1"这种算式——数字是对的，说法是错的，而用户只能
 // 按说法复核。所以这里挡住，而不是等对账时才发现某批模型的名义口径与实际口径不一致。
 //
+// 能按秒指定时长的音乐模型仍然按次卖：时长体现在价格档位里（见 AudioPriceTiers），
+// 用量列留 1，账单写成"240 分/次 × 1"而不是"240 分/秒 × 1"。
+//
 // 其余能力一律放行：视频按秒有真实用量，文本与图片的旧配置不该因为一次口径调整被拒。
 func validPriceUnitForCapability(capability string, unit string) bool {
 	if ModelCapability(capability) != CapabilityAudio {
@@ -290,8 +309,10 @@ func priceTierRequirementMessage(capability string) string {
 		return "文本单价必须指定档位：CACHE / INPUT / OUTPUT"
 	case CapabilityImage:
 		return "图片单价档位只能是 LOW / MEDIUM / HIGH，或留空表示不区分质量档位"
-	case CapabilityVideo, CapabilityAudio:
-		return "视频与音频目前只有一档价，档位必须留空"
+	case CapabilityAudio:
+		return "音频单价档位只能是 SHORT / MEDIUM / LONG，或留空表示不按时长分档"
+	case CapabilityVideo:
+		return "视频目前只有一档价，档位必须留空"
 	default:
 		return "模型能力只能是 TEXT / IMAGE / VIDEO / AUDIO"
 	}
