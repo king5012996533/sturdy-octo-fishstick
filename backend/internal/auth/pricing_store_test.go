@@ -1,6 +1,9 @@
 package auth
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // newPricingTestEnv 复用计费用例的 SQLite 装配，再补建定价表。
 //
@@ -145,6 +148,51 @@ func TestReplaceMarkupRulesReplacesAll(t *testing.T) {
 	}
 }
 
+// TestSavePricingModelPriceRejectsPerSecondAudio 覆盖"音频只能按次"这条口径。
+//
+// 这道校验挡的是一个不会报错、只会算错的配法：用量恒为 1，配成 SECOND 之后每次调用仍只
+// 按 1 个单位收，但账单会写成"30 分/秒 × 1"。用户按说法复核不出来，运营也以为自己配的是
+// 按秒价，等到有人拿一段 5 分钟的配乐去对账才发现对不上。
+func TestSavePricingModelPriceRejectsPerSecondAudio(t *testing.T) {
+	env := newPricingTestEnv(t)
+
+	rejected, err := env.service.SaveModelPrice(ModelPriceInput{
+		ModelKey:      "CHANNEL_000003::minimax/music-2.5",
+		Capability:    "AUDIO",
+		Unit:          string(UnitPerSecond),
+		SellUnitPrice: pricingInt64Ptr(200),
+	})
+	if err == nil {
+		t.Fatalf("音频配按秒应被拒绝，实际保存成功: %+v", rejected)
+	}
+	if !strings.Contains(err.Error(), "按次") {
+		t.Fatalf("拒绝原因应说明音频只能按次，实际: %v", err)
+	}
+
+	accepted, err := env.service.SaveModelPrice(ModelPriceInput{
+		ModelKey:      "CHANNEL_000003::minimax/music-2.5",
+		Capability:    "AUDIO",
+		Unit:          string(UnitPerRequest),
+		SellUnitPrice: pricingInt64Ptr(200),
+	})
+	if err != nil {
+		t.Fatalf("音频按次应可保存: %v", err)
+	}
+	if accepted.Unit != string(UnitPerRequest) || accepted.SellUnitPrice == nil || *accepted.SellUnitPrice != 200 {
+		t.Fatalf("按次价目应原样落库，实际 %+v", accepted)
+	}
+
+	// 视频不受这条约束：它按秒有真实用量，配 SECOND 是正常口径。
+	if _, err := env.service.SaveModelPrice(ModelPriceInput{
+		ModelKey:      "CHANNEL_000007::seedance-2.5",
+		Capability:    "VIDEO",
+		Unit:          string(UnitPerSecond),
+		SellUnitPrice: pricingInt64Ptr(30),
+	}); err != nil {
+		t.Fatalf("视频按秒不应被这条校验波及: %v", err)
+	}
+}
+
 // TestSavePricingModelPriceKeepsUnpricedAndFreeDistinct 覆盖服务层的金额语义与默认值。
 func TestSavePricingModelPriceKeepsUnpricedAndFreeDistinct(t *testing.T) {
 	env := newPricingTestEnv(t)
@@ -192,8 +240,10 @@ func TestSavePricingModelPriceKeepsUnpricedAndFreeDistinct(t *testing.T) {
 	if multiplied.MultiplierBp == nil || *multiplied.MultiplierBp != 12000 {
 		t.Fatalf("倍率应为 12000，实际 %v", multiplied.MultiplierBp)
 	}
-	if multiplied.Unit != string(UnitPerSecond) {
-		t.Fatalf("AUDIO 的默认单位应为按秒：%q", multiplied.Unit)
+	// 音频的默认单位是按次，不是按秒：提交时拿不到时长（见 DefaultUnitFor 的说明），
+	// 用量恒为 1，标成按秒会让账单算式与实际收的钱对不上。
+	if multiplied.Unit != string(UnitPerRequest) {
+		t.Fatalf("AUDIO 的默认单位应为按次：%q", multiplied.Unit)
 	}
 
 	// 同一个模型的另外两档可以并存：文本的三档价本来就是三行，唯一键必须带上档位，

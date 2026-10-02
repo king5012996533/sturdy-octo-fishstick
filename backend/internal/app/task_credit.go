@@ -275,8 +275,13 @@ func taskChargeQuantity(intent ModelRequestIntent) int64 {
 	switch normalizeCapability(intent.Capability) {
 	case "image":
 		return optionQuantity(intent.Options, "count")
-	case "video", "audio":
+	case "video":
 		return optionQuantity(intent.Options, "videoSeconds")
+	case "audio":
+		// 音频按次：这里返回 1 而不是去读 videoSeconds。配音时长由文本决定、配乐长度由上游
+		// 决定，提交时都拿不到，读出来只会恒为 0 再被计费域兜底成 1——写死 1 是为了让下一个
+		// 读这段代码的人不会以为音频量得出时长（见 docs/credits-billing.md 的用量口径）。
+		return 1
 	default:
 		return 0
 	}

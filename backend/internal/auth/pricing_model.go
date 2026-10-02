@@ -60,8 +60,14 @@ func DefaultUnitFor(capability ModelCapability) PriceUnit {
 		return UnitPerMillionTokens
 	case CapabilityImage:
 		return UnitPerImage
-	case CapabilityVideo, CapabilityAudio:
+	case CapabilityVideo:
+		// 视频的时长由用户在提交时选定（videoSeconds），按秒计费有真实用量可乘。
 		return UnitPerSecond
+	case CapabilityAudio:
+		// 音频刻意不走按秒。配音的时长由文本决定、配乐的时长由上游决定，两者在提交那一刻
+		// 都还不存在，计费侧拿到的用量恒为 1（见 app.taskChargeQuantity）。标成"每秒"只会
+		// 把一笔按次收的钱换个说法，用户按账单上的算式复核必然对不上。
+		return UnitPerRequest
 	default:
 		// 未知能力不让保存失败在单位上：单位只是标签，能力本身另有白名单校验。
 		return UnitPerRequest
@@ -234,6 +240,20 @@ func validPriceUnit(raw string) bool {
 	default:
 		return false
 	}
+}
+
+// validPriceUnitForCapability 判定"这个能力能不能用这个计价单位"。
+//
+// 只额外约束音频。单位在别处只是标签（不参与金额计算），但音频的用量恒为 1，一旦标成
+// SECOND，账单上就会写出"30 分/秒 × 1"这种算式——数字是对的，说法是错的，而用户只能
+// 按说法复核。所以这里挡住，而不是等对账时才发现某批模型的名义口径与实际口径不一致。
+//
+// 其余能力一律放行：视频按秒有真实用量，文本与图片的旧配置不该因为一次口径调整被拒。
+func validPriceUnitForCapability(capability string, unit string) bool {
+	if ModelCapability(capability) != CapabilityAudio {
+		return true
+	}
+	return PriceUnit(unit) == UnitPerRequest
 }
 
 // normalizeMarkupScope 归一作用域，理由同 normalizeModelCapability。

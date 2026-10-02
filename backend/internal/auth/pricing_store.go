@@ -325,6 +325,9 @@ func (s *Service) SaveModelPrice(input ModelPriceInput) (*ModelPriceView, error)
 	if !validPriceUnit(unit) {
 		return nil, invalidArgument("计费单位只能是 TOKEN_1M / TOKEN_1K / IMAGE / SECOND / REQUEST")
 	}
+	if !validPriceUnitForCapability(capability, unit) {
+		return nil, invalidArgument("音频无法在提交时确定时长，只能按次计价（REQUEST）")
+	}
 	// 档位必须与能力匹配：文本三档、图片三档（或留空 = 不区分质量）、视频音频留空。
 	// 配错档位就拒绝，而不是静默丢弃或归到别档——那会让运营以为自己配生效了，
 	// 而实际扣的是一个他没配过的价。

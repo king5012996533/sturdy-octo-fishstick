@@ -52,3 +52,34 @@ func TestPriceTierSetsMatchCapability(t *testing.T) {
 		}
 	}
 }
+
+// TestAudioUnitIsPerRequest 锁定"音频按次、视频按秒"这份口径的默认值与约束。
+//
+// 两者分开是有业务原因的：视频时长是用户提交时选的，音频时长要等上游产出才知道。
+// 把音频也默认成按秒，等于给一个取不到的用量配了个价签。
+func TestAudioUnitIsPerRequest(t *testing.T) {
+	if got := DefaultUnitFor(CapabilityAudio); got != UnitPerRequest {
+		t.Fatalf("AUDIO 默认单位应为 %s，实际 %s", UnitPerRequest, got)
+	}
+	if got := DefaultUnitFor(CapabilityVideo); got != UnitPerSecond {
+		t.Fatalf("VIDEO 默认单位应保持 %s，实际 %s", UnitPerSecond, got)
+	}
+	for _, unit := range []PriceUnit{UnitPerRequest} {
+		if !validPriceUnitForCapability(string(CapabilityAudio), string(unit)) {
+			t.Fatalf("AUDIO 应接受单位 %s", unit)
+		}
+	}
+	for _, unit := range []PriceUnit{UnitPerSecond, UnitPerImage, UnitPerMillionTokens} {
+		if validPriceUnitForCapability(string(CapabilityAudio), string(unit)) {
+			t.Fatalf("AUDIO 不应接受单位 %s", unit)
+		}
+	}
+	// 其余能力不受这条约束，历史配置不能被一次口径调整连带拒掉。
+	for _, capability := range []ModelCapability{CapabilityVideo, CapabilityImage, CapabilityText} {
+		for _, unit := range []PriceUnit{UnitPerSecond, UnitPerImage, UnitPerMillionTokens, UnitPerRequest} {
+			if !validPriceUnitForCapability(string(capability), string(unit)) {
+				t.Fatalf("%s 不应被音频这条约束波及（单位 %s）", capability, unit)
+			}
+		}
+	}
+}

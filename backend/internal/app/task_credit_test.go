@@ -222,6 +222,21 @@ func TestTaskChargeQuantityFallsBackForUnknownQuantity(t *testing.T) {
 	}
 }
 
+// TestTaskChargeQuantityForAudioIsPerRequest 覆盖音频按次。
+//
+// 音频与视频在这里分道：视频的秒数来自用户选择，音频的时长提交时还不存在。所以音频返回
+// 1 而不是 0——0 的含义是"量未知、请计费域兜底"，而音频的用量是确定的：一次调用。
+// 两者的区别落在账单上就是"30 分/次 × 1"与"30 分/秒 × 1"，后者会让用户以为这是按秒收的。
+func TestTaskChargeQuantityForAudioIsPerRequest(t *testing.T) {
+	if got := taskChargeQuantity(ModelRequestIntent{Capability: "audio"}); got != 1 {
+		t.Fatalf("音频应按次回 1，实际 %d", got)
+	}
+	// 即使误传了 videoSeconds 也不参与计价：音频不是按秒结算的。
+	if got := taskChargeQuantity(ModelRequestIntent{Capability: "audio", Options: map[string]any{"videoSeconds": "60"}}); got != 1 {
+		t.Fatalf("音频不应读 videoSeconds，实际 %d", got)
+	}
+}
+
 // TestTaskChargeModelKeyFallsBackToTaskModel 覆盖前台模型模式（没有渠道）。
 func TestTaskChargeModelKeyFallsBackToTaskModel(t *testing.T) {
 	task := &model.Task{Model: "seedance-v25-logical"}

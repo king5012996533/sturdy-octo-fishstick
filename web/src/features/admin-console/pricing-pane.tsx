@@ -801,7 +801,8 @@ export function PricingPane() {
                             if (!("capability" in changed)) return;
                             const next = changed.capability as ModelPriceCapability;
                             priceForm.setFieldsValue({
-                                unit: next === "TEXT" ? "TOKEN_1M" : next === "IMAGE" ? "IMAGE" : "SECOND",
+                                // 音频与视频口径不同：视频按秒，音频按次（服务端拒绝给音频配 SECOND）。
+                                unit: next === "TEXT" ? "TOKEN_1M" : next === "IMAGE" ? "IMAGE" : next === "AUDIO" ? "REQUEST" : "SECOND",
                                 priceTier: defaultTierByCapability[next] ?? "",
                             });
                         }}
