@@ -42,7 +42,7 @@ describe("canvas visual contrast", () => {
     test("keeps the original transparent edge for standard canvas nodes", async () => {
         const source = await Bun.file(new URL("../src/components/canvas/canvas-node.tsx", import.meta.url)).text();
 
-        expect(source).toContain('border: isComposerNode ? "0" : `1px solid ${isSelected || isFocusRelated || isConnectionTarget ? theme.node.activeStroke : "transparent"}`');
+        expect(source).toContain('border: isComposerNode || isDirectorNode ? "0" : `1px solid ${isSelected || isFocusRelated || isConnectionTarget ? theme.node.activeStroke : "transparent"}`');
         expect(source).not.toContain('border: isComposerNode ? "0" : `1px solid ${theme.node.edge}`');
     });
 });
