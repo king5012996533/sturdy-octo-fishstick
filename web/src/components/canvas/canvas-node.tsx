@@ -730,7 +730,6 @@ function NodeExternalHeader({ node, scale, dimensionLabel, active, editable, edi
     const isDirectorNode = node.type === CanvasNodeType.Director || Boolean(node.metadata?.directorSceneId);
     const Icon = isDirectorNode ? Move3d : nodeTypeIcon(node.type);
     const maxHeaderWidth = Math.min(240, node.width * scale);
-    const directorCardWidth = Math.min(node.width, node.height);
 
     return (
         <div
@@ -739,7 +738,6 @@ function NodeExternalHeader({ node, scale, dimensionLabel, active, editable, edi
             style={{
                 width: dimensionLabel ? "calc(var(--canvas-node-width) * var(--canvas-live-scale, 1))" : undefined,
                 maxWidth: dimensionLabel ? undefined : maxHeaderWidth,
-                left: node.metadata?.directorSceneId ? Math.max(0, (node.width - directorCardWidth) / 2) : undefined,
                 "--canvas-node-width": `${node.width}px`,
                 borderRadius: "var(--r-sm)",
                 background: "transparent",

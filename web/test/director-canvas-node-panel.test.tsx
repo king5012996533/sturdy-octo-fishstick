@@ -80,8 +80,10 @@ describe("导演台画布节点", () => {
         expect(shell).toContain("background:transparent");
         expect(shell).toContain("border:0");
         expect(shell).toContain("box-shadow:none");
+        // 卡片撑满外壳后标题不再需要跟着卡片居中，标题行不能再带导演台专属的横向偏移。
         const header = markup.match(/class="canvas-node-external-header[^\"]*"[^>]*style="([^"]*)"/)?.[1];
-        expect(header).toContain("left:0;");
+        expect(header).toBeDefined();
+        expect(header).not.toContain("left:");
         expect(markup).toContain('data-node-header-icon="director"');
     });
 });
