@@ -54,6 +54,31 @@ cd web && BEEFTV_HOSTED_AUTH=1 bun run build
 `internal/providerpreset/catalog/` 会被 `//go:embed catalog/*.json` 一起嵌进二进制，
 `mustLoadCatalog` 解码失败即 panic，服务根本起不来。
 
+### 上线验收
+
+换二进制之前先跑一遍，别拿生产当它第一次运行的环境：
+
+```bash
+# 1. 从备份恢复一份副本（写验证码、起临时实例都只发生在副本上）
+/opt/kinotv/scripts/kinotv/kinotv-restore.sh latest --target /var/lib/kinotv/acceptance --force
+# 2. 用待发布的二进制跑验收
+/opt/kinotv/scripts/kinotv/kinotv-acceptance.sh --data-dir /var/lib/kinotv/acceptance \
+    --binary /tmp/kinotv-server-new --port 18092
+```
+
+`kinotv-acceptance.sh` 先验"配错就必须起不来"，再起一个实例打权限矩阵：
+
+- 启动守卫：不写 `CANVAS_HOSTED_AUTH`、写了 `true` 但缺账号库、开关值非法，三种都必须拒绝启动
+- 匿名边界：`/api/health/live`、`/api/health/ready` 允许匿名；`/api/health`、
+  `/api/projects`、`/api/tasks`、`/api/workspace/model-config` 仍然 401
+- 脱敏目录：普通账号读到 `source=platform-catalog`，只含平台渠道，且 `apiKey`、
+  `secretKey`、`headers` 这类凭据字段全部为空
+- 越权写入：普通账号 PUT 必须 403 且 `reason=forbidden`，配置内容与 `revision` 不变
+- 管理员：仍拿到完整视图（渠道凭据在），原样回写被接受
+
+数据目录必须指向副本：验收会往账号库里写登录验证码，脚本会直接拒绝在线上数据目录上运行。
+前端隐藏入口挡不住 curl，所以这一层只能按接口验。
+
 ## 环境变量
 
 见 `/etc/kinotv.env`：
