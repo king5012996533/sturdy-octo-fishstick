@@ -13,6 +13,8 @@ import { useUserStore } from "@/stores/use-user-store";
 import { appQueryClient } from "@/lib/query-client";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { getActiveUserScope } from "@/lib/user-scope";
+import { isHostedBuild } from "@/lib/hosted-build";
+import { backfillCanvasMediaToCloud } from "@/services/canvas-media-cloud-backfill";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
     const config = useConfigStore((state) => state.config);
@@ -29,6 +31,7 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     const setPluginStates = usePluginStore((state) => state.setPluginStates);
     const pluginStoreHydrated = usePluginStore((state) => state.hydrated);
     const localMediaCleanupScope = useRef("");
+    const cloudMediaBackfillScope = useRef("");
 
     useEffect(() => () => {
         usePluginStore.getState().setRuntimeStatuses({});
@@ -87,6 +90,20 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
             console.warn("本地媒体缓存清理失败，已保留当前工作区", { scope, error });
         });
     }, [assetsHydrated, canvasHydrated, localMode]);
+
+    useEffect(() => {
+        // 早前版本的托管构建把上传写进了浏览器 IndexedDB，服务端从未收到这些字节。
+        // 修好写入路径只保证以后不再产生，这里负责把还留在本机的存量补传上云；
+        // 读不到的字节不做任何猜测，只如实告诉用户哪些素材在本机也找不回来了。
+        if (!isHostedBuild() || !userId || !assetsHydrated || !canvasHydrated) return;
+        const scope = getActiveUserScope();
+        if (cloudMediaBackfillScope.current === scope) return;
+        cloudMediaBackfillScope.current = scope;
+        void backfillCanvasMediaToCloud().then((result) => {
+            if (result.uploaded) console.info("本机素材已补传云端", result);
+            if (result.unreadable) message.warning(`${result.unreadable} 份素材只存在于浏览器本地且已无法读取，请重新上传`);
+        });
+    }, [assetsHydrated, canvasHydrated, message, userId]);
 
     useEffect(() => {
         setDiagnosticUserScope(userId);

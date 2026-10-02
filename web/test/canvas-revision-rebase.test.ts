@@ -12,8 +12,10 @@ const repository = read("src/services/local-workspace-repository.ts");
 const rebase = read("src/services/canvas-revision-rebase.ts");
 
 /**
- * 画布版本冲突的恢复：服务端的乐观锁守卫会拒绝落后版本的写入，客户端必须把版本收回来
- * 再重试。以前这里只写 console，本地 revision 停在旧值上，于是这份画布永久保存不了。
+ * 画布版本冲突的口径是「云端为主」：服务端的乐观锁守卫拒绝落后版本的写入后，客户端
+ * 不再收敛 revision 重试覆盖云端，而是把云端内容接回本地，同时把本地这份留成冲突草稿。
+ * 以前这里只写 console，本地 revision 停在旧值上，于是这份画布永久保存不了；
+ * 后来改成收敛后重试，又会把另一台设备的改动盖掉。两条路都不能走。
  */
 describe("云端画布版本冲突恢复", () => {
     test("认得出服务端的专用 reason", () => {
@@ -36,19 +38,24 @@ describe("云端画布版本冲突恢复", () => {
         expect(isCanvasRevisionConflict(undefined)).toBe(false);
     });
 
-    test("收敛的是版本而不是内容", () => {
-        expect(rebase).toContain("revision");
-        // 只写 revision，不能把远端内容搬进本地草稿。
-        expect(rebase).toContain("? { ...project, revision } : project");
-        expect(rebase).not.toContain("nodes: remote");
+    test("采用云端内容之前先把本地那份留档，用户才不会两头落空", () => {
+        expect(rebase).toContain("saveCanvasConflictDraft(local)");
+        expect(rebase).toContain("applyRemoteCanvasProject(remote, local)");
+        // 留档失败也必须如实返回，不能谎称草稿已保存。
+        expect(rebase).toContain("draftSaved = await saveCanvasConflictDraft(local)");
     });
 
-    test("保存路径在冲突后重试一次，并重新读一遍本地画布", () => {
+    test("冲突后不再重试本地写入，把权威版本让给云端", () => {
         expect(repository).toContain("isCanvasRevisionConflict(error)");
-        expect(repository).toContain("await adoptRemoteCanvasRevision(id)");
-        // 等待远端版本的这段时间用户可能又编辑过，重试必须重新取本地画布。
-        expect(repository).toContain("const attempt = async () => {");
-        expect(repository).toContain("const project = openLocalCanvasProject(id);");
+        expect(repository).toContain("await adoptRemoteCanvasProject(id)");
+        expect(repository).not.toContain("await adoptRemoteCanvasRevision(id)");
+        // 重试本地写入就是"本地为主"，与本次口径相反。
+        expect(repository).not.toContain("已收敛版本后重试保存");
+    });
+
+    test("读不到远端版本时保持原有失败路径，不假装已采用云端版本", () => {
+        expect(rebase).toContain("if (!remote) return { adopted: false, draftSaved: false };");
+        expect(repository).toContain("if (!adoption.adopted) throw error;");
     });
 
     test("服务端为版本冲突给出稳定 reason，前端不再靠解析文案", () => {

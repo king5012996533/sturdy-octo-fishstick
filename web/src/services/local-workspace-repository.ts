@@ -4,7 +4,9 @@ import { http } from "@/services/api/request";
 import { resourceIdFromStorageKey } from "@/services/api/resources";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
-import { adoptRemoteCanvasRevision, isCanvasRevisionConflict } from "@/services/canvas-revision-rebase";
+import { adoptRemoteCanvasProject, CanvasCloudAuthoritativeError, isCanvasCloudAuthoritativeError, isCanvasRevisionConflict } from "@/services/canvas-revision-rebase";
+import { withCloudMediaContentOnProject } from "@/lib/canvas/canvas-cloud-media";
+import { isHostedBuild } from "@/lib/hosted-build";
 
 type LocalCanvasContent = Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId">>;
 type CanvasSaveSummary = Pick<CanvasProject, "id" | "title" | "createdAt" | "updatedAt" | "revision">;
@@ -130,17 +132,21 @@ function syncLocalCanvasProject(id: string, includeGeneratedAssets: boolean): Pr
 }
 
 /**
- * 写入一次画布，并在服务端因为版本落后而拒绝时收敛版本重试一次。
+ * 写入一次画布；版本落后时以云端为准。
  *
- * 重试前重新读一遍本地画布：等待远端 revision 的这段时间里用户可能又编辑过，拿旧的
- * payload 重试等于把这几秒的改动吞掉。版本收敛只动乐观锁，本地草稿必须原样提交。
+ * 冲突不再重试覆盖：服务端那一版是权威版本，本地这份先留成冲突草稿，再把云端内容接回
+ * 本地。这一步必须抛错告诉用户，不能静默——用户以为保存成功了，实际上这次改动要靠
+ * 草稿找回。
  */
 async function putCanvasProject(id: string, includeGeneratedAssets: boolean) {
     const attempt = async () => {
         const project = openLocalCanvasProject(id);
         if (!project) return undefined;
         const assets = includeGeneratedAssets ? canvasGenerationCommitAssets(project, useAssetStore.getState().assets) : [];
-        const projectForSave = includeGeneratedAssets ? bindCanvasGenerationCommitAssets(project, assets) : project;
+        const bound = includeGeneratedAssets ? bindCanvasGenerationCommitAssets(project, assets) : project;
+        // 落库前把「已有云端资源、但展示地址仍是 blob:/data:」的媒体节点收敛成云端地址。
+        // 只影响提交给服务端的那份 payload：本地内存继续用当前可播放的地址，桌面构建不受影响。
+        const projectForSave = isHostedBuild() ? withCloudMediaContentOnProject(bound) : bound;
         const endpoint = includeGeneratedAssets ? `/canvas-projects/${encodeURIComponent(id)}/generated-assets` : `/canvas-projects/${encodeURIComponent(id)}`;
         const response = await http.put<{ project: CanvasSaveSummary }>(endpoint, includeGeneratedAssets ? { project: projectForSave, assets } : { project: projectForSave });
         return response.project ? { ...response.project, assets } : undefined;
@@ -148,9 +154,11 @@ async function putCanvasProject(id: string, includeGeneratedAssets: boolean) {
     try {
         return await attempt();
     } catch (error) {
-        if (!isCanvasRevisionConflict(error) || !(await adoptRemoteCanvasRevision(id))) throw error;
-        console.warn("画布版本落后于云端，已收敛版本后重试保存", { id });
-        return await attempt();
+        if (!isCanvasRevisionConflict(error)) throw error;
+        const adoption = await adoptRemoteCanvasProject(id);
+        if (!adoption.adopted) throw error;
+        console.warn("画布版本落后于云端，已改用云端版本", { id, draftSaved: adoption.draftSaved });
+        throw new CanvasCloudAuthoritativeError(id, adoption.draftSaved);
     }
 }
 
@@ -212,6 +220,7 @@ function revertUnchangedCanvasDocumentPatch(current: CanvasProject, previous: Ca
  * Local desktop hydrates from SQLite, so that profile PUTs the Go repository
  * without waiting on IndexedDB. Hosted keeps update plus an awaited flush.
  * A failed write only reverts patch fields that nobody else changed.
+ * 版本冲突例外：那条路径已经把本地画布换成云端内容，回滚 patch 反而会把云端覆盖掉。
  */
 export async function persistCanvasDocument(id: string, patch: CanvasDocumentPersistPatch) {
     const previous = useCanvasStore.getState().openProject(id);
@@ -224,7 +233,7 @@ export async function persistCanvasDocument(id: string, patch: CanvasDocumentPer
         }
         await flushCanvasStorePersistence();
     } catch (error) {
-        if (previous) {
+        if (previous && !isCanvasCloudAuthoritativeError(error)) {
             useCanvasStore.setState((state) => ({
                 projects: state.projects.map((item) => {
                     if (item.id !== id) return item;
@@ -252,7 +261,14 @@ export function scheduleLocalCanvasBackendSync(id: string) {
     if (existing) clearTimeout(existing);
     backendSaveTimers.set(id, setTimeout(() => {
         backendSaveTimers.delete(id);
-        void syncLocalCanvasProjectToBackend(id).catch((error) => console.error("画布后端持久化失败，等待下次编辑重试", { id, error }));
+        void syncLocalCanvasProjectToBackend(id).catch((error) => {
+            // 云端为主不是失败：本地已经换成服务端版本，说成"等待重试"会掩盖真正发生的事。
+            if (isCanvasCloudAuthoritativeError(error)) {
+                console.warn("画布已按云端为主处理，本地版本另存为冲突草稿", { id, draftSaved: error.draftSaved });
+                return;
+            }
+            console.error("画布后端持久化失败，等待下次编辑重试", { id, error });
+        });
     }, 500));
 }
 
