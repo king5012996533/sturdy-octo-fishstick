@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 
 import { FullScreenLoader } from "@/components/ui/aceternity/full-screen-loader";
+import { canPersistModelConfig } from "@/lib/model-config-access";
 import { preloadWorkspaceRoute } from "@/lib/workspace-route-modules";
 import { applyUserSession, localWorkspaceConfig } from "@/lib/user-session";
 import { getWorkspaceBootstrap, type WorkspaceBootstrapPayload } from "@/services/api/workspace";
@@ -43,10 +44,14 @@ export function WorkspaceBootstrapHydrator({ children }: { children: ReactNode }
     useEffect(() => {
         let ready = false;
         const unsubscribe = useConfigStore.subscribe((state) => {
+            if (!canWriteModelConfig()) return;
             if (!shouldSaveLocalModelConfig({ subscriptionReady: ready, modelConfigReady: modelConfigReady.current, channelCount: state.config.channels.length })) return;
             void commitModelConfig(state.config);
         });
-        const flush = () => { void flushModelConfig(); };
+        const flush = () => {
+            if (!canWriteModelConfig()) return;
+            void flushModelConfig();
+        };
         window.addEventListener("pagehide", flush);
         const markReady = () => { ready = true; };
         if (modelConfigReady.current) markReady();
@@ -96,7 +101,13 @@ async function hydrateLocalModelConfig() {
     const result = await hydrateModelConfig();
     const normalizedConfig = localWorkspaceConfig(normalizeConfigSnapshot({ config: result.config }).config);
     useConfigStore.getState().replaceConfig(normalizedConfig);
+    if (!canWriteModelConfig()) return;
     if (shouldPersistHydratedModelConfig(result.health)) await commitModelConfig(normalizedConfig);
+}
+
+/** 托管形态下普通账号只能读平台模型目录，提交会拿到 403，所以写入先在这里短路。 */
+function canWriteModelConfig() {
+    return canPersistModelConfig(useUserStore.getState().user?.role);
 }
 
 export function shouldPersistHydratedModelConfig(health: string) {

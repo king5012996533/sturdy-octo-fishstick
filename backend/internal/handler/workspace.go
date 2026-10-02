@@ -61,6 +61,11 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 		})
 	})
 	r.GET("/workspace/model-config", func(c *gin.Context) {
+		access, accessErr := modelConfigAccessFor(c, svc)
+		if accessErr != nil {
+			failService(c, accessErr)
+			return
+		}
 		if _, err := workspaceForLocalRequest(c, svc); err != nil {
 			fail(c, http.StatusUnauthorized, err)
 			return
@@ -72,7 +77,13 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 				failService(c, err)
 				return
 			}
-			ok(c, gin.H{"config": redactModelConfig(c, svc, effective.Config), "revision": effective.Revision, "health": health, "source": "builtin+local"})
+			config := redactModelConfig(c, svc, effective.Config)
+			source := "builtin+local"
+			if access == modelConfigAccessCatalog {
+				config = platformModelCatalogView(config)
+				source = "platform-catalog"
+			}
+			ok(c, gin.H{"config": config, "revision": effective.Revision, "health": health, "source": source})
 			return
 		}
 		body, err := providerConfig.ReadLocalModelConfig()
@@ -89,9 +100,24 @@ func RegisterWorkspaceRoutes(r *gin.RouterGroup, svc *app.Service) {
 			fail(c, http.StatusInternalServerError, errors.New("本地模型配置损坏"))
 			return
 		}
-		ok(c, gin.H{"config": redactModelConfig(c, svc, config)})
+		config = redactModelConfig(c, svc, config)
+		if access == modelConfigAccessCatalog {
+			ok(c, gin.H{"config": platformModelCatalogView(config), "source": "platform-catalog"})
+			return
+		}
+		ok(c, gin.H{"config": config})
 	})
 	r.PUT("/workspace/model-config", func(c *gin.Context) {
+		access, accessErr := modelConfigAccessFor(c, svc)
+		if accessErr != nil {
+			failService(c, accessErr)
+			return
+		}
+		if access == modelConfigAccessCatalog {
+			// 平台配置在进程里只有一份，普通账号写进来会改掉所有账号的模型路由。
+			failService(c, app.Forbidden("平台模型配置由管理员维护，当前账号没有修改权限"))
+			return
+		}
 		if _, err := workspaceForLocalRequest(c, svc); err != nil {
 			fail(c, http.StatusUnauthorized, err)
 			return
