@@ -491,3 +491,44 @@ func TestChargeFormulaRendersUserReadableUnit(t *testing.T) {
 		}
 	}
 }
+
+// TestQuoteTaskChargeBillsAudioPerRequest 覆盖音频按次计费：一次调用一个价。
+//
+// 与视频那条用例成对读。视频的金额随秒数变（提交时用户选的），音频不随任何量变——时长在
+// 提交那一刻还不存在（配音取决于文本、配乐取决于上游）。这里的"用量"含义是**次数**：
+// 任务层固定传 1（见 app.TestTaskChargeQuantityForAudioIsPerRequest），于是每次调用扣一个
+// 单价。单元若是 SECOND，传 60 就会被读成"60 秒"，这正是这道口径要挡住的事。
+func TestQuoteTaskChargeBillsAudioPerRequest(t *testing.T) {
+	env := newCreditTaskEnv(t)
+	sell := int64(200) // 200 分 = ¥2.00/次
+	if err := env.store.SaveModelPrice(&ModelPrice{
+		ModelKey:      "CHANNEL_000003::minimax/music-2.5",
+		Capability:    string(CapabilityAudio),
+		Unit:          string(UnitPerRequest),
+		SellUnitPrice: &sell,
+		Enabled:       true,
+	}); err != nil {
+		t.Fatalf("写入单价失败: %v", err)
+	}
+
+	for _, testCase := range []struct {
+		quantity int64
+		credits  int64
+	}{
+		{1, 200},  // 任务层的真实取值：一次调用
+		{0, 200},  // 用量缺失时计费域兜底成一个单位，而不是 0 元
+		{3, 600},  // 传 3 就是"3 次"，单位是次而不是秒
+	} {
+		quote, err := env.service.QuoteTaskCharge(TaskChargeInput{
+			ModelKey:   "CHANNEL_000003::minimax/music-2.5",
+			Capability: "AUDIO",
+			Quantity:   testCase.quantity,
+		})
+		if err != nil {
+			t.Fatalf("试算失败: %v", err)
+		}
+		if !quote.Priced || quote.Unit != string(UnitPerRequest) || quote.Credits != testCase.credits {
+			t.Fatalf("用量 %d 次应扣 %d 分，实际 %#v", testCase.quantity, testCase.credits, quote)
+		}
+	}
+}
