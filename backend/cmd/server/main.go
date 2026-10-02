@@ -50,10 +50,11 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	hostedAuth, err := envBool("CANVAS_HOSTED_AUTH", false)
+	hostedAuth, err := envRequiredBool("CANVAS_HOSTED_AUTH")
 	if err != nil {
 		return err
 	}
+	listenAddr := resolveListenAddr(hostedAuth)
 	factory, err := hostedFactory(hosted.Options{
 		DatabaseDriver: env("CANVAS_AUTH_DATABASE_DRIVER", ""),
 		DatabaseURL:    strings.TrimSpace(os.Getenv("CANVAS_AUTH_DATABASE_URL")),
@@ -69,7 +70,7 @@ func run(ctx context.Context) error {
 		DataDir:          dataDir,
 		DatabaseDriver:   env("CANVAS_DATABASE_DRIVER", "sqlite"),
 		DatabaseURL:      os.Getenv("DATABASE_URL"),
-		ListenAddr:       env("CANVAS_BACKEND_ADDR", ":8080"),
+		ListenAddr:       listenAddr,
 		AutoMigrate:      autoMigrate,
 		ShutdownTimeout:  workerTimeout,
 		RouterMiddleware: []gin.HandlerFunc{corsMiddleware},
@@ -82,7 +83,7 @@ func run(ctx context.Context) error {
 		_ = runtime.Close(context.Background())
 		return err
 	}
-	log.Printf("backend listening on %s", env("CANVAS_BACKEND_ADDR", ":8080"))
+	log.Printf("backend listening on %s (hosted auth: %t)", listenAddr, hostedAuth)
 
 	var serveFailure error
 	select {
@@ -108,6 +109,36 @@ func env(key string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// envRequiredBool 读取必须显式设置的布尔开关。
+//
+// 决定安全边界的开关不能有默认值：升级时漏配一个变量就悄悄改变边界，比启动失败危险
+// 得多。这里没有设置就报错，让运维明确选择运行模式。
+func envRequiredBool(key string) (bool, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return false, fmt.Errorf("%s 未设置：必须显式选择运行模式（true 启用托管登录，false 进入单工作区模式）", key)
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("%s 必须是 true 或 false", key)
+	}
+	return parsed, nil
+}
+
+// resolveListenAddr 决定监听地址。
+//
+// 单工作区模式没有登录闸门，默认只监听回环地址，避免一个无认证实例被误挂到公网；
+// 托管形态保持原来的 :8080（容器与反向代理环境需要监听全部网卡）。
+func resolveListenAddr(hostedAuth bool) string {
+	if configured := strings.TrimSpace(os.Getenv("CANVAS_BACKEND_ADDR")); configured != "" {
+		return configured
+	}
+	if hostedAuth {
+		return ":8080"
+	}
+	return "127.0.0.1:8080"
 }
 
 func envBool(key string, fallback bool) (bool, error) {

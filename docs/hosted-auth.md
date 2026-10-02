@@ -37,8 +37,9 @@
 
 | 变量 | 说明 |
 | --- | --- |
-| `CANVAS_HOSTED_AUTH` | 托管登录总开关。`true` 时缺 `CANVAS_AUTH_DATABASE_URL` 会**直接启动失败**，不再静默退回单工作区模式 |
+| `CANVAS_HOSTED_AUTH` | 托管登录总开关，**必须显式设置**（`cmd/server` 缺这个变量直接拒绝启动，避免升级时漏配悄悄改掉安全边界）。`true` 时缺 `CANVAS_AUTH_DATABASE_URL` 同样拒绝启动 |
 | `CANVAS_AUTH_DATABASE_URL` | 账号库 DSN。仅在 `CANVAS_HOSTED_AUTH=true` 时生效 |
+| `CANVAS_BACKEND_ADDR` | 监听地址。`CANVAS_HOSTED_AUTH=false` 时默认只监听 `127.0.0.1:8080`——单工作区模式没有登录闸门，不该默认暴露到公网 |
 | `CANVAS_AUTH_DATABASE_DRIVER` | 驱动，默认 `mysql`；本地开发可填 `sqlite` |
 | `CANVAS_AUTH_STATE_SECRET` | OAuth state 签名密钥，生产必须注入 |
 | `CANVAS_AUTH_COOKIE_SECURE` | HTTPS 部署必须为 `true` |

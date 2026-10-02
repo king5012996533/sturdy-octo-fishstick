@@ -73,9 +73,10 @@ CANVAS_PUBLIC_BASE_URL=https://kinotv.xingtudesign.com
 
 - `CANVAS_PUBLIC_BASE_URL` 必须是对外可访问的**域名**。上游（如 ai-genvideo）拉取
   参考图时会校验素材地址，明确拒绝 IP 字面量。
-- `CANVAS_HOSTED_AUTH=true` 是托管登录的显式开关。打开后缺 `CANVAS_AUTH_DATABASE_URL`
-  会**直接启动失败**，不会退回无登录的单工作区模式——公网上的共享工作区等于把上游渠道
-  开放给所有人。桌面版不读这个开关。
+- `CANVAS_HOSTED_AUTH` 必须显式写出，`cmd/server` 缺这个变量会**拒绝启动**：它决定
+  安全边界，漏配时回退到某个默认模式比启动失败危险得多。置 `true` 后缺
+  `CANVAS_AUTH_DATABASE_URL` 同样拒绝启动——公网上的无登录共享工作区等于把上游渠道
+  开放给所有人。置 `false` 才进入单工作区模式，且默认只监听回环地址。桌面版不读这个开关。
 - `CANVAS_AUTH_DEV_ECHO_CODE=0` 是生产必需值：置 `1` 时验证码会回显在接口响应里，
   只有短信/邮件通道接通前的本地联调才允许，且必须同时确认没人能访问服务端日志
   （未配置投递通道时验证码会写日志，日志可见者等于可以登录任意账号）。
