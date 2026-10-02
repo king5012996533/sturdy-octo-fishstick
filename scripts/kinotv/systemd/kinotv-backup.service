@@ -1,0 +1,14 @@
+[Unit]
+Description=KinoTV 数据备份（SQLite 在线快照 + 配置 + 用户资源）
+Documentation=file:/opt/kinotv/docs/hosted-deployment.md
+# 备份与健康巡检都会读写同一份状态，串行执行避免两边同时判断"最新备份"。
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/kinotv.env
+Environment=KINOTV_DATA_DIR=/opt/kinotv/data
+Environment=KINOTV_BACKUP_DIR=/root/backups/kinotv
+ExecStart=/opt/kinotv/scripts/kinotv/kinotv-backup.sh
+# 备份失败必须让 systemd 记住：oneshot 失败会进 failed 状态，巡检脚本据此告警，
+# 比只在日志里写一行"失败"更容易被发现。

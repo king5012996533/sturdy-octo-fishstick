@@ -280,6 +280,60 @@ done                只有全部成功才出现
 **目标目录不允许是线上数据目录**，脚本会直接拒绝；演练只写恢复出来的副本。
 只有全部通过才会更新 `<备份目录>/last-verify`，巡检靠它判断演练是否还在按期执行。
 
+## 巡检与告警
+
+| 脚本 | 职责 |
+| --- | --- |
+| `kinotv-healthcheck.sh` | 探针 + 备份与演练新鲜度 + 磁盘，异常时告警 |
+| `kinotv-alert.py` | 告警外发（机器人 Webhook / 邮件） |
+
+### 巡检脚本
+
+```bash
+/opt/kinotv/scripts/kinotv/kinotv-healthcheck.sh
+```
+
+检查五项：`/api/health/live` 与 `/api/health/ready` 的 HTTP 状态、最新备份的年龄、
+上次恢复演练的时间、磁盘使用率。**看 HTTP 而不是端口**：进程活着但数据库锁死、
+迁移卡住、插件加载失败时，`netstat` 一样显示端口在听，只有真发一次请求才看得出来。
+
+异常时退出码为 1（systemd 里就是 `failed`），并调用 `kinotv-alert.py` 外发一次。
+去重规则：`OK→ALERT` 立即发，持续异常每 6 小时重发一次，`ALERT→OK` 发一条恢复通知。
+没有这一层，5 分钟一次的定时任务会把告警出口刷爆，最后所有人都把它静音。
+
+告警出口配置在 `/etc/kinotv-alert.env`（600），配哪个用哪个：
+
+```
+ALERT_WEBHOOK_URL=        # 钉钉/企业微信/飞书群机器人
+ALERT_EMAIL_TO=           # 邮件，走 BEEFTV_SMTP_*
+```
+
+两个出口都没配时脚本会明说"仅记录日志"并且不影响退出码；配了但发送失败会返回非 0，
+不会静默吞掉。
+
+### 定时任务
+
+```bash
+install -m 644 scripts/kinotv/systemd/*.service scripts/kinotv/systemd/*.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now kinotv-backup.timer kinotv-healthcheck.timer kinotv-restore-drill.timer
+```
+
+| 定时器 | 频率 | 作用 |
+| --- | --- | --- |
+| `kinotv-backup.timer` | 每天 03:30 | 备份 |
+| `kinotv-healthcheck.timer` | 每 5 分钟 | 巡检，异常告警 |
+| `kinotv-restore-drill.timer` | 每周日 04:30 | 恢复演练 |
+
+三个 timer 都带 `Persistent=true`（关机错过会补跑）——漏掉一天备份却毫无痕迹，
+是这类任务里最难发现的一种故障。
+
+**这套与 `/root` 下旧脚本的关系。** 机器上原本有 `backup-db.sh`（PostgreSQL/MySQL）、
+`backup-kinotv.sh`（旧版 KinoTV 备份）、`check-server.sh`（端口与进程巡检）、
+`notify.py`（告警）。这套脚本是它们的替代品，多了三样旧脚本没有的东西：
+备份产出自带校验清单与 `done` 标记、恢复演练、以及基于 HTTP 的探活。
+切换前先让两套并行跑几天，比对结果一致再停掉旧的 cron。
+
 ## 磁盘维护
 
 每次发布会把旧前端挪成 `web.bak-<时间戳>`（每份约 103M）并保留旧二进制。它们只用于

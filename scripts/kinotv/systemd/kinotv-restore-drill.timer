@@ -1,0 +1,10 @@
+[Unit]
+Description=每周日 04:30 做一次恢复演练
+
+[Timer]
+OnCalendar=Sun *-*-* 04:30:00
+Persistent=true
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target

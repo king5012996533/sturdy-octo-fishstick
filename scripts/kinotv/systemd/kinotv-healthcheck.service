@@ -1,0 +1,12 @@
+[Unit]
+Description=KinoTV 健康巡检（服务探针 + 备份与演练新鲜度 + 磁盘）
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/kinotv.env
+Environment=KINOTV_HEALTH_BASE_URL=http://127.0.0.1:8090
+Environment=KINOTV_BACKUP_DIR=/root/backups/kinotv
+Environment=KINOTV_ALERT_CMD=/opt/kinotv/scripts/kinotv/kinotv-alert.py
+ExecStart=/opt/kinotv/scripts/kinotv/kinotv-healthcheck.sh
+# 巡检异常时退出码为 1，unit 进入 failed，`systemctl --failed` 里能看到；
+# 同时脚本自己已经通过邮件/机器人发过一次告警。

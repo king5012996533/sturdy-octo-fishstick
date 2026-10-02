@@ -1,0 +1,11 @@
+[Unit]
+Description=每天 03:30 执行 KinoTV 备份
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+# 关机或停机错过任务时补跑一次：漏掉一天备份却毫无痕迹是最难发现的故障。
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

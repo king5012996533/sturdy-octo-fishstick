@@ -1,0 +1,15 @@
+[Unit]
+Description=KinoTV 恢复演练（从最新备份恢复并真起一次服务）
+# 备份服务在写同一份产物，演练必须等它写完。
+After=kinotv-backup.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/kinotv.env
+Environment=KINOTV_DATA_DIR=/opt/kinotv/data
+Environment=KINOTV_BACKUP_DIR=/root/backups/kinotv
+Environment=KINOTV_BINARY=/opt/kinotv/kinotv-server
+Environment=KINOTV_DRILL_PORT=18099
+Environment=CANVAS_OFFICIAL_PLUGIN_DIR=/opt/kinotv/plugin-packages
+# 演练要起一个临时实例，用独立端口避免撞上正式服务。
+ExecStart=/opt/kinotv/scripts/kinotv/kinotv-restore.sh latest --target /var/lib/kinotv/restore-drill --force --with-media --drill

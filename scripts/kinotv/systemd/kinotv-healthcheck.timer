@@ -1,0 +1,10 @@
+[Unit]
+Description=每 5 分钟巡检一次 KinoTV
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
