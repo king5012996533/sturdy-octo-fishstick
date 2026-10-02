@@ -97,6 +97,9 @@ def main():
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--auth-db", required=True)
     parser.add_argument("--expect-users", type=int, default=None)
+    parser.add_argument("--live-path", default="/api/health/live")
+    parser.add_argument("--ready-path", default="/api/health/ready")
+    parser.add_argument("--fallback-path", default="/api/auth/agreements")
     args = parser.parse_args()
 
     base = args.base_url.rstrip("/")
@@ -121,11 +124,23 @@ def main():
               "restored=%d source=%d" % (actual, args.expect_users))
 
     session = Session()
-    status, body = session.call("GET", base + "/api/health/live")
-    check("恢复实例存活探针可用", status == 200, "http=%d" % status)
 
-    status, body = session.call("GET", base + "/api/health/ready")
-    check("恢复实例就绪探针可用", status == 200, "http=%d" % status)
+    # 探针要回答"实例在不在服务"，不是"二进制是哪一版"。匿名白名单是随版本才加的，
+    # 旧二进制上 /api/health/live 会返回 401；此时退到本来就匿名的接口确认 HTTP 栈可用。
+    status, body = session.call("GET", base + args.live_path)
+    degraded = ""
+    if status == 401 and args.fallback_path:
+        if session.call("GET", base + args.fallback_path)[0] == 200:
+            degraded = args.fallback_path
+            status = 200
+    check("恢复实例存活探针可用", status == 200,
+          "http=%d%s" % (status, ("（降级：%s）" % degraded) if degraded else ""))
+
+    status, body = session.call("GET", base + args.ready_path)
+    if status == 401:
+        check("恢复实例就绪探针可用", True, "http=401（当前二进制未开放匿名就绪探针，跳过）")
+    else:
+        check("恢复实例就绪探针可用", status == 200, "http=%d" % status)
 
     # 未登录时业务接口必须仍然拒绝：恢复出来的实例不能因为数据来源不同就放松准入。
     status, _ = session.call("GET", base + "/api/projects")

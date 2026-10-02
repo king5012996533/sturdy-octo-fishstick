@@ -22,6 +22,11 @@ DRILL=0
 BINARY="${KINOTV_BINARY:-/opt/kinotv/kinotv-server}"
 PORT="${KINOTV_DRILL_PORT:-18099}"
 LIVE_DATA_DIR="${KINOTV_DATA_DIR:-/opt/kinotv/data}"
+# 与巡检共用同一组探针路径：匿名白名单是随版本才加的，旧二进制上探针返回 401。
+# 演练要回答的是"恢复出来的实例能不能正常服务"，不是"二进制是哪一版"，所以同样降级。
+PROBE_PATH="${KINOTV_HEALTH_PROBE_PATH:-/api/health/live}"
+READY_PATH="${KINOTV_HEALTH_READY_PATH:-/api/health/ready}"
+FALLBACK_PATH="${KINOTV_HEALTH_FALLBACK_PATH:-/api/auth/agreements}"
 FORCE=0
 RUN_ARG=""
 
@@ -226,6 +231,19 @@ if [ -f "$TARGET/kinotv-auth.db" ]; then
     info "账号记录数：$users"
 fi
 
+# 临时实例是否已经在服务。200 即通过；401 说明该二进制还没开放匿名探针，
+# 再用一个本来就匿名的接口确认 HTTP 栈确实是活的，避免把"版本旧"误判成"起不来"。
+drill_probe_ok() {
+    local code
+    code="$(curl -s -o /dev/null -w '%{http_code}' -m 3 "http://127.0.0.1:$PORT$PROBE_PATH" 2>/dev/null || true)"
+    [ "$code" = "200" ] && return 0
+    if [ "$code" = "401" ] && [ -n "$FALLBACK_PATH" ]; then
+        code="$(curl -s -o /dev/null -w '%{http_code}' -m 3 "http://127.0.0.1:$PORT$FALLBACK_PATH" 2>/dev/null || true)"
+        [ "$code" = "200" ] && return 0
+    fi
+    return 1
+}
+
 # ---- 4. 演练 ----
 if [ "$DRILL" -eq 1 ]; then
     printf '\n[4/4] 启动临时实例演练（端口 %s）\n' "$PORT"
@@ -258,7 +276,7 @@ if [ "$DRILL" -eq 1 ]; then
         if ! kill -0 "$DRILL_PID" 2>/dev/null; then
             break
         fi
-        if curl -fsS -m 3 "http://127.0.0.1:$PORT/api/health/live" >/dev/null 2>&1; then
+        if drill_probe_ok; then
             ready=1
             break
         fi
@@ -268,7 +286,10 @@ if [ "$DRILL" -eq 1 ]; then
         pass "临时实例已启动"
         if python3 "$SCRIPT_DIR/kinotv-restore-drill.py" \
                 --base-url "http://127.0.0.1:$PORT" \
-                --auth-db "$TARGET/kinotv-auth.db"; then
+                --auth-db "$TARGET/kinotv-auth.db" \
+                --live-path "$PROBE_PATH" \
+                --ready-path "$READY_PATH" \
+                --fallback-path "$FALLBACK_PATH"; then
             pass "恢复演练断言全部通过"
         else
             fail "恢复演练断言未通过（详见上方 FAIL 行）"

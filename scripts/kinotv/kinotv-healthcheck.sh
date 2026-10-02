@@ -106,7 +106,7 @@ fi
 ready_code="$(http_code_of "$BASE_URL$READY_PATH")"
 
 if [ "$live_code" = "200" ] && [ -n "$DEGRADED" ]; then
-    record_ok "存活探针" "http=200（降级：$PROBE_PATH 返回 401，改用 $DEGRADED）"
+    record_ok "存活探针" "http=200（降级：$PROBE_PATH 返回 401，改用 ${DEGRADED}）"
 elif [ "$live_code" = "200" ]; then
     record_ok "存活探针" "http=$live_code"
 else
@@ -209,7 +209,7 @@ LINE="[$STAMP] $STATUS $SUMMARY"
 {
     printf '%s\n' "$LINE"
     printf '  live=%s ready=%s disk=%s%% backup=%s verify=%s\n' \
-        "$live_code" "$ready_code${DEGRADED:+ (degraded)}" "${disk_used:-?}" \
+        "$live_code${DEGRADED:+ (degraded)}" "$ready_code" "${disk_used:-?}" \
         "$([ -n "$LATEST_RUN" ] && basename "$LATEST_RUN" || echo none)" "${verify_age_days:-none}"
 } >> "$LOG" 2>/dev/null || printf '%s\n' "$LINE"
 
