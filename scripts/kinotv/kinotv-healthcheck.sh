@@ -16,6 +16,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/kinotv-common.sh"
 
 BASE_URL="${KINOTV_HEALTH_BASE_URL:-http://127.0.0.1:8090}"
+PROBE_PATH="${KINOTV_HEALTH_PROBE_PATH:-/api/health/live}"
+READY_PATH="${KINOTV_HEALTH_READY_PATH:-/api/health/ready}"
+# 降级探活：/api/health/live 的匿名白名单是随某个版本才加的，在那之前它返回 401。
+# 这时若直接判 ALERT，等于让"还没升级二进制"伪装成"服务挂了"，巡检会立刻失去可信度。
+# 退到一个本来就匿名的接口，仍能证明 HTTP 栈与账号库可用。
+FALLBACK_PATH="${KINOTV_HEALTH_FALLBACK_PATH:-/api/auth/agreements}"
 BACKUP_DIR="${KINOTV_BACKUP_DIR:-/root/backups/kinotv}"
 DISK_PATH="${KINOTV_HEALTH_DISK_PATH:-/}"
 BACKUP_MAX_AGE_HOURS="${KINOTV_HEALTH_BACKUP_MAX_AGE_HOURS:-26}"
@@ -89,14 +95,30 @@ http_code_of() {
     fi
     printf '%s' "${code:-000}"
 }
-live_code="$(http_code_of "$BASE_URL/api/health/live")"
-ready_code="$(http_code_of "$BASE_URL/api/health/ready")"
-[ "$live_code" = "200" ] && record_ok "存活探针" "http=$live_code" \
-    || record_bad "存活探针" "http=${live_code}（进程可能已挂）"
+live_code="$(http_code_of "$BASE_URL$PROBE_PATH")"
+DEGRADED=""
+if [ "$live_code" = "401" ] && [ -n "$FALLBACK_PATH" ]; then
+    if [ "$(http_code_of "$BASE_URL$FALLBACK_PATH")" = "200" ]; then
+        DEGRADED="$FALLBACK_PATH"
+        live_code=200
+    fi
+fi
+ready_code="$(http_code_of "$BASE_URL$READY_PATH")"
+
+if [ "$live_code" = "200" ] && [ -n "$DEGRADED" ]; then
+    record_ok "存活探针" "http=200（降级：$PROBE_PATH 返回 401，改用 $DEGRADED）"
+elif [ "$live_code" = "200" ]; then
+    record_ok "存活探针" "http=$live_code"
+else
+    record_bad "存活探针" "http=${live_code}（进程可能已挂）"
+fi
 if [ "$ready_code" = "200" ]; then
     record_ok "就绪探针" "http=$ready_code"
 elif [ "$ready_code" = "503" ]; then
     record_bad "就绪探针" "http=503（进程在跑但依赖未就绪）"
+elif [ "$ready_code" = "401" ]; then
+    # 同上：这是"还没升级二进制"，不是"服务病了"。记下来但不判故障。
+    record_ok "就绪探针" "http=401（当前二进制未开放匿名就绪探针，跳过）"
 else
     record_bad "就绪探针" "http=$ready_code"
 fi
@@ -187,7 +209,7 @@ LINE="[$STAMP] $STATUS $SUMMARY"
 {
     printf '%s\n' "$LINE"
     printf '  live=%s ready=%s disk=%s%% backup=%s verify=%s\n' \
-        "$live_code" "$ready_code" "${disk_used:-?}" \
+        "$live_code" "$ready_code${DEGRADED:+ (degraded)}" "${disk_used:-?}" \
         "$([ -n "$LATEST_RUN" ] && basename "$LATEST_RUN" || echo none)" "${verify_age_days:-none}"
 } >> "$LOG" 2>/dev/null || printf '%s\n' "$LINE"
 
