@@ -1130,20 +1130,40 @@ const minimaxSpeechSpeed = () => {
   return { $switch: { cases: [{ when: and(gte(toFloat(value), 0.5), lte(toFloat(value), 2)), then: toFloat(value) }] } };
 };
 
+// Replicate 只给官方模型提供"模型作用域"创建入口（/v1/models/{owner}/{name}/predictions），
+// 社区模型（ACE-Step）必须走 /v1/predictions 并在 body 顶层带 version，否则上游返回 404。
+// 版本号随插件发版固定，运营可以用 providerOptions.version 覆盖，上游换版本时不必等发版。
+const ACE_STEP_VERSION = "280fc4f9ee507577f880a167f639c02622421d8fecf492454320311217b688f1";
+const replicateAudioVersion = coalesce(replicateAudioOption("version"), audioFamilyField("ace", ACE_STEP_VERSION));
+const replicateAudioCreatePath = {
+  $switch: {
+    cases: [{ when: eq(replicateAudioFamily, "ace"), then: "/v1/predictions" }],
+    default: concat("/v1/models/", ref("request.model"), "/predictions")
+  }
+};
+// 时长只有 ACE-Step 能指定（1–240 秒，-1 = 上游随机）。MiniMax 的时长由歌词与编排决定，
+// 传了也不认，所以这个键只在 ace 族求值。
+const aceStepDuration = () => {
+  const value = toInt(coalesce(ref("request.extra.audioDuration"), replicateAudioOption("duration")));
+  return { $switch: { cases: [{ when: or(eq(value, -1), and(gte(value, 1), lte(value, 240))), then: value }] } };
+};
+
 add({
   id: "replicate-prediction-audio", providerId: "replicate-prediction-audio", name: "Replicate Predictions Audio", vendor: "Replicate", capability: "audio",
   baseUrl: "https://api.replicate.com", auth: bearer,
   params: [
-    ["model", "string", true, "path /v1/models/{model}/predictions", "音频模型 ID，owner/name 形式（minimax/speech-2.8-turbo、minimax/music-2.5）。"],
-    ["prompt", "string", true, "text（语音族）/ lyrics（音乐族）", "语音模型的朗读文本；音乐模型 2.5 的 lyrics 是必填键，同一个输入框填歌词，风格另走 audioInstructions。"],
-    ["providerOptions", "object", false, "provider-specific fields", "插件命名空间内的厂商扩展字段：voice_id、emotion、pitch、volume、channel、sample_rate、bitrate、subtitle_enable、english_normalization、input。"]
+    ["model", "string", true, "path /v1/models/{model}/predictions 或 /v1/predictions + version", "音频模型 ID，owner/name 形式（minimax/speech-2.8-turbo、minimax/music-2.5、lucataco/ace-step）。官方模型走模型作用域端点，社区模型走版本端点。"],
+    ["prompt", "string", false, "text（语音族）/ lyrics（音乐族、ace 族）", "语音模型的朗读文本；音乐模型的歌词。ACE-Step 留空时下发 [instrumental]，即纯器乐。"],
+    ["providerOptions", "object", false, "provider-specific fields", "插件命名空间内的厂商扩展字段：voice_id、emotion、pitch、volume、channel、sample_rate、bitrate、subtitle_enable、english_normalization、version、seed、number_of_steps、audio_format、input。"]
   ],
-  notes: "Replicate 音频模型逐模型收窄输入：minimax/speech-* 下发 text/voice_id/speed/audio_format/language_boost，minimax/music-* 只下发 lyrics/prompt/audio_format，两族互不相认的键一律不发。语速按上游 0.5–2.0 收口，输出格式按各族枚举收口，未列举的取值退回上游默认。输出是 30 分钟过期的临时 URL，标记 ephemeral 由宿主立即下载持久化。",
+  notes: "Replicate 音频模型逐模型收窄输入：minimax/speech-* 下发 text/voice_id/speed/audio_format/language_boost，minimax/music-* 只下发 lyrics/prompt/audio_format，lucataco/ace-step 只下发 lyrics/tags/duration/seed/number_of_steps，各族互不相认的键一律不发。ACE-Step 是社区模型，创建走 /v1/predictions + version（版本号固定在本插件，可用 providerOptions.version 覆盖）；它的时长可按秒指定，MiniMax 音乐族的时长由上游决定、无法指定。语速按上游 0.5–2.0 收口，输出格式按各族枚举收口，未列举的取值退回上游默认。输出是 30 分钟过期的临时 URL，标记 ephemeral 由宿主立即下载持久化。",
   create: {
     method: "POST",
-    pathTemplate: concat("/v1/models/", ref("request.model"), "/predictions"),
+    pathTemplate: replicateAudioCreatePath,
     contentType: "application/json",
     body: {
+      // 社区模型的版本号必须放在 body 顶层，官方模型下发这个键会被上游拒绝。
+      version: audioFamilyField("ace", omit(replicateAudioVersion)),
       input: omit(coalesce(replicateAudioOption("input"), {
         // 语音族
         text: audioFamilyField("speech", ref("request.prompt")),
@@ -1159,8 +1179,16 @@ add({
         subtitle_enable: audioFamilyField("speech", omit(replicateAudioOption("subtitle_enable"))),
         english_normalization: audioFamilyField("speech", omit(replicateAudioOption("english_normalization"))),
         // 音乐族：lyrics 必填，风格描述走 audioInstructions（前台对音乐模型显示为“风格描述”）
-        lyrics: audioFamilyField("music", ref("request.prompt")),
+        // ace 族：歌词可空（空 = [instrumental] 纯器乐），风格标签必填。
+        lyrics: { $switch: { cases: [
+          { when: eq(replicateAudioFamily, "music"), then: ref("request.prompt") },
+          { when: eq(replicateAudioFamily, "ace"), then: omit(coalesce(ref("request.prompt"), "[instrumental]")) }
+        ] } },
         prompt: audioFamilyField("music", omit(ref("request.extra.audioInstructions"))),
+        tags: audioFamilyField("ace", omit(ref("request.extra.audioInstructions"))),
+        duration: audioFamilyField("ace", omit(aceStepDuration())),
+        seed: audioFamilyField("ace", omit(replicateAudioOption("seed"))),
+        number_of_steps: audioFamilyField("ace", omit(replicateAudioOption("number_of_steps"))),
         audio_format: { $switch: { cases: [audioFormatForFamily("speech", ["mp3", "wav", "flac", "pcm"]), audioFormatForFamily("music", ["mp3", "wav", "pcm"])] } }
       }))
     }

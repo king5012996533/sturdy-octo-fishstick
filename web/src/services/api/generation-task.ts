@@ -467,6 +467,7 @@ export function backendProviderConfig(config: AiConfig, mode: BackendGenerationM
         audioPitch: config.audioPitch,
         audioVolume: config.audioVolume,
         audioInstructions: config.audioInstructions,
+        audioDuration: config.audioDuration,
         systemPrompt: config.systemPrompt,
     };
     if (logicalModelIDForConfig(config)) return generationOptions;
@@ -526,6 +527,7 @@ function workflowProviderConfig(config: AiConfig, requestConfig: ReturnType<type
         audioPitch: config.audioPitch,
         audioVolume: config.audioVolume,
         audioInstructions: config.audioInstructions,
+        audioDuration: config.audioDuration,
         workflowId: workflow.workflowId,
         webappId: workflow.webappId,
         workflowJson: workflow.workflowJson,

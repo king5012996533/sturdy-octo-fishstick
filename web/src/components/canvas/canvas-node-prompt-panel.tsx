@@ -5,7 +5,7 @@ import { ArrowLeftRight, ArrowUp, AtSign, Boxes, Camera, ChevronDown, FileText, 
 
 import { ModelPicker } from "@/components/model-picker";
 import { defaultConfig, modelOptionName, resolveModelChannel, selectableModelsByCapability, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
-import { resolveAudioSpeechSettings } from "@/lib/audio-generation";
+import { audioTextOptional, resolveAudioSpeechSettings } from "@/lib/audio-generation";
 import { resolveCanvasGenerationModel } from "@/lib/canvas/canvas-project-generation";
 import { clampPromptEditorModalSize, PROMPT_EDITOR_VIEWPORT_MARGIN } from "@/lib/canvas/canvas-prompt-editor-size";
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -164,7 +164,11 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
     // 平台没给这个能力配模型时，点生成只会让引导逻辑空转（托管形态还跳不到配置页），
     // 所以直接把按钮置灰，让"暂无支持当前输入的 X 模型"这句话成为唯一结论。
     const hasUsableModel = selectableModelsByCapability(config, mode).length > 0;
-    const isSubmitDisabled = !isRunning && (!prompt.trim() || !hasUsableModel);
+    // ACE-Step 靠风格标签出曲：标签必填，歌词可空（空歌词 = 纯器乐）。其他音频模型仍然要求文本。
+    const audioStyleRequired = mode === "audio" && audioTextOptional(config.model);
+    const audioStyleMissing = audioStyleRequired && !config.audioInstructions.trim();
+    const promptMissing = !prompt.trim() && !(audioStyleRequired && config.audioInstructions.trim());
+    const isSubmitDisabled = !isRunning && (promptMissing || audioStyleMissing || !hasUsableModel);
     const canExpandPrompt = mode === "image" || mode === "video";
     const canOptimizePrompt = Boolean(promptOptimizerProvider) && canExpandPrompt;
     const isPortraitTexture = mode === "image" && Boolean(node.metadata?.portraitTexture);
@@ -463,7 +467,7 @@ export function CanvasNodePromptPanel({ projectId, node, isRunning, onPromptChan
                             ? "thin-scrollbar h-full w-full resize-none overflow-y-auto border-none bg-transparent px-3 py-2.5 text-[var(--fs-body-lg)] leading-6 !outline-none !ring-0 !shadow-none focus:!outline-none focus:!ring-0 focus:!shadow-none placeholder:text-current placeholder:opacity-35"
                             : "thin-scrollbar h-full w-full resize-none overflow-y-auto border-none bg-transparent px-2.5 py-1.5 text-[var(--fs-body)] leading-5 !outline-none !ring-0 !shadow-none focus:!outline-none focus:!ring-0 focus:!shadow-none placeholder:text-current placeholder:opacity-35"}
                         style={{ color: theme.node.text, outline: "none", boxShadow: "none" }}
-                        placeholder={promptPlaceholder(mode, hasImageContent, hasTextContent)}
+                        placeholder={promptPlaceholder(mode, hasImageContent, hasTextContent, config.model)}
                         aria-label={`${modeDisplayName(mode)}提示词`}
                     />
                 </div>
@@ -1090,13 +1094,15 @@ export function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mo
             audioPitch: node.metadata?.audioPitch || globalConfig.audioPitch,
             audioVolume: node.metadata?.audioVolume || globalConfig.audioVolume,
             audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions,
+            audioDuration: node.metadata?.audioDuration || globalConfig.audioDuration,
         }),
         count: defaults.count ?? String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultConfig.count),
     };
 }
 
-function promptPlaceholder(mode: CanvasNodeGenerationMode, hasImageContent: boolean, hasTextContent: boolean) {
+function promptPlaceholder(mode: CanvasNodeGenerationMode, hasImageContent: boolean, hasTextContent: boolean, model: string) {
     if (mode === "video") return "描述你想要生成的画面内容，@引用素材";
+    if (mode === "audio" && audioTextOptional(model)) return "填写歌词，留空则由风格标签生成纯器乐";
     if (mode === "audio") return "描述你想要的音频效果，可用 @ 引用音频";
     if (mode === "image") return hasImageContent ? "输入新提示词，重新生成当前图片" : "描述要生成的图片内容";
     return hasTextContent ? "请输入你想要将本段文本修改成什么" : "请输入你想要生成的文本内容";
@@ -1116,5 +1122,6 @@ function audioConfigPatch(key: CanvasAudioSettingKey, value: string) {
     if (key === "audioSpeed") return { audioSpeed: value };
     if (key === "audioPitch") return { audioPitch: value };
     if (key === "audioVolume") return { audioVolume: value };
-    return { audioInstructions: value };
+    if (key === "audioInstructions") return { audioInstructions: value };
+    return { audioDuration: value };
 }

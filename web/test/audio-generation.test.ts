@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
 import { buildNodeConfig } from "@/components/canvas/canvas-node-prompt-panel";
-import { audioSettingsSummary, audioSpeechProfile, buildAudioSpeechRequest, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue, resolveAudioSpeechSettings } from "@/lib/audio-generation";
+import { audioDurationLabel, audioSettingsSummary, audioSpeechProfile, audioTextOptional, buildAudioSpeechRequest, normalizeAudioDurationValue, normalizeAudioFormatValue, normalizeAudioSpeedValue, normalizeAudioVoiceValue, resolveAudioSpeechSettings } from "@/lib/audio-generation";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 import { createModelChannel, defaultConfig, type AiConfig } from "@/stores/use-config-store";
 
@@ -164,5 +164,54 @@ describe("Replicate MiniMax audio settings", () => {
         const settings = resolveAudioSpeechSettings("minimax/music-2.5", { audioFormat: "wav", audioInstructions: "独立民谣，木吉他" });
         expect(settings.audioInstructions).toBe("独立民谣，木吉他");
         expect(audioSettingsSummary({ model: "minimax/music-2.5", ...settings })).toBe("WAV");
+    });
+});
+
+// ACE-Step 是社区模型：风格标签必填、歌词可空（空 = 纯器乐）、时长按秒指定。
+// MiniMax 音乐族的时长由上游抽卡决定，给它挂档位只会骗用户，所以档位只在这里出现。
+describe("ACE-Step music settings", () => {
+    function aceConfig(): AiConfig {
+        const channel = createModelChannel({
+            id: "replicate",
+            name: "Replicate",
+            baseUrl: "https://api.replicate.com",
+            interfaceType: "replicate-prediction-audio",
+            models: ["lucataco/ace-step", "minimax/music-2.5"],
+            modelProfiles: [
+                { model: "lucataco/ace-step", capability: "audio", protocol: "replicate-prediction-audio" },
+                { model: "minimax/music-2.5", capability: "audio", protocol: "replicate-prediction-audio" },
+            ],
+        });
+        return { ...defaultConfig, channels: [channel], audioModel: "replicate::lucataco/ace-step" };
+    }
+
+    test("only the model that takes seconds gets duration tiers", () => {
+        const profile = audioSpeechProfile("lucataco/ace-step");
+        expect(profile.kind).toBe("replicate-ace-step");
+        expect(profile.durationOptions?.map((item) => item.value)).toEqual(["15", "30", "60", "90", "120", "180"]);
+        expect(profile.showFormat).toBe(false);
+        expect(profile.instructionsTitle).toBe("风格标签（必填）");
+        expect(audioSpeechProfile("minimax/music-2.5").durationOptions || []).toEqual([]);
+        expect(normalizeAudioDurationValue("30", "minimax/music-2.5")).toBe("");
+    });
+
+    test("duration falls back to the default tier and refuses values outside it", () => {
+        expect(normalizeAudioDurationValue("", "lucataco/ace-step")).toBe("60");
+        expect(normalizeAudioDurationValue("600", "lucataco/ace-step")).toBe("60");
+        expect(normalizeAudioDurationValue("15", "lucataco/ace-step")).toBe("15");
+        expect(audioDurationLabel("90", "lucataco/ace-step")).toBe("1.5分");
+        expect(audioSettingsSummary({ model: "lucataco/ace-step", audioDuration: "30" })).toBe("30秒");
+    });
+
+    test("empty lyrics are legitimate only where the upstream takes an instrumental marker", () => {
+        expect(audioTextOptional("lucataco/ace-step")).toBe(true);
+        expect(audioTextOptional("minimax/music-2.5")).toBe(false);
+        expect(audioTextOptional("minimax/speech-2.8-turbo")).toBe(false);
+    });
+
+    test("canvas node metadata carries the chosen duration into the request config", () => {
+        const config = buildNodeConfig(aceConfig(), audioNode({ metadata: { model: "replicate::lucataco/ace-step", audioDuration: "30", audioInstructions: "lofi, rainy night" } }), "audio", { capability: "audio" });
+        expect(config.audioDuration).toBe("30");
+        expect(audioSettingsSummary(config)).toBe("30秒");
     });
 });

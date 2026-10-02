@@ -1,11 +1,11 @@
 import { type ReactNode } from "react";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
-import { audioPitchLabel, audioSpeedLabel, audioSpeechProfile, audioVolumeLabel, normalizeAudioFormatValue, normalizeAudioPitchValue, normalizeAudioSpeedValue, normalizeAudioVolumeValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
+import { audioPitchLabel, audioSpeedLabel, audioSpeechProfile, audioVolumeLabel, normalizeAudioDurationValue, normalizeAudioFormatValue, normalizeAudioPitchValue, normalizeAudioSpeedValue, normalizeAudioVolumeValue, normalizeAudioVoiceValue } from "@/lib/audio-generation";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import type { AiConfig } from "@/stores/use-config-store";
 
-type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioPitch" | "audioVolume" | "audioInstructions";
+type AudioSettingKey = "audioVoice" | "audioFormat" | "audioSpeed" | "audioPitch" | "audioVolume" | "audioInstructions" | "audioDuration";
 
 type AudioSettingsPanelProps = {
     config: AiConfig;
@@ -23,6 +23,8 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const speed = normalizeAudioSpeedValue(config.audioSpeed, model);
     const pitch = normalizeAudioPitchValue(config.audioPitch);
     const volume = normalizeAudioVolumeValue(config.audioVolume);
+    const duration = normalizeAudioDurationValue(config.audioDuration, model);
+    const durationOptions = profile.durationOptions || [];
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -39,15 +41,28 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         </div>
                     </SettingGroup>
                 ) : null}
-                <SettingGroup title="格式" color={theme.node.muted}>
-                    <div className="grid grid-cols-3 gap-2.5">
-                        {profile.formats.map((item) => (
-                            <OptionPill key={item.value} selected={format === item.value} theme={theme} onClick={() => onConfigChange("audioFormat", item.value)}>
-                                {item.label}
-                            </OptionPill>
-                        ))}
-                    </div>
-                </SettingGroup>
+                {durationOptions.length ? (
+                    <SettingGroup title="时长" color={theme.node.muted}>
+                        <div className="grid grid-cols-3 gap-2.5">
+                            {durationOptions.map((item) => (
+                                <OptionPill key={item.value} selected={duration === item.value} theme={theme} onClick={() => onConfigChange("audioDuration", item.value)}>
+                                    {item.label}
+                                </OptionPill>
+                            ))}
+                        </div>
+                    </SettingGroup>
+                ) : null}
+                {profile.showFormat === false ? null : (
+                    <SettingGroup title="格式" color={theme.node.muted}>
+                        <div className="grid grid-cols-3 gap-2.5">
+                            {profile.formats.map((item) => (
+                                <OptionPill key={item.value} selected={format === item.value} theme={theme} onClick={() => onConfigChange("audioFormat", item.value)}>
+                                    {item.label}
+                                </OptionPill>
+                            ))}
+                        </div>
+                    </SettingGroup>
+                )}
                 {profile.showSpeed ? (
                     <SettingGroup title="语速" color={theme.node.muted}>
                         <div className="grid grid-cols-4 gap-2.5">

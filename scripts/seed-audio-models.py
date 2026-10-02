@@ -32,10 +32,21 @@
 | 模型 | 售价 | 上游成本 | 每条 |
 | --- | --- | --- | --- |
 | 配音 minimax/speech-2.8-turbo | ¥0.30/次 | $0.06/千 token（30 字文案约 $0.002） | 约 +¥0.28 |
-| 配乐 minimax/music-2.5 | ¥2.00/次 | $0.15/条（约 ¥1.07） | 约 +¥0.93 |
+| 配乐 minimax/music-2.5 | ¥3.00/次 | $0.15/条（约 ¥1.07） | 约 +¥1.93 |
+| 配乐 lucataco/ace-step | ¥0.60/次 | $0.02/条（约 ¥0.14，p50） | 约 +¥0.46 |
 
 配音的价看起来"贵"，是因为它在成本上几乎免费：只要文案不是上万字，一次调用的成本都在
 一分钱以下。定 30 分买的是"这不是一次免费调用"，不是成本加成。
+
+## 为什么两条音乐线路并存
+
+minimax/music-2.5 的出曲时长由歌词与编排决定，实测同一份输入连跑三次拿到 86 / 69 / 60 秒，
+做不出"给我 30 秒"这件事；ace-step 能按秒指定（1–240 秒），但它是 Replicate 的社区模型，
+人声质量不如 MiniMax。短视频配乐要的是可控时长，整首歌要的是质量，所以两条都留。
+
+ace-step 没有默认版本，Replicate 只接受 /v1/predictions + version 创建预测，版本号固定在
+插件里（见 plugin-packages/generate-catalog.mjs 的 ACE_STEP_VERSION）；上游换版本要改插件并发版，
+或者临时用 providerOptions.version 覆盖。
 """
 
 from __future__ import annotations
@@ -52,9 +63,10 @@ from decimal import Decimal
 # 渠道：Replicate · 主账号。音频模型挂在同一个渠道下，key 复用它的凭据。
 CHANNEL_ID = "CHANNEL_000003"
 
-# 售价：分 / 次。30 分 = ¥0.30，200 分 = ¥2.00。
+# 售价：分 / 次。30 分 = ¥0.30，300 分 = ¥3.00，60 分 = ¥0.60。
 SPEECH_SELL_FEN_PER_REQUEST = 30
-MUSIC_SELL_FEN_PER_REQUEST = 200
+MUSIC_SELL_FEN_PER_REQUEST = 300
+ACE_STEP_SELL_FEN_PER_REQUEST = 60
 
 MODELS: list[dict] = [
     {
@@ -68,6 +80,12 @@ MODELS: list[dict] = [
         "displayName": "MiniMax Music 2.5 配乐",
         "sellFen": MUSIC_SELL_FEN_PER_REQUEST,
         "upstream": "上游 $0.15/条，与时长无关（最长约 5 分钟）",
+    },
+    {
+        "modelKey": "lucataco/ace-step",
+        "displayName": "ACE-Step 配乐（可选时长）",
+        "sellFen": ACE_STEP_SELL_FEN_PER_REQUEST,
+        "upstream": "上游 $0.02/条（p50，按算力计费）；可指定 1–240 秒，空歌词即纯器乐",
     },
 ]
 

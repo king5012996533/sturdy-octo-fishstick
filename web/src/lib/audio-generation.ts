@@ -79,7 +79,21 @@ export const replicateMinimaxMusicFormatOptions = [
     { value: "pcm", label: "PCM" },
 ];
 
-export type AudioSpeechKind = "openai" | "minimax-speech" | "minimax-music" | "replicate-minimax-speech" | "replicate-minimax-music";
+export type AudioSpeechKind = "openai" | "minimax-speech" | "minimax-music" | "replicate-minimax-speech" | "replicate-minimax-music" | "replicate-ace-step";
+
+// 时长档位只给"能按秒出曲"的模型看。MiniMax 音乐族的时长由歌词与编排决定，实测同一份输入
+// 三次能差 26 秒，做成档位只会骗用户；ACE-Step 是指定多少出多少，所以只对它开放。
+export const audioDurationOptions = [
+    { value: "15", label: "15秒" },
+    { value: "30", label: "30秒" },
+    { value: "60", label: "1分钟" },
+    { value: "90", label: "1.5分" },
+    { value: "120", label: "2分钟" },
+    { value: "180", label: "3分钟" },
+];
+
+const AUDIO_DURATION_VALUES = new Set(audioDurationOptions.map((item) => item.value));
+const DEFAULT_AUDIO_DURATION = "60";
 
 export type AudioSpeechProfile = {
     kind: AudioSpeechKind;
@@ -91,6 +105,8 @@ export type AudioSpeechProfile = {
     speedMax: number;
     speedOptions: string[];
     showVoice: boolean;
+    // ACE-Step 的输出格式固定是 mp3，上游没有 audio_format 键，这时不显示格式分组。
+    showFormat?: boolean;
     showSpeed: boolean;
     showPitch: boolean;
     showVolume: boolean;
@@ -98,6 +114,9 @@ export type AudioSpeechProfile = {
     // 同一个开关在不同上游含义不同：MiniMax 音乐把这段文本当风格描述，OpenAI 系是朗读指令。
     instructionsTitle?: string;
     instructionsPlaceholder?: string;
+    // 只有支持按秒出曲的模型才有档位；为空表示时长不可控。
+    durationOptions?: Array<{ value: string; label: string }>;
+    defaultDuration?: string;
 };
 
 const OPENAI_SPEECH_VOICES = new Set(audioVoiceOptions.map((item) => item.value));
@@ -110,6 +129,7 @@ export function audioModelId(model: string) {
 
 export function audioSpeechKind(model: string): AudioSpeechKind {
     const id = audioModelId(model);
+    if (id.includes("ace-step")) return "replicate-ace-step";
     // Replicate 上的模型是全名 owner/name（minimax/speech-2.8-turbo），同一族的音色与
     // 输出格式枚举和 BeefAPI 不同，必须分开：否则会把 alloy 这类 OpenAI 音色名发上去。
     const replicateFullName = id.includes("/");
@@ -120,6 +140,12 @@ export function audioSpeechKind(model: string): AudioSpeechKind {
         return replicateFullName ? "replicate-minimax-music" : "minimax-music";
     }
     return "openai";
+}
+
+// ACE-Step 的文本输入可以留空：空歌词就是"纯器乐"，这是短视频配乐最常见的用法。
+// 其他音频模型的文本是必填（MiniMax 的 lyrics 是必填键），留空会被上游拒绝。
+export function audioTextOptional(model: string) {
+    return audioSpeechKind(model) === "replicate-ace-step";
 }
 
 export function audioSpeechProfile(model = ""): AudioSpeechProfile {
@@ -195,6 +221,29 @@ export function audioSpeechProfile(model = ""): AudioSpeechProfile {
             instructionsPlaceholder: "例如：独立民谣，忧郁，慢速，木吉他。留空则只按歌词生成。",
         };
     }
+    if (kind === "replicate-ace-step") {
+        return {
+            kind,
+            // ACE-Step 是社区模型：风格标签必填，歌词可空（留空即纯器乐），时长可按秒指定。
+            voices: [],
+            formats: [],
+            defaultVoice: "",
+            defaultFormat: "",
+            speedMin: 1,
+            speedMax: 1,
+            speedOptions: [],
+            showVoice: false,
+            showFormat: false,
+            showSpeed: false,
+            showPitch: false,
+            showVolume: false,
+            showInstructions: true,
+            instructionsTitle: "风格标签（必填）",
+            instructionsPlaceholder: "例如：cinematic, uplifting piano, warm strings。纯器乐也靠它定调。",
+            durationOptions: audioDurationOptions,
+            defaultDuration: DEFAULT_AUDIO_DURATION,
+        };
+    }
     return {
         kind,
         voices: audioVoiceOptions,
@@ -252,6 +301,22 @@ export function normalizeAudioVolumeValue(value: string) {
     return String(Math.max(0, Math.min(1, Number(volume.toFixed(2)))));
 }
 
+// 时长只在支持它的模型上取值：别的模型带着上一个模型的 15 秒发上去没有意义，
+// 统一收敛成空字符串，插件据此判定"这次不下发时长"。
+export function normalizeAudioDurationValue(value: string | undefined, model?: string) {
+    const profile = audioSpeechProfile(model);
+    if (!profile.durationOptions?.length) return "";
+    const trimmed = String(value ?? "").trim();
+    return AUDIO_DURATION_VALUES.has(trimmed) ? trimmed : profile.defaultDuration || DEFAULT_AUDIO_DURATION;
+}
+
+export function audioDurationLabel(value: string | undefined, model?: string) {
+    const profile = audioSpeechProfile(model);
+    if (!profile.durationOptions?.length) return "";
+    const duration = normalizeAudioDurationValue(value, model);
+    return profile.durationOptions.find((item) => item.value === duration)?.label || `${duration}秒`;
+}
+
 export function audioVoiceLabel(value: string, model?: string) {
     const profile = audioSpeechProfile(model);
     const voice = normalizeAudioVoiceValue(value, model);
@@ -286,6 +351,7 @@ export function resolveAudioSpeechSettings(
         audioPitch?: string;
         audioVolume?: string;
         audioInstructions?: string;
+        audioDuration?: string;
     },
 ) {
     const profile = audioSpeechProfile(model);
@@ -296,15 +362,17 @@ export function resolveAudioSpeechSettings(
         audioPitch: profile.showPitch ? normalizeAudioPitchValue(values.audioPitch || "") : "0",
         audioVolume: profile.showVolume ? normalizeAudioVolumeValue(values.audioVolume || "") : "1",
         audioInstructions: profile.showInstructions ? String(values.audioInstructions || "") : "",
+        audioDuration: normalizeAudioDurationValue(values.audioDuration, model),
     };
 }
 
-export function audioSettingsSummary(config: { model?: string; audioVoice?: string; audioFormat?: string; audioSpeed?: string; audioPitch?: string; audioVolume?: string }) {
+export function audioSettingsSummary(config: { model?: string; audioVoice?: string; audioFormat?: string; audioSpeed?: string; audioPitch?: string; audioVolume?: string; audioDuration?: string }) {
     const model = config.model || "";
     const profile = audioSpeechProfile(model);
     const parts: string[] = [];
     if (profile.showVoice) parts.push(audioVoiceLabel(config.audioVoice || "", model));
-    parts.push(audioFormatLabel(config.audioFormat || "", model));
+    if (profile.showFormat !== false) parts.push(audioFormatLabel(config.audioFormat || "", model));
+    if (profile.durationOptions?.length) parts.push(audioDurationLabel(config.audioDuration, model));
     if (profile.showSpeed) parts.push(audioSpeedLabel(config.audioSpeed || "", model));
     if (profile.showPitch) parts.push(`音调${audioPitchLabel(config.audioPitch || "")}`);
     if (profile.showVolume) parts.push(`音量${audioVolumeLabel(config.audioVolume || "")}`);

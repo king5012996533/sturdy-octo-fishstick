@@ -683,6 +683,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
             audioPitch: node.metadata?.audioPitch || globalConfig.audioPitch,
             audioVolume: node.metadata?.audioVolume || globalConfig.audioVolume,
             audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions,
+            audioDuration: node.metadata?.audioDuration || globalConfig.audioDuration,
         }),
         count: normalizedImage?.count || String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultConfig.count),
     };
@@ -742,6 +743,7 @@ function buildModelNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode
             audioPitch: node.metadata?.audioPitch || globalConfig.audioPitch,
             audioVolume: node.metadata?.audioVolume || globalConfig.audioVolume,
             audioInstructions: node.metadata?.audioInstructions || globalConfig.audioInstructions,
+            audioDuration: node.metadata?.audioDuration || globalConfig.audioDuration,
         }),
         count: generationDefaults.count || String(node.metadata?.count || (mode === "image" ? globalConfig.canvasImageCount || globalConfig.count : globalConfig.count) || defaultConfig.count),
     };
@@ -761,5 +763,6 @@ function audioConfigPatch(key: CanvasAudioSettingKey, value: string) {
     if (key === "audioSpeed") return { audioSpeed: value };
     if (key === "audioPitch") return { audioPitch: value };
     if (key === "audioVolume") return { audioVolume: value };
-    return { audioInstructions: value };
+    if (key === "audioInstructions") return { audioInstructions: value };
+    return { audioDuration: value };
 }

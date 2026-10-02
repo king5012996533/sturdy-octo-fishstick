@@ -90,6 +90,7 @@ type providerConfig struct {
 	AudioFormat              string                 `json:"audioFormat"`
 	AudioSpeed               string                 `json:"audioSpeed"`
 	AudioInstructions        string                 `json:"audioInstructions"`
+	AudioDuration            string                 `json:"audioDuration"`
 	SystemPrompt             string                 `json:"systemPrompt"`
 	CapabilityConfig         *ModelCapabilityConfig `json:"capabilityConfig"`
 	VideoCapabilitiesVersion *string                `json:"videoCapabilitiesVersion,omitempty"`

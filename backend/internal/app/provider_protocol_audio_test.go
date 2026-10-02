@@ -163,3 +163,84 @@ func replicateAudioInput(t *testing.T, body any) map[string]any {
 	}
 	return input
 }
+
+// Replicate 只为官方模型提供模型作用域的创建入口，社区模型必须走 /v1/predictions 并在
+// body 顶层带 version，否则上游返回 404。ACE-Step 同时是唯一能按秒指定时长的音乐模型。
+func TestProtocolReplicateAudioSendsCommunityModelToVersionEndpoint(t *testing.T) {
+	adapter := officialSourceProviderAdapter(t, "replicate-prediction-audio", "replicate-prediction-audio")
+
+	spec, err := adapter.BuildCreate(context.Background(), protocol.RequestContext{Request: protocolRequestFromInput(canvasGenerationInput{
+		Mode:   "audio",
+		Prompt: "",
+		Config: providerConfig{
+			Model: "lucataco/ace-step", InterfaceType: "replicate-prediction-audio",
+			AudioInstructions: "cinematic, uplifting piano", AudioDuration: "30",
+		},
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Path != "/v1/predictions" {
+		t.Fatalf("ace path = %q, want the version endpoint", spec.Path)
+	}
+	body := marshalProtocolBody(t, spec.Body)
+	if version, _ := body["version"].(string); version != "280fc4f9ee507577f880a167f639c02622421d8fecf492454320311217b688f1" {
+		t.Fatalf("ace version = %#v, want the pinned ACE-Step version", body["version"])
+	}
+	input := replicateAudioInput(t, spec.Body)
+	// 歌词留空时要下发 [instrumental]：ACE-Step 靠这个标记出纯器乐，空字符串会被当成"没写歌词"。
+	if input["lyrics"] != "[instrumental]" || input["tags"] != "cinematic, uplifting piano" {
+		t.Fatalf("ace input = %#v, want instrumental lyrics and the style tags", input)
+	}
+	if input["duration"] != float64(30) {
+		t.Fatalf("ace duration = %#v, want the requested 30 seconds", input["duration"])
+	}
+	// ace 的输入 schema 没有 audio_format，也没有 text/voice_id，多发的键会被上游拒绝。
+	for _, key := range []string{"audio_format", "text", "voice_id", "speed", "prompt"} {
+		if _, exists := input[key]; exists {
+			t.Fatalf("ace input must not carry %q: %#v", key, input)
+		}
+	}
+}
+
+// 官方模型不能带 version（上游会拒），音乐族也不能带 duration（ACE-Step 才认），
+// 越界的时长必须在插件内收口，不能原样发给上游。
+func TestProtocolReplicateAudioKeepsVersionAndDurationFamiliesApart(t *testing.T) {
+	adapter := officialSourceProviderAdapter(t, "replicate-prediction-audio", "replicate-prediction-audio")
+
+	musicSpec, err := adapter.BuildCreate(context.Background(), protocol.RequestContext{Request: protocolRequestFromInput(canvasGenerationInput{
+		Mode:   "audio",
+		Prompt: "[Verse]\n海边的风",
+		Config: providerConfig{
+			Model: "minimax/music-2.5", InterfaceType: "replicate-prediction-audio",
+			AudioInstructions: "独立民谣", AudioDuration: "30",
+		},
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if musicSpec.Path != "/v1/models/minimax/music-2.5/predictions" {
+		t.Fatalf("music path = %q, want the model-scoped endpoint", musicSpec.Path)
+	}
+	if _, exists := marshalProtocolBody(t, musicSpec.Body)["version"]; exists {
+		t.Fatalf("official model body must not carry version: %#v", marshalProtocolBody(t, musicSpec.Body))
+	}
+	if input := replicateAudioInput(t, musicSpec.Body); input["duration"] != nil {
+		t.Fatalf("music input must not carry duration: %#v", input)
+	}
+
+	overSpec, err := adapter.BuildCreate(context.Background(), protocol.RequestContext{Request: protocolRequestFromInput(canvasGenerationInput{
+		Mode:   "audio",
+		Prompt: "[instrumental]",
+		Config: providerConfig{
+			Model: "lucataco/ace-step", InterfaceType: "replicate-prediction-audio",
+			AudioInstructions: "lofi", AudioDuration: "600",
+		},
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input := replicateAudioInput(t, overSpec.Body); input["duration"] != nil {
+		t.Fatalf("out-of-range duration must be dropped: %#v", input)
+	}
+}

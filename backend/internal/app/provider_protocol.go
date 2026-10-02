@@ -250,6 +250,11 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 	if instructions := strings.TrimSpace(input.Config.AudioInstructions); instructions != "" {
 		request.Extra["audioInstructions"] = instructions
 	}
+	// 只有能按秒出曲的音乐模型（ACE-Step）认这个键；认不认由插件按模型族收口，
+	// 宿主不在这里判断，避免把"哪个上游支持哪档时长"写死在宿主里。
+	if duration := strings.TrimSpace(input.Config.AudioDuration); duration != "" {
+		request.Extra["audioDuration"] = duration
+	}
 	request.ProviderOptions = make(map[string]map[string]any)
 	if configured, ok := input.Metadata["providerOptions"].(map[string]any); ok {
 		for namespace, raw := range configured {

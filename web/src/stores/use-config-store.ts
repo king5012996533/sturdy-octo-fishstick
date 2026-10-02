@@ -99,6 +99,7 @@ function normalizeWorkflowFieldSourceName(value: unknown, capability?: RunningHu
         audioformat: "audioFormat",
         audiospeed: "audioSpeed",
         audioinstructions: "audioInstructions",
+        audioduration: "audioDuration",
     };
     if (normalized === "resolution") return capability === "video" ? "vquality" : "size";
     // 工作流的 quality 可能是连续数值（例如 0.1-3），不能按视频分辨率处理。
@@ -402,6 +403,7 @@ export type AiConfig = {
     audioPitch: string;
     audioVolume: string;
     audioInstructions: string;
+    audioDuration: string;
     videoSeconds: string;
     vquality: string;
     videoGenerateAudio: string;
@@ -447,6 +449,7 @@ export const defaultConfig: AiConfig = {
     audioPitch: "0",
     audioVolume: "1",
     audioInstructions: "",
+    audioDuration: "60",
     videoSeconds: "6",
     vquality: "720",
     videoGenerateAudio: "true",
@@ -728,6 +731,7 @@ export function normalizeConfigSnapshot(snapshot: ConfigStoreSnapshot | undefine
             audioPitch: config.audioPitch || defaultConfig.audioPitch,
             audioVolume: config.audioVolume || defaultConfig.audioVolume,
             audioInstructions: config.audioInstructions || "",
+            audioDuration: config.audioDuration || defaultConfig.audioDuration,
             // 旧版全局 systemPrompt 会跨任务污染请求；提示词定制现已按 operation 由服务端编译。
             systemPrompt: "",
             videoSeconds: normalizeVideoDuration(config.videoSeconds),

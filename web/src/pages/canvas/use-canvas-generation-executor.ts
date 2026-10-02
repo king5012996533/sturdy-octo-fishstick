@@ -9,6 +9,7 @@ import { canvasGenerationPromptMetadata, canvasGenerationRequestFingerprint, run
 import { isGenerationTaskCapacityError } from "@/lib/canvas/canvas-generation-batch";
 import { buildPortraitTexturePrompt } from "@/lib/canvas/canvas-portrait-texture";
 import { buildCameraPrompt } from "@/lib/canvas/camera-prompt-library";
+import { audioTextOptional } from "@/lib/audio-generation";
 import { buildTextRewritePrompt } from "@/lib/prompts";
 import { resolveCanvasStyleExecution } from "@/lib/canvas/canvas-style-execution";
 import { generationErrorMessage } from "@/lib/generation-error";
@@ -221,6 +222,11 @@ export function useCanvasGenerationExecutor({
                             return;
                         }
                         generationConfig = { ...generationConfig, audioVoice: voice.voiceKey, audioInstructions: [voice.instructions, generationConfig.audioInstructions].filter(Boolean).join("；") };
+                    }
+                    // ACE-Step 允许空歌词（等价于纯器乐），但任务创建不接收空提示词，
+                    // 所以这里补上上游认的 [instrumental] 标记；风格标签走 audioInstructions。
+                    if (mode === "audio" && !effectivePrompt && audioTextOptional(generationConfig.model)) {
+                        effectivePrompt = "[instrumental]";
                     }
                     if (!effectivePrompt && (mode === "text" || mode === "audio")) {
                         return;
