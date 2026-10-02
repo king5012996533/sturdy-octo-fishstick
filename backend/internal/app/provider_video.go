@@ -49,6 +49,7 @@ func (s *Service) validateResolvedVideoCapability(input *canvasGenerationInput) 
 			return errors.New("当前视频模型能力参数无效")
 		}
 		input.Config.CapabilityConfig = normalized
+		restoreBeefAPISeedanceAudioControl(input.Config, normalized.Video)
 		input.VideoCapability = normalized.Video
 		applyFixedVideoResolution(input, normalized.Video)
 		return validateVideoTask(normalized.Video, *input)
@@ -66,6 +67,7 @@ func (s *Service) validateResolvedVideoCapability(input *canvasGenerationInput) 
 		return errors.New("当前视频模型能力参数无效")
 	}
 	input.VideoCapability = normalized.Video
+	restoreBeefAPISeedanceAudioControl(input.Config, normalized.Video)
 	applyFixedVideoResolution(input, normalized.Video)
 	return validateVideoTask(normalized.Video, *input)
 }
