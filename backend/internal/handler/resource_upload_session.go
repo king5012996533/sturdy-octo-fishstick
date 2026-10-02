@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -22,7 +24,12 @@ import (
 // 文件整体不再受 multipart 单请求大小限制（对齐 Concat 桌面端“任意大小直接入库”的体验）。
 // 会话状态只存在内存（重启即失效 → 前端整传重试），磁盘暂存在系统临时目录，随会话清理。
 const (
-	chunkUploadChunkSize   = 8 << 20
+	chunkUploadChunkSize = 8 << 20
+	// chunkUploadJanitorInterval 是空闲时的清理周期：过期阈值是 90 分钟，5 分钟一次
+	// 足够及时，也不会让磁盘扫描变成常态负载。
+	chunkUploadJanitorInterval = 5 * time.Minute
+	// chunkUploadDirPrefix 与 os.MkdirTemp 的前缀保持一致，重启后靠它认出自己的残留。
+	chunkUploadDirPrefix   = "canvas-chunk-upload-"
 	chunkUploadSlackBytes  = 64 << 10 // MaxBytesReader 允许的超片余量
 	chunkUploadTTL         = 90 * time.Minute
 	chunkUploadMaxPerUser  = 32
@@ -83,14 +90,74 @@ func (s *chunkedUploadSession) chunkSizeAt(index int) int64 {
 	return chunkUploadChunkSize
 }
 
-func removeExpiredChunkSessions() {
+// removeExpiredChunkSessions 清理超时未完成的分片上传会话，返回清理条数。
+//
+// 会话状态只在内存里，所以进程重启后磁盘上的临时目录会失去主人：这部分由
+// sweepOrphanChunkUploadDirs 按目录年龄兜底。
+func removeExpiredChunkSessions() int {
 	now := time.Now()
 	chunkUploadSessions.Lock()
 	defer chunkUploadSessions.Unlock()
+	removed := 0
 	for id, sess := range chunkUploadSessions.m {
 		if now.Sub(sess.CreatedAt) > chunkUploadTTL {
 			_ = os.RemoveAll(sess.Dir)
 			delete(chunkUploadSessions.m, id)
+			removed++
+		}
+	}
+	return removed
+}
+
+// sweepOrphanChunkUploadDirs 回收上一次进程留下的临时上传目录。
+//
+// 只按年龄判断：还在 TTL 内的目录可能是其它实例正在写的会话，留着；超过 TTL 的
+// 无论在哪个实例都已经是废弃数据。
+func sweepOrphanChunkUploadDirs() int {
+	matches, err := filepath.Glob(filepath.Join(os.TempDir(), chunkUploadDirPrefix+"*"))
+	if err != nil {
+		return 0
+	}
+	removed := 0
+	for _, dir := range matches {
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		if time.Since(info.ModTime()) <= chunkUploadTTL {
+			continue
+		}
+		if err := os.RemoveAll(dir); err == nil {
+			removed++
+		}
+	}
+	return removed
+}
+
+// RunChunkUploadJanitor 按运行时生命周期周期性回收过期上传会话。
+//
+// 之前清理只在有人取分片时顺带触发：用户批量开会话后消失，临时目录会一直占着磁盘，
+// 直到下一个人上传才被扫掉。这里补上空闲时的兜底，ctx 取消即退出，避免关闭时残留
+// goroutine。
+func RunChunkUploadJanitor(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = chunkUploadJanitorInterval
+	}
+	if removed := sweepOrphanChunkUploadDirs(); removed > 0 {
+		log.Printf("chunk upload janitor: removed %d orphan upload dirs from a previous run", removed)
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			removed := removeExpiredChunkSessions()
+			orphans := sweepOrphanChunkUploadDirs()
+			if removed+orphans > 0 {
+				log.Printf("chunk upload janitor: removed %d expired sessions, %d orphan dirs", removed, orphans)
+			}
 		}
 	}
 }
@@ -167,7 +234,7 @@ func RegisterChunkedUploadRoutes(r *gin.RouterGroup, svc *app.Service, hostedPro
 			fail(c, http.StatusTooManyRequests, fmt.Errorf("同时进行中的上传过多，请稍后重试"))
 			return
 		}
-		dir, err := os.MkdirTemp("", "canvas-chunk-upload-*")
+		dir, err := os.MkdirTemp("", chunkUploadDirPrefix+"*")
 		if err != nil {
 			failService(c, err)
 			return

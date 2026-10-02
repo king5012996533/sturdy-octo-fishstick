@@ -47,7 +47,9 @@ type Runtime struct {
 	closed      atomic.Bool
 	closeOnce   sync.Once
 	background  sync.WaitGroup
-	closeErr    error
+	// cancelBackground 结束随实例启动的后台维护协程（分片上传清理等）。
+	cancelBackground context.CancelFunc
+	closeErr         error
 }
 
 func Open(_ context.Context, raw Config) (*Runtime, error) {
@@ -320,6 +322,14 @@ func (r *Runtime) Start() error {
 		defer r.background.Done()
 		r.service.BackfillPlaybackTranscodes()
 	}()
+	// 空闲时的分片上传清理：会话只在内存里，没人上传时过期目录不会有第二次机会被扫到。
+	janitorCtx, cancelJanitor := context.WithCancel(context.Background())
+	r.cancelBackground = cancelJanitor
+	r.background.Add(1)
+	go func() {
+		defer r.background.Done()
+		canvasHandler.RunChunkUploadJanitor(janitorCtx, 0)
+	}()
 	r.status.markStarted()
 	if r.beefAPI != nil {
 		_ = r.beefAPI.Recover(context.Background())
@@ -368,6 +378,9 @@ func (r *Runtime) Close(ctx context.Context) error {
 	r.closeOnce.Do(func() {
 		r.closed.Store(true)
 		r.status.beginDrain()
+		if r.cancelBackground != nil {
+			r.cancelBackground()
+		}
 		if r.beefAPI != nil {
 			r.beefAPI.Close()
 		}
