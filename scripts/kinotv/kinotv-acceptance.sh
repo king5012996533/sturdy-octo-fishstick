@@ -67,8 +67,10 @@ GUARD_PORT=$((PORT + 1))
 # "未设置开关"的用例就会假通过。
 unset CANVAS_HOSTED_AUTH CANVAS_AUTH_DATABASE_URL
 
+# exec：背景执行时 $! 才等于真正的服务进程。写成普通函数调用，$! 是那个子 shell，
+# kill 只杀到壳，服务会变成孤儿继续占着端口，下一次验收就撞"地址已占用"。
 server_env() {
-    env \
+    exec env \
         CANVAS_BACKEND_DATA_DIR="$DATA_REAL" \
         CANVAS_DATABASE_DRIVER=sqlite \
         CANVAS_BACKEND_ADDR="127.0.0.1:$PORT" \
@@ -136,6 +138,14 @@ ACCEPT_PID=$!
 stop_accept() {
     kill "$ACCEPT_PID" 2>/dev/null || true
     wait "$ACCEPT_PID" 2>/dev/null || true
+    # 兜底：端口还占着说明杀的可能是壳而不是服务，升级到 KILL 并明说。
+    if curl -s -o /dev/null -m 2 "http://127.0.0.1:$PORT/api/health/live" 2>/dev/null; then
+        kill -9 "$ACCEPT_PID" 2>/dev/null || true
+        sleep 1
+        if curl -s -o /dev/null -m 2 "http://127.0.0.1:$PORT/api/health/live" 2>/dev/null; then
+            printf '  警告  验收实例仍在端口 %s 上应答，请手动清理\n' "$PORT" >&2
+        fi
+    fi
 }
 trap stop_accept EXIT
 
