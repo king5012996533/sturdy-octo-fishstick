@@ -71,8 +71,14 @@ export function useCanvasDirector({
         };
     }, [projectId]);
 
-    /** 新建空导演台；演员、道具和机位由用户进入工作台后自行添加。 */
-    const createDirectorShot = useCallback((position?: Position) => {
+    /**
+     * 新建空导演台；演员、道具和机位由用户进入工作台后自行添加。
+     *
+     * 返回新节点，让调用方决定要不要立刻连线（从连接点拖出时）。open 默认 true：
+     * 从「添加节点」菜单点进来就是要进工作台；从连线创建时传 false，先让用户看见
+     * 节点已经接上了，再自己点「打开导演台」。
+     */
+    const createDirectorShot = useCallback((position?: Position, options?: { open?: boolean }) => {
         const shotIndex = nextDirectorNodeIndex(nodesRef.current);
         const directorTitle = `导演台 ${shotIndex}`;
         let scene = createDirectorSceneFromTemplate("empty", `镜头 ${shotIndex}`);
@@ -93,7 +99,8 @@ export function useCanvasDirector({
         setSelectedNodeIds(new Set([node.id]));
         setSelectedConnectionId(null);
         updateProject(projectId, { directorScenes: upsertDirectorSceneById(currentDirectorScenes(projectId, directorScenes), scene) });
-        setDirectorNodeId(node.id);
+        if (options?.open !== false) setDirectorNodeId(node.id);
+        return node;
     }, [directorScenes, getCanvasCenter, nodesRef, projectId, setDirectorNodeId, setNodes, setSelectedConnectionId, setSelectedNodeIds, updateProject]);
 
     const openDirectorWorkbench = useCallback((nodeId: string) => {

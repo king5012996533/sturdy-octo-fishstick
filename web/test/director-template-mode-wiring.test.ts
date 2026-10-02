@@ -13,6 +13,8 @@ const hook = readFileSync(resolve(import.meta.dir, "../src/pages/canvas/use-canv
 const uploadHook = readFileSync(resolve(import.meta.dir, "../src/pages/canvas/use-canvas-upload.ts"), "utf8");
 const project = readFileSync(resolve(import.meta.dir, "../src/pages/canvas/project.tsx"), "utf8");
 const directorNodePanel = readFileSync(resolve(import.meta.dir, "../src/components/canvas/director/canvas-director-node-panel.tsx"), "utf8");
+const overlays = readFileSync(resolve(import.meta.dir, "../src/components/canvas/canvas-workspace-overlays.tsx"), "utf8");
+const connectionController = readFileSync(resolve(import.meta.dir, "../src/pages/canvas/use-canvas-connection-controller.ts"), "utf8");
 const store = readFileSync(resolve(import.meta.dir, "../src/stores/canvas/use-director-workbench-store.ts"), "utf8");
 const styles = readFileSync(resolve(import.meta.dir, "../src/styles/globals.css"), "utf8");
 
@@ -26,9 +28,10 @@ function slice(source: string, from: string, to: string) {
 
 describe("新建场景直达空导演台", () => {
     test("创建函数只接收画布位置并创建空场景", () => {
-        expect(hook).toContain("const createDirectorShot = useCallback((position?: Position) => {");
+        expect(hook).toContain("const createDirectorShot = useCallback((position?: Position, options?: { open?: boolean }) => {");
         expect(hook).toContain('createDirectorSceneFromTemplate("empty", `镜头 ${shotIndex}`)');
-        expect(hook).toContain("setDirectorNodeId(node.id);");
+        // 默认进工作台；从连接点创建时传 open:false，先让用户看见节点接上了。
+        expect(hook).toContain("if (options?.open !== false) setDirectorNodeId(node.id);");
     });
 
     test("画布三个创建入口直接创建，右键入口传递点击位置", () => {
@@ -48,6 +51,20 @@ describe("新建场景直达空导演台", () => {
         expect(hook).not.toContain('composerContent: ""');
     });
 
+});
+
+describe("导演台接入连线创建", () => {
+    test("连接点菜单里导演台不再是占位项", () => {
+        expect(overlays).toContain('command("director", "导演台", CanvasNodeType.Config, getNodeIcon(CanvasNodeType.Director), "node", undefined, onCreateDirector)');
+        expect(overlays).not.toContain('getNodeIcon(CanvasNodeType.Config), "node", "暂不可用"');
+    });
+
+    test("创建出的导演台节点会被接回那条连线，而不是留在画布上变孤岛", () => {
+        expect(project).toContain("onCreateDirector={() => createConnectedDirector(pendingConnectionCreate)}");
+        expect(connectionController).toContain("const createConnectedDirector = useCallback");
+        expect(connectionController).toContain("normalizeConnection(pending.connection.nodeId, directorNode.id, nodesRef.current, pending.connection.handleType)");
+        expect(connectionController).toContain("connectionsRef.current = nextConnections;");
+    });
 });
 
 describe("已有场景不触发模板选择", () => {

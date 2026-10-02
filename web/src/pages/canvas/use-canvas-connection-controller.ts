@@ -7,7 +7,7 @@ import type { PendingConnectionCreate } from "@/components/canvas/canvas-workspa
 import { getNodeSpec } from "@/constant/canvas";
 import { batchSourceRestriction, buildBatchConnectionCreateRequest, hasBatchConnectionCandidate, planBatchConnections, type CanvasBatchConnectionPreview } from "@/lib/canvas/canvas-batch-connection";
 import { batchReferenceHandleAtY } from "@/lib/canvas/canvas-batch-table";
-import { connectedNodeCenterFromEdgeDrop } from "@/lib/canvas/canvas-connected-node-placement";
+import { resolveConnectedNodePlacement } from "@/lib/canvas/canvas-connected-node-placement";
 import { canvasConnectionError } from "@/lib/canvas/canvas-connection-policy";
 import { attachNodeToStoryboardRow, createCanvasNode, getConnectionTargetAnchor, isHiddenBatchChild, normalizeConnection, storyboardHandleAtY, storyboardPromptTemplateMetadata, storyboardRowFromHandle } from "@/lib/canvas/canvas-project-domain";
 import { createCanvasDrawingFromImage } from "@/lib/canvas/canvas-drawing-storage";
@@ -36,6 +36,14 @@ type UseCanvasConnectionControllerOptions = {
     setDialogNodeId: Dispatch<SetStateAction<string | null>>;
     setDrawingNodeId: Dispatch<SetStateAction<string | null>>;
     onConnectedNodeCreated?: (node: CanvasNodeData, sourceNodeId?: string) => void;
+    /**
+     * 从连接点拖出时创建导演台节点。
+     *
+     * 导演台的场景状态归 useCanvasDirector 管，这里只借它的创建能力：本 hook 负责
+     * 「新建的节点接上哪条线」，节点从哪来由调用方决定，避免两个模块互相 import。
+     * 返回 null 表示导演台当前不可用，菜单会给出提示而不是留下一个悬空节点。
+     */
+    createDirectorNode?: (position: Position) => CanvasNodeData | null;
     onReplaceReference?: (targetNodeId: string, oldReference: { id: string; nodeId?: string; label?: string; title?: string }, sourceNodeId: string) => void;
 };
 
@@ -60,48 +68,6 @@ type BatchConnectionDropTarget = ConnectionDropTarget;
 // while retaining a circular boundary around the corresponding side anchor.
 const CONNECTION_SNAP_RADIUS = 56;
 const NODE_STATUS_IDLE = "idle" as const;
-
-/**
- * Keep quick-created nodes on the side of their real source and avoid
- * stacking repeated outputs on top of one another. Positions are world-space
- * centers, while node data stores top-left coordinates.
- */
-function placeConnectedNodeWithoutOverlap(
-    nodes: CanvasNodeData[],
-    source: CanvasNodeData | undefined,
-    handleType: ConnectionHandle["handleType"],
-    anchorY: number,
-    size: { width: number; height: number },
-): Position {
-    if (!source) return { x: 0, y: anchorY };
-
-    const gap = 36;
-    const left = handleType === "source"
-        ? source.position.x + source.width + 96
-        : source.position.x - 96 - size.width;
-    let top = anchorY - size.height / 2;
-
-    // Resolve vertical collisions deterministically. Repeated outputs are
-    // stacked downward, preserving the source-side alignment and leaving a
-    // small LibTV-like breathing gap between cards.
-    for (let pass = 0; pass < nodes.length + 1; pass += 1) {
-        let moved = false;
-        for (const node of nodes) {
-            if (node.id === source.id) continue;
-            const overlapsX = left < node.position.x + node.width + gap
-                && left + size.width + gap > node.position.x;
-            const overlapsY = top < node.position.y + node.height + gap
-                && top + size.height + gap > node.position.y;
-            if (overlapsX && overlapsY) {
-                top = node.position.y + node.height + gap;
-                moved = true;
-            }
-        }
-        if (!moved) break;
-    }
-
-    return { x: left + size.width / 2, y: top + size.height / 2 };
-}
 
 function selectRunningHubWorkflow(config: AiConfig) {
     const capability = normalizeRunningHubCapability(config.runningHub.capability);
@@ -128,6 +94,7 @@ export function useCanvasConnectionController({
     setDialogNodeId,
     setDrawingNodeId,
     onConnectedNodeCreated,
+    createDirectorNode,
     onReplaceReference,
 }: UseCanvasConnectionControllerOptions) {
     const { message } = App.useApp();
@@ -316,25 +283,11 @@ export function useCanvasConnectionController({
             : nodeType === CanvasNodeType.Video && storyboardRow
               ? { prompt: videoPrompt, composerContent: videoPrompt, ...storyboardPromptTemplateMetadata(storyboardRow, "video"), generationMode: "video" as const, videoEditOperation: "text_to_video" as const, workflowKind: "shot" as const, workflowTitle: `镜头 ${storyboardRow.shotNumber} 视频`, shotIndex: storyboardRow.shotNumber, seconds: String(storyboardRow.durationSeconds), status: NODE_STATUS_IDLE }
               : undefined;
-        // The create menu can be opened either by the quick pin click or by
-        // releasing a dragged connection in empty space. In both cases the
-        // pending connection already carries the real source/target node id;
-        // anchoring to that node keeps repeated output connections on the
-        // correct side instead of depending on the pointer-up world position.
-        const sourceNodeForQuickCreate = nodesRef.current.find((node) => node.id === pending.connection.nodeId);
         const spec = getNodeSpec(nodeType);
-        const anchorY = sourceNodeForQuickCreate ? sourceNodeForQuickCreate.position.y + sourceNodeForQuickCreate.height * (pending.connection.anchorRatio ?? 0.5) : pending.position.y;
-        const position = sourceNodeForQuickCreate
-            ? placeConnectedNodeWithoutOverlap(
-                nodesRef.current,
-                sourceNodeForQuickCreate,
-                pending.connection.handleType,
-                anchorY,
-                spec,
-            )
-            : batchSourceNodeIds.length
-              ? pending.position
-              : connectedNodeCenterFromEdgeDrop(pending.position, spec, pending.connection.handleType);
+        // 批量连接的落点由用户拖拽决定；单条连线则锚在真实源节点上，见 resolveConnectedNodePlacement。
+        const position = batchSourceNodeIds.length
+            ? pending.position
+            : resolveConnectedNodePlacement(nodesRef.current, pending, spec);
         const newNode = createCanvasNode(nodeType, position, metadata);
         if (nodeType === CanvasNodeType.Config && selectedWorkflowProvider) newNode.title = "RunningHub 工作流";
         if (storyboardRow) newNode.title = `镜头 ${storyboardRow.shotNumber} · 视频`;
@@ -435,6 +388,53 @@ export function useCanvasConnectionController({
         closeConnectionCreateMenu();
         setConnecting(null);
     }, [closeConnectionCreateMenu, config, connectionsRef, defaultDrawingEngine, message, nodesRef, onConnectedNodeCreated, projectId, runtimeStatuses, setConnecting, setConnections, setDialogNodeId, setDrawingNodeId, setNodes, setSelectedConnectionId, setSelectedNodeIds]);
+
+    /**
+     * 拖出连接后选「导演台」：先让 useCanvasDirector 建好节点，再把这条线接上。
+     *
+     * 导演台不是画布节点类型那样可以一次 createCanvasNode 造出来的——它还要同时落一份
+     * 场景数据，所以节点由调用方给，这里只负责连线和收尾。缺少这一步时，导演台只能靠
+     * 右键菜单单独新建，永远进不了任何一条工作流（"孤岛"）。
+     */
+    const createConnectedDirector = useCallback((pending: PendingConnectionCreate) => {
+        const spec = getNodeSpec(CanvasNodeType.Director);
+        const position = resolveConnectedNodePlacement(nodesRef.current, pending, spec);
+        const directorNode = createDirectorNode?.(position);
+        if (!directorNode) {
+            message.warning("导演台暂时不可用，稍后再试");
+            closeConnectionCreateMenu();
+            setConnecting(null);
+            return;
+        }
+        const connection = normalizeConnection(pending.connection.nodeId, directorNode.id, nodesRef.current, pending.connection.handleType);
+        if (!connection) {
+            message.warning("当前节点不能建立这条连线");
+            closeConnectionCreateMenu();
+            setConnecting(null);
+            return;
+        }
+        const policyError = canvasConnectionError(config, nodesRef.current, connectionsRef.current, connection);
+        if (policyError) {
+            message.warning(policyError);
+            closeConnectionCreateMenu();
+            setConnecting(null);
+            return;
+        }
+        const attached = {
+            id: nanoid(),
+            ...connection,
+            fromHandleId: connection.fromNodeId === pending.connection.nodeId ? pending.connection.handleId : undefined,
+            toHandleId: connection.toNodeId === pending.connection.nodeId ? pending.connection.handleId : undefined,
+            fromAnchorRatio: connection.fromNodeId === pending.connection.nodeId ? pending.connection.anchorRatio : 0.5,
+            toAnchorRatio: connection.toNodeId === pending.connection.nodeId ? pending.connection.anchorRatio : 0.5,
+        };
+        const nextConnections = [...connectionsRef.current, attached];
+        connectionsRef.current = nextConnections;
+        setConnections(nextConnections);
+        onConnectedNodeCreated?.(directorNode, pending.connection.nodeId);
+        closeConnectionCreateMenu();
+        setConnecting(null);
+    }, [closeConnectionCreateMenu, config, connectionsRef, createDirectorNode, message, nodesRef, onConnectedNodeCreated, setConnecting, setConnections]);
 
     const getConnectionCreateDisabledReason = useCallback((type: CanvasNodeType.Image | CanvasNodeType.Text | CanvasNodeType.Script | CanvasNodeType.BatchTable | CanvasNodeType.Video | CanvasNodeType.Audio | CanvasNodeType.Drawing | CanvasNodeType.Config | CanvasNodeType.MediaConversion, pending: PendingConnectionCreate, workflowProvider?: "runninghub") => {
         const nodeType = type;
@@ -863,6 +863,7 @@ export function useCanvasConnectionController({
         connectionTargetAnchorRatio,
         connectionReplaceHover,
         connectingParams,
+        createConnectedDirector,
         createConnectedNode,
         getConnectionCreateDisabledReason,
         handleConnectStart,

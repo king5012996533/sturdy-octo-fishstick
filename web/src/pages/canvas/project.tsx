@@ -1586,6 +1586,10 @@ function InfiniteCanvasPage() {
         [message, replaceNodeMedia],
     );
 
+    // 连线控制器要先于导演台 hook 建立，但「从连接点新建导演台」需要导演台的创建函数。
+    // 用一个渲染后写入的 ref 打通这条单向调用：只在用户交互时读取，不存在渲染期读到空值的问题。
+    const directorCreatorRef = useRef<(position: Position) => CanvasNodeData | null>(() => null);
+
     const {
         cancelPendingConnectionCreate,
         closeConnectionCreateMenu,
@@ -1594,6 +1598,7 @@ function InfiniteCanvasPage() {
         connectionApproach,
         connectionReplaceHover,
         connectingParams,
+        createConnectedDirector,
         createConnectedNode,
         getConnectionCreateDisabledReason,
         handleConnectStart,
@@ -1621,6 +1626,7 @@ function InfiniteCanvasPage() {
         setContextMenu,
         setDialogNodeId,
         setDrawingNodeId,
+        createDirectorNode: (position) => directorCreatorRef.current(position),
         onConnectedNodeCreated: keepConnectedNodeVisible,
         onReplaceReference: handleReplaceNodeReference,
     });
@@ -2145,6 +2151,11 @@ function InfiniteCanvasPage() {
         setSelectedConnectionId,
         setDirectorNodeId,
         updateProject,
+    });
+
+    useLayoutEffect(() => {
+        // 从连接点创建时不要抢走画面：先让用户看到新节点已经接上，再自己进工作台。
+        directorCreatorRef.current = (position) => createDirectorShot(position, { open: false });
     });
 
     const {
@@ -3388,6 +3399,7 @@ function InfiniteCanvasPage() {
                                 canCreateDrawing={canCreateDrawingFromConnection}
                                 getDisabledReason={(type) => getConnectionCreateDisabledReason(type, pendingConnectionCreate)}
                                 onCreate={(type) => void createConnectedNode(type, pendingConnectionCreate)}
+                                onCreateDirector={() => createConnectedDirector(pendingConnectionCreate)}
                                 onClose={cancelPendingConnectionCreate}
                             />
                         ) : null}
