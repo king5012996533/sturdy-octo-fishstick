@@ -1,3 +1,7 @@
+# ⚠️ 与 docker-compose.deploy.yml 同源：这份清单沿用上游的 PostgreSQL 拓扑，本仓库后端
+# 只编译进 sqlite / mysql 两个驱动，照它部署会以"不支持的数据库驱动：postgres"启动失败。
+# 本仓库可用的部署路径见 docs/hosted-deployment.md（原生 systemd 单机）。
+# x-beeftv-unsupported-database-driver: postgres
 services:
   postgres:
     container_name: beeftv-postgres

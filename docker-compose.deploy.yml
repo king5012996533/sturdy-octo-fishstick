@@ -1,3 +1,9 @@
+# ⚠️ 这份 Compose 沿用上游（glanderness/BeefTV）的 PostgreSQL 拓扑，本仓库后端只编译进
+# sqlite / mysql 两个驱动（见 backend/internal/database/database.go）。照这份文件部署会以
+# "不支持的数据库驱动：postgres" 直接启动失败——它不是本仓库可用的部署路径。
+# 本仓库当前的真实部署形态是原生 systemd 单机，见 docs/hosted-deployment.md。
+# 保留文件是为了对齐上游目录结构；在补齐 postgres 驱动之前不要照它上线。
+# x-beeftv-unsupported-database-driver: postgres
 services:
   postgres:
     image: postgres:17-alpine

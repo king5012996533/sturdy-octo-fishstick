@@ -18,11 +18,30 @@ type Config struct {
 	DataDir string
 }
 
-func Open(config Config) (*gorm.DB, error) {
-	driver := strings.ToLower(strings.TrimSpace(config.Driver))
-	if driver == "" {
-		driver = "sqlite"
+// normalizeDriver 把配置里的驱动名收成内部判断用的形态；空值即默认的 sqlite。
+func normalizeDriver(driver string) string {
+	normalized := strings.ToLower(strings.TrimSpace(driver))
+	if normalized == "" {
+		return "sqlite"
 	}
+	return normalized
+}
+
+// SupportedDriver 说明这个二进制是否真的编译进了对应驱动。
+//
+// 部署清单、文档自检用它拦下"声明了 postgres 但代码里没有驱动"这类只有上线才会
+// 暴露的错配：那种配置的表现是服务根本起不来，而不是某条链路降级。
+func SupportedDriver(driver string) bool {
+	switch normalizeDriver(driver) {
+	case "sqlite", "mysql":
+		return true
+	default:
+		return false
+	}
+}
+
+func Open(config Config) (*gorm.DB, error) {
+	driver := normalizeDriver(config.Driver)
 	switch driver {
 	case "sqlite":
 		dsn := strings.TrimSpace(config.DSN)
