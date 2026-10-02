@@ -43,6 +43,15 @@ expect() {
     fi
 }
 
+count_lines() {
+    # grep -c 在无匹配时会既输出 0 又返回 1，直接放进 $(...) 会拼成两行。
+    if [ -f "$1" ]; then
+        grep -c "$2" "$1" || true
+    else
+        echo 0
+    fi
+}
+
 expect_true() {
     local label="$1" condition="$2"
     if [ "$condition" = "yes" ]; then
@@ -196,6 +205,34 @@ expect_true "落库的日志标注了 degraded" \
     "$(grep -q 'degraded' "$WORK/deg-health.log" && echo yes || echo no)"
 expect_true "降级原因是探针 401 而不是服务不通" \
     "$(grep -q '401' "$WORK/deg-health.out" && echo yes || echo no)"
+# 告警去重：异常要发、持续异常不要刷屏、恢复了要有回执。
+# 这条路径最容易悄悄失效——发不出去的时候，没人会知道。
+printf '\n[巡检：告警外发与去重]\n'
+ALERT_STATE="$WORK/alert-state"
+export KINOTV_ALERT_CMD="$FAKE_ALERT"
+set +e
+"$SCRIPT_DIR/kinotv-healthcheck.sh" --base-url "http://127.0.0.1:1" --backup-dir "$DEG_BACKUPS" \
+    --state-dir "$ALERT_STATE" --log "$WORK/alert-health.log" > "$WORK/alert-1.out" 2>&1
+alert_code=$?
+set -e
+expect "首次异常退出码为 1" 1 "$alert_code"
+expect "首次异常外发 1 条告警" 1 "$(count_lines "$FAKE_ALERT.out" '健康巡检异常')"
+
+set +e
+"$SCRIPT_DIR/kinotv-healthcheck.sh" --base-url "http://127.0.0.1:1" --backup-dir "$DEG_BACKUPS" \
+    --state-dir "$ALERT_STATE" --log "$WORK/alert-health.log" > "$WORK/alert-2.out" 2>&1
+set -e
+expect "持续异常不重复外发（去重）" 1 "$(count_lines "$FAKE_ALERT.out" '健康巡检异常')"
+
+set +e
+"$SCRIPT_DIR/kinotv-healthcheck.sh" --base-url "http://127.0.0.1:18095" --backup-dir "$DEG_BACKUPS" \
+    --state-dir "$ALERT_STATE" --log "$WORK/alert-health.log" > "$WORK/alert-3.out" 2>&1
+recovered_code=$?
+set -e
+expect "恢复后退出码回到 0" 0 "$recovered_code"
+expect "恢复时外发恢复通知" 1 "$(count_lines "$FAKE_ALERT.out" '已恢复')"
+unset KINOTV_ALERT_CMD
+
 kill "$STUB_PID" 2>/dev/null || true
 STUB_PID=""
 
