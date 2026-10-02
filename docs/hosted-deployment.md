@@ -63,17 +63,22 @@ CANVAS_BACKEND_DATA_DIR=/opt/kinotv/data
 CANVAS_DATABASE_DRIVER=sqlite
 CANVAS_BACKEND_ADDR=127.0.0.1:8090
 CANVAS_AUTO_MIGRATE=1
+CANVAS_HOSTED_AUTH=true
 CANVAS_AUTH_DATABASE_URL=/opt/kinotv/data/kinotv-auth.db
 CANVAS_AUTH_STATE_SECRET=<随机串>
-CANVAS_AUTH_DEV_ECHO_CODE=1
+CANVAS_AUTH_DEV_ECHO_CODE=0
 CANVAS_OFFICIAL_PLUGIN_DIR=/opt/kinotv/plugin-packages
 CANVAS_PUBLIC_BASE_URL=https://kinotv.xingtudesign.com
 ```
 
 - `CANVAS_PUBLIC_BASE_URL` 必须是对外可访问的**域名**。上游（如 ai-genvideo）拉取
   参考图时会校验素材地址，明确拒绝 IP 字面量。
-- `CANVAS_AUTH_DEV_ECHO_CODE=1` 让验证码回显在接口响应里，便于短信/邮件网关接通前联调。
-  接入真实网关后必须去掉。
+- `CANVAS_HOSTED_AUTH=true` 是托管登录的显式开关。打开后缺 `CANVAS_AUTH_DATABASE_URL`
+  会**直接启动失败**，不会退回无登录的单工作区模式——公网上的共享工作区等于把上游渠道
+  开放给所有人。桌面版不读这个开关。
+- `CANVAS_AUTH_DEV_ECHO_CODE=0` 是生产必需值：置 `1` 时验证码会回显在接口响应里，
+  只有短信/邮件通道接通前的本地联调才允许，且必须同时确认没人能访问服务端日志
+  （未配置投递通道时验证码会写日志，日志可见者等于可以登录任意账号）。
 
 ## 上游出网（换机器后先验这一条）
 

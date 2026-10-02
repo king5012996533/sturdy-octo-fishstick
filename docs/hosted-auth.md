@@ -37,7 +37,8 @@
 
 | 变量 | 说明 |
 | --- | --- |
-| `CANVAS_AUTH_DATABASE_URL` | 账号库 DSN。**留空即关闭登录模块**，服务端退回单工作区模式 |
+| `CANVAS_HOSTED_AUTH` | 托管登录总开关。`true` 时缺 `CANVAS_AUTH_DATABASE_URL` 会**直接启动失败**，不再静默退回单工作区模式 |
+| `CANVAS_AUTH_DATABASE_URL` | 账号库 DSN。仅在 `CANVAS_HOSTED_AUTH=true` 时生效 |
 | `CANVAS_AUTH_DATABASE_DRIVER` | 驱动，默认 `mysql`；本地开发可填 `sqlite` |
 | `CANVAS_AUTH_STATE_SECRET` | OAuth state 签名密钥，生产必须注入 |
 | `CANVAS_AUTH_COOKIE_SECURE` | HTTPS 部署必须为 `true` |
@@ -57,6 +58,7 @@
 
 ```bash
 cd backend
+CANVAS_HOSTED_AUTH=true \
 CANVAS_AUTH_DATABASE_URL=$PWD/.local/auth-dev.db \
 CANVAS_AUTH_STATE_SECRET=local-dev-secret \
 CANVAS_BACKEND_ADDR=127.0.0.1:8080 \
