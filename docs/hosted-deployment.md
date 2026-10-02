@@ -221,6 +221,65 @@ CANVAS_BACKEND_DATA_DIR=/opt/kinotv/data CANVAS_DATABASE_DRIVER=sqlite /tmp/insp
 - 后台保存灵感**不清空配方**：配方由抓取命令写，表单里没有它的编辑入口（见
   `TestSaveCreationInspirationKeepsRecipe`）。运营改文案时顺手清空配方会静默毁掉复刻入口。
 
+## 备份与恢复演练
+
+脚本都在仓库的 `scripts/kinotv/` 下，安装到 `/opt/kinotv/scripts/kinotv/`。
+放在仓库里而不是只留在服务器上：服务器整台丢掉时，最不能丢的恰恰是"怎么恢复"这件事。
+
+| 脚本 | 职责 |
+| --- | --- |
+| `kinotv-backup.sh` | SQLite 在线快照 + 配置 + 用户资源，按次产出整份目录 |
+| `kinotv-restore.sh` | 校验备份 → 恢复到目标目录 → 可选真起一次服务演练 |
+| `kinotv-restore-drill.py` | 演练里的 HTTP/SQLite 断言（登录、配置、列表） |
+| `kinotv-selftest.sh` | 改过上面任何一个之后跑一次，含负向用例 |
+
+### 备份
+
+```bash
+/opt/kinotv/scripts/kinotv/kinotv-backup.sh            # 默认数据目录 /opt/kinotv/data
+```
+
+每次产出一个 `20261003-033001/` 形式的目录，最后才写 `done`：
+
+```
+open_ai_canvas.db  kinotv-auth.db
+config/{local-model-config.json,plugin_registry.json,.settings-key}
+media/resources.tar.gz
+manifest.tsv        每行 <相对路径>	<sha256>	<字节数>	<权限>
+done                只有全部成功才出现
+```
+
+三个容易踩的点，改动前先读：
+
+- **数据库必须用 `sqlite3 .backup`，不能 `cp`。** 开着 WAL 时主库文件里没有尚未
+  checkpoint 的事务，直接拷出来的库看着正常、实际丢最近一段写入。
+- **快照要归一成单文件。** `.backup` 会连源库的 WAL 设置一起复制，留下 `-wal`/`-shm`
+  边车文件。脚本会把它转成 `journal_mode=delete`，这样归档是自包含的单文件，
+  异地存放、只读挂载、换任意 sqlite 版本都能直接打开。
+- **`.settings-key` 必须和库同一批。** 少了它，渠道密钥解不开、资源签名对不上。
+
+保留策略：数据库与配置 7 天，`resources` 3 天（它比库大一个数量级，用同一个保留期会
+把盘吃光）。资源包被清掉后会留 `media-pruned` 标记，恢复侧据此区分"按策略清理"和
+"本来就没备份"。
+
+### 恢复与演练
+
+```bash
+# 只看文件级恢复（快，几秒）
+/opt/kinotv/scripts/kinotv/kinotv-restore.sh latest --target /tmp/restore-check
+
+# 完整演练：恢复后真起一个临时实例，走真实登录与接口
+/opt/kinotv/scripts/kinotv/kinotv-restore.sh latest --target /var/lib/kinotv/restore-drill \
+    --force --with-media --drill --port 18099
+```
+
+演练会断言：清单里每个文件的 sha256 都对得上、两个库 `integrity_check=ok`、
+`.settings-key` 权限仍是 600、临时实例的存活与就绪探针为 200、匿名访问业务接口仍是
+401、用一个恢复出来的真实账号登录成功、平台模型配置和画布/任务列表都能读。
+
+**目标目录不允许是线上数据目录**，脚本会直接拒绝；演练只写恢复出来的副本。
+只有全部通过才会更新 `<备份目录>/last-verify`，巡检靠它判断演练是否还在按期执行。
+
 ## 磁盘维护
 
 每次发布会把旧前端挪成 `web.bak-<时间戳>`（每份约 103M）并保留旧二进制。它们只用于
