@@ -454,6 +454,46 @@ func TestDetachedResourceCleanupKeepsAppearanceAssets(t *testing.T) {
 	}
 }
 
+// 广场灵感把参考图存在平台账号名下，按 user_id 过滤的引用快照扫不到。
+// 漏掉这条引用，复刻配方还在用的参考图会被当成残留删掉。
+func TestDetachedResourceCleanupKeepsInspirationRecipeImages(t *testing.T) {
+	svc, db, _ := newResourceDeletionTestService(t)
+	// 灵感广场是托管 schema 的表，本地清理测试的库里没有，按需补建。
+	if err := db.AutoMigrate(&model.CreationInspiration{}); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-48 * time.Hour)
+	used := model.Resource{
+		ID: "inspiration-recipe", UserID: "platform-inspiration-references", Status: model.ResourceStatusReady,
+		Provider: "local", ObjectKey: "users/platform-inspiration-references/image/recipe.png", CreatedAt: old, UpdatedAt: old,
+	}
+	orphan := model.Resource{
+		ID: "inspiration-orphan", UserID: "platform-inspiration-references", Status: model.ResourceStatusReady,
+		Provider: "local", ObjectKey: "users/platform-inspiration-references/image/orphan.png", CreatedAt: old, UpdatedAt: old,
+	}
+	inspiration := model.CreationInspiration{ID: "INSP_TEST", Title: "复刻配方", RecipeImageIDs: "inspiration-recipe"}
+	for _, item := range []any{&used, &orphan, &inspiration} {
+		if err := db.Create(item).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := svc.cleanupDetachedUserResources(used.UserID, []model.Resource{used, orphan}); err != nil {
+		t.Fatalf("cleanupDetachedUserResources() error = %v", err)
+	}
+
+	var usedCount, orphanCount int64
+	if err := db.Model(&model.Resource{}).Where("id = ?", used.ID).Count(&usedCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&model.Resource{}).Where("id = ?", orphan.ID).Count(&orphanCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if usedCount != 1 || orphanCount != 0 {
+		t.Fatalf("cleanup result: inspiration-recipe=%d orphan=%d", usedCount, orphanCount)
+	}
+}
+
 func TestResourceCleanupCandidatesUseStatusSpecificRetention(t *testing.T) {
 	_, db, _ := newResourceDeletionTestService(t)
 	now := time.Now()

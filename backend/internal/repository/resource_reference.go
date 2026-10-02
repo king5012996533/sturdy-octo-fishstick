@@ -92,6 +92,14 @@ func (r *Repository) ResourceReferenceSnapshot(userID string, excludingAssetID s
 	}
 	snapshot.Direct = append(snapshot.Direct, history...)
 
+	// 灵感广场的参考图挂在平台账号名下、不在任何 user_id 过滤范围里，
+	// 漏掉这一条会让"未引用 24 小时回收"删掉复刻配方还在用的素材。
+	inspirations, err := r.InspirationResourceReferences(resourceIDs)
+	if err != nil {
+		return snapshot, err
+	}
+	snapshot.Direct = append(snapshot.Direct, inspirations...)
+
 	var assets []model.Asset
 	assetQuery := r.db.Where("user_id = ? AND id <> ?", userID, excludingAssetID)
 	if err := assetQuery.Find(&assets).Error; err != nil {
