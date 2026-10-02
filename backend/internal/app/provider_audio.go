@@ -33,7 +33,7 @@ func runAudioTask(ctx context.Context, input canvasGenerationInput) (map[string]
 		"response_format": format,
 		"speed":           1,
 	}
-	if voice := resolvedAudioSpeechVoice(input.Config.Model, input.Config.AudioVoice); voice != "" {
+	if voice := resolvedAudioSpeechVoice(input.Config.InterfaceType, input.Config.Model, input.Config.AudioVoice); voice != "" {
 		body["voice"] = voice
 	}
 	if input.Config.AudioSpeed != "" {
@@ -242,17 +242,24 @@ func audioSignatureMatches(mimeType string, data []byte) bool {
 	return false
 }
 
-func resolvedAudioSpeechVoice(model, voice string) string {
-	id := strings.ToLower(strings.TrimSpace(model))
-	if index := strings.LastIndex(id, "::"); index >= 0 {
-		id = id[index+2:]
-	}
+// resolvedAudioSpeechVoice 把统一请求里的音色收敛成当前上游认得的取值。
+//
+// 同一个 MiniMax 语音模型在两条线上用的是两套音色 id：BeefAPI 是中文字色名
+// （male-qn-qingse），Replicate 是国际音色（Wise_Woman、English_Wiselady）。
+// 因此不能只看模型名，还要看协议——协议决定音色集合，模型名只决定族（语音/音乐）。
+func resolvedAudioSpeechVoice(interfaceType, modelKey, voice string) string {
+	id := normalizeAudioModelID(modelKey)
 	trimmed := strings.TrimSpace(voice)
 	if strings.Contains(id, "minimax-music") {
 		return ""
 	}
 	if strings.Contains(id, "minimax-speech") {
 		if trimmed == "" || isOpenAISpeechVoice(trimmed) || trimmed == "中文" {
+			// Replicate 的国际音色与 BeefAPI 中文音色不通用，写错一个 id 上游就拒绝整单；
+			// 这里退空值，让插件不下发 voice_id，用上游自己的默认音色。
+			if interfaceType == string(model.ChannelInterfaceReplicatePredictionAudio) {
+				return ""
+			}
 			return "male-qn-qingse"
 		}
 		return trimmed
@@ -261,6 +268,16 @@ func resolvedAudioSpeechVoice(model, voice string) string {
 		return "alloy"
 	}
 	return trimmed
+}
+
+// normalizeAudioModelID 归一化音频模型标识：BeefAPI 写法是 beefapi::minimax-speech-2.8-hd，
+// Replicate 写法是 minimax/speech-2.8-turbo，音色族判定要能同时认这两种。
+func normalizeAudioModelID(model string) string {
+	trimmed := strings.TrimSpace(model)
+	if index := strings.LastIndex(trimmed, "::"); index >= 0 {
+		trimmed = trimmed[index+2:]
+	}
+	return strings.ReplaceAll(strings.ToLower(trimmed), "/", "-")
 }
 
 func isOpenAISpeechVoice(voice string) bool {

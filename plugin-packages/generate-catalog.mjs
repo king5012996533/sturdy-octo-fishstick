@@ -16,6 +16,9 @@ const gte = (left, right) => ({ $gte: [left, right] });
 const lt = (left, right) => ({ $lt: [left, right] });
 const lte = (left, right) => ({ $lte: [left, right] });
 const and = (...values) => ({ $and: values });
+const or = (...values) => ({ $or: values });
+const inList = (value, items) => ({ $in: [value, items] });
+const concat = (...values) => ({ $concat: values });
 const len = (value) => ({ $len: value });
 const lower = (value) => ({ $lower: value });
 const trim = (value) => ({ $trim: value });
@@ -1109,6 +1112,70 @@ for (const [id, name, capability, createPath, pollPath, resultPath] of [
     response: asyncResponse(capability, { [capability + "s"]: ref(resultPath), taskId: coalesce(ref("response.id"), ref("response.request_id"), ref("response.prompt_id"), ref("taskId")) })
   });
 }
+
+// Replicate 音频是一个模型一套输入 schema 的平台：语音族只认 text/voice_id，
+// 音乐族只认 lyrics/prompt，把另一族的键发过去会被上游 422 拒绝。族名取模型全名
+// owner/name 的第二段首词（minimax/speech-2.8-turbo → speech），每个键只在对应族里
+// 求值，不匹配时返回空值，由宿主在序列化前裁掉。
+const replicateAudioOption = (key) => ref(`request.providerOptions.replicate-prediction-audio.${key}`);
+const replicateAudioFamily = lower(at(split(at(split(ref("request.model"), "/"), 1), "-"), 0));
+const audioFamilyField = (family, expression) => ({ $switch: { cases: [{ when: eq(replicateAudioFamily, family), then: expression }] } });
+const audioFormatForFamily = (family, allowed) => {
+  const value = coalesce(ref("request.extra.audioFormat"), replicateAudioOption("audio_format"), "mp3");
+  return { when: and(eq(replicateAudioFamily, family), inList(value, allowed)), then: value };
+};
+// MiniMax 语音的语速上限是 2.0：过期配置里可能留着别的模型的 4.0，直接下发会被上游拒绝。
+const minimaxSpeechSpeed = () => {
+  const value = coalesce(ref("request.extra.audioSpeed"), replicateAudioOption("speed"));
+  return { $switch: { cases: [{ when: and(gte(toFloat(value), 0.5), lte(toFloat(value), 2)), then: toFloat(value) }] } };
+};
+
+add({
+  id: "replicate-prediction-audio", providerId: "replicate-prediction-audio", name: "Replicate Predictions Audio", vendor: "Replicate", capability: "audio",
+  baseUrl: "https://api.replicate.com", auth: bearer,
+  params: [
+    ["model", "string", true, "path /v1/models/{model}/predictions", "音频模型 ID，owner/name 形式（minimax/speech-2.8-turbo、minimax/music-2.5）。"],
+    ["prompt", "string", true, "text（语音族）/ lyrics（音乐族）", "语音模型的朗读文本；音乐模型 2.5 的 lyrics 是必填键，同一个输入框填歌词，风格另走 audioInstructions。"],
+    ["providerOptions", "object", false, "provider-specific fields", "插件命名空间内的厂商扩展字段：voice_id、emotion、pitch、volume、channel、sample_rate、bitrate、subtitle_enable、english_normalization、input。"]
+  ],
+  notes: "Replicate 音频模型逐模型收窄输入：minimax/speech-* 下发 text/voice_id/speed/audio_format/language_boost，minimax/music-* 只下发 lyrics/prompt/audio_format，两族互不相认的键一律不发。语速按上游 0.5–2.0 收口，输出格式按各族枚举收口，未列举的取值退回上游默认。输出是 30 分钟过期的临时 URL，标记 ephemeral 由宿主立即下载持久化。",
+  create: {
+    method: "POST",
+    pathTemplate: concat("/v1/models/", ref("request.model"), "/predictions"),
+    contentType: "application/json",
+    body: {
+      input: omit(coalesce(replicateAudioOption("input"), {
+        // 语音族
+        text: audioFamilyField("speech", ref("request.prompt")),
+        voice_id: audioFamilyField("speech", omit(coalesce(ref("request.extra.audioVoice"), replicateAudioOption("voice_id")))),
+        speed: audioFamilyField("speech", omit(minimaxSpeechSpeed())),
+        language_boost: audioFamilyField("speech", omit(coalesce(replicateAudioOption("language_boost"), "Automatic"))),
+        emotion: audioFamilyField("speech", omit(replicateAudioOption("emotion"))),
+        pitch: audioFamilyField("speech", omit(replicateAudioOption("pitch"))),
+        volume: audioFamilyField("speech", omit(replicateAudioOption("volume"))),
+        channel: audioFamilyField("speech", omit(replicateAudioOption("channel"))),
+        sample_rate: audioFamilyField("speech", omit(replicateAudioOption("sample_rate"))),
+        bitrate: audioFamilyField("speech", omit(replicateAudioOption("bitrate"))),
+        subtitle_enable: audioFamilyField("speech", omit(replicateAudioOption("subtitle_enable"))),
+        english_normalization: audioFamilyField("speech", omit(replicateAudioOption("english_normalization"))),
+        // 音乐族：lyrics 必填，风格描述走 audioInstructions（前台对音乐模型显示为“风格描述”）
+        lyrics: audioFamilyField("music", ref("request.prompt")),
+        prompt: audioFamilyField("music", omit(ref("request.extra.audioInstructions"))),
+        audio_format: { $switch: { cases: [audioFormatForFamily("speech", ["mp3", "wav", "flac", "pcm"]), audioFormatForFamily("music", ["mp3", "wav", "pcm"])] } }
+      }))
+    }
+  },
+  poll: { method: "GET", path: "/v1/predictions/{{taskId}}" },
+  cancel: { method: "POST", path: "/v1/predictions/{{taskId}}/cancel" },
+  response: {
+    taskId: coalesce(ref("response.id"), ref("response.request_id"), ref("taskId")),
+    status: coalesce(ref("response.status"), ref("response.state"), "starting"),
+    message: coalesce(ref("response.error.message"), ref("response.error"), ref("response.detail"), ref("response.message")),
+    audios: ref("response.output"),
+    errorPaths: ["detail", "error.code"],
+    resultEphemeral: true
+  }
+});
 
 function manifestFor(spec) {
   return {

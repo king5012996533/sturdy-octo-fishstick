@@ -46,7 +46,40 @@ export const minimaxSpeechVoiceOptions = [
     { value: "audiobook_female_2", label: "女有声书 2" },
 ];
 
-export type AudioSpeechKind = "openai" | "minimax-speech" | "minimax-music";
+// Replicate 上的 MiniMax 语音走国际音色（模型 README 的 17 个内置音色），与 BeefAPI 的
+// 中文音色 id 不通用：同一份前台配置换条线路就会变成非法音色。默认值取上游 schema 的
+// 默认音色 English_Wiselady，未指定音色时上游也能正常出声。
+export const replicateMinimaxSpeechVoiceOptions = [
+    { value: "English_Wiselady", label: "睿智女声·英" },
+    { value: "Wise_Woman", label: "睿智女声" },
+    { value: "Deep_Voice_Man", label: "低沉男声" },
+    { value: "Imposing_Manner", label: "威仪男声" },
+    { value: "Elegant_Man", label: "儒雅男声" },
+    { value: "Casual_Guy", label: "随性男声" },
+    { value: "Friendly_Person", label: "亲切旁白" },
+    { value: "Decent_Boy", label: "斯文男声" },
+    { value: "Lively_Girl", label: "活泼女声" },
+    { value: "Exuberant_Girl", label: "元气女声" },
+    { value: "Inspirational_girl", label: "励志女声" },
+    { value: "Young_Knight", label: "少年骑士" },
+    { value: "Abbess", label: "女院长" },
+];
+
+// Replicate 的 MiniMax 语音不接受 opus/aac，音乐族额外不接受 flac。
+export const replicateMinimaxSpeechFormatOptions = [
+    { value: "mp3", label: "MP3" },
+    { value: "wav", label: "WAV" },
+    { value: "flac", label: "FLAC" },
+    { value: "pcm", label: "PCM" },
+];
+
+export const replicateMinimaxMusicFormatOptions = [
+    { value: "mp3", label: "MP3" },
+    { value: "wav", label: "WAV" },
+    { value: "pcm", label: "PCM" },
+];
+
+export type AudioSpeechKind = "openai" | "minimax-speech" | "minimax-music" | "replicate-minimax-speech" | "replicate-minimax-music";
 
 export type AudioSpeechProfile = {
     kind: AudioSpeechKind;
@@ -62,6 +95,9 @@ export type AudioSpeechProfile = {
     showPitch: boolean;
     showVolume: boolean;
     showInstructions: boolean;
+    // 同一个开关在不同上游含义不同：MiniMax 音乐把这段文本当风格描述，OpenAI 系是朗读指令。
+    instructionsTitle?: string;
+    instructionsPlaceholder?: string;
 };
 
 const OPENAI_SPEECH_VOICES = new Set(audioVoiceOptions.map((item) => item.value));
@@ -74,8 +110,15 @@ export function audioModelId(model: string) {
 
 export function audioSpeechKind(model: string): AudioSpeechKind {
     const id = audioModelId(model);
-    if (id.includes("minimax-speech")) return "minimax-speech";
-    if (id.includes("minimax-music")) return "minimax-music";
+    // Replicate 上的模型是全名 owner/name（minimax/speech-2.8-turbo），同一族的音色与
+    // 输出格式枚举和 BeefAPI 不同，必须分开：否则会把 alloy 这类 OpenAI 音色名发上去。
+    const replicateFullName = id.includes("/");
+    if (id.includes("minimax/speech") || id.includes("minimax-speech")) {
+        return replicateFullName ? "replicate-minimax-speech" : "minimax-speech";
+    }
+    if (id.includes("minimax/music") || id.includes("minimax-music")) {
+        return replicateFullName ? "replicate-minimax-music" : "minimax-music";
+    }
     return "openai";
 }
 
@@ -115,6 +158,43 @@ export function audioSpeechProfile(model = ""): AudioSpeechProfile {
             showInstructions: false,
         };
     }
+    if (kind === "replicate-minimax-speech") {
+        return {
+            kind,
+            voices: replicateMinimaxSpeechVoiceOptions,
+            formats: replicateMinimaxSpeechFormatOptions,
+            defaultVoice: "English_Wiselady",
+            defaultFormat: "mp3",
+            speedMin: 0.5,
+            speedMax: 2,
+            speedOptions: ["0.5", "0.75", "1", "1.25", "1.5", "2"],
+            showVoice: true,
+            showSpeed: true,
+            showPitch: false,
+            showVolume: false,
+            showInstructions: false,
+        };
+    }
+    if (kind === "replicate-minimax-music") {
+        return {
+            kind,
+            // 音乐族没有音色与语速；输入框里的文本是歌词，风格描述走"声音指令"这一个字段。
+            voices: [],
+            formats: replicateMinimaxMusicFormatOptions,
+            defaultVoice: "",
+            defaultFormat: "mp3",
+            speedMin: 1,
+            speedMax: 1,
+            speedOptions: ["1"],
+            showVoice: false,
+            showSpeed: false,
+            showPitch: false,
+            showVolume: false,
+            showInstructions: true,
+            instructionsTitle: "风格描述",
+            instructionsPlaceholder: "例如：独立民谣，忧郁，慢速，木吉他。留空则只按歌词生成。",
+        };
+    }
     return {
         kind,
         voices: audioVoiceOptions,
@@ -137,7 +217,7 @@ export function normalizeAudioVoiceValue(value: string, model?: string) {
     if (!profile.showVoice) return "";
     const trimmed = String(value || "").trim();
     if (profile.voices.some((item) => item.value === trimmed)) return trimmed;
-    if (profile.kind === "minimax-speech") {
+    if (profile.kind === "minimax-speech" || profile.kind === "replicate-minimax-speech") {
         if (!trimmed || OPENAI_SPEECH_VOICES.has(trimmed) || trimmed === "中文") return profile.defaultVoice;
         return trimmed;
     }

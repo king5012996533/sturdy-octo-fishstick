@@ -214,7 +214,7 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 		Operation:     firstNonEmpty(metadataString(input.Metadata, "videoEditOperation"), metadataString(input.Metadata, "videoOperation")),
 		Extra: map[string]any{
 			"videoSeconds": input.Config.VideoSeconds,
-			"audioVoice":   resolvedAudioSpeechVoice(input.Config.Model, input.Config.AudioVoice),
+			"audioVoice":   resolvedAudioSpeechVoice(input.Config.InterfaceType, input.Config.Model, input.Config.AudioVoice),
 			"audioFormat":  defaultString(input.Config.AudioFormat, "mp3"),
 			"audioSpeed":   defaultString(input.Config.AudioSpeed, "1"),
 			"count":        input.Config.Count,

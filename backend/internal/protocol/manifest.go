@@ -1101,6 +1101,15 @@ func manifestRequestValues(request GenerationRequest) map[string]any {
 	output.Watermark = output.Watermark || request.Watermark
 	outputValue, _ := requestAsManifestValue(output)
 
+	// providerOptions 的静态类型是 map[string]map[string]any，放进环境后 $ref 只认
+	// map[string]any（manifestPathValue 的类型断言），第二层以下的扩展键会被静默丢弃：
+	// 插件文档里声明的 parameters/input/extra_body 逃生口全都失效。先摊平成
+	// JSON 形状的 map[string]any，路径解析才能一路走到叶节点。
+	providerOptions := make(map[string]any, len(request.ProviderOptions))
+	for namespace, options := range request.ProviderOptions {
+		providerOptions[namespace] = options
+	}
+
 	return map[string]any{
 		"capability":      request.Capability,
 		"model":           request.Model,
@@ -1120,7 +1129,7 @@ func manifestRequestValues(request GenerationRequest) map[string]any {
 		"watermark":       request.Watermark,
 		"operation":       request.Operation,
 		"output":          outputValue,
-		"providerOptions": request.ProviderOptions,
+		"providerOptions": providerOptions,
 		"extra":           request.Extra,
 	}
 }

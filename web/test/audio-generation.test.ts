@@ -125,3 +125,44 @@ describe("enterprise MiniMax speech settings", () => {
         expect(source).not.toContain('summaryOverride={localOnly ? "中文');
     });
 });
+
+describe("Replicate MiniMax audio settings", () => {
+    test("owner/name models get their own family instead of OpenAI alloys", () => {
+        expect(audioSpeechProfile("minimax/speech-2.8-turbo").kind).toBe("replicate-minimax-speech");
+        expect(audioSpeechProfile("minimax/music-2.5").kind).toBe("replicate-minimax-music");
+        expect(audioSpeechProfile("beefapi::minimax-speech-2.8-hd").kind).toBe("minimax-speech");
+        expect(audioSpeechProfile("gpt-4o-mini-tts").kind).toBe("openai");
+    });
+
+    test("Replicate speech voices never fall back to OpenAI names", () => {
+        expect(normalizeAudioVoiceValue("alloy", "minimax/speech-2.8-turbo")).toBe("English_Wiselady");
+        expect(normalizeAudioVoiceValue("Wise_Woman", "minimax/speech-2.8-turbo")).toBe("Wise_Woman");
+        expect(normalizeAudioVoiceValue("cloned-voice-abc", "minimax/speech-2.8-turbo")).toBe("cloned-voice-abc");
+        expect(normalizeAudioVoiceValue("alloy", "minimax/music-2.5")).toBe("");
+    });
+
+    test("formats follow each family's upstream enum", () => {
+        expect(audioSpeechProfile("minimax/speech-2.8-turbo").formats.map((item) => item.value)).toEqual(["mp3", "wav", "flac", "pcm"]);
+        expect(audioSpeechProfile("minimax/music-2.5").formats.map((item) => item.value)).toEqual(["mp3", "wav", "pcm"]);
+        expect(normalizeAudioFormatValue("aac", "minimax/speech-2.8-turbo")).toBe("mp3");
+        expect(normalizeAudioFormatValue("flac", "minimax/music-2.5")).toBe("mp3");
+        expect(normalizeAudioFormatValue("wav", "minimax/music-2.5")).toBe("wav");
+    });
+
+    test("speech speed is clamped to the upstream 0.5–2.0 range", () => {
+        expect(normalizeAudioSpeedValue("4", "minimax/speech-2.8-turbo")).toBe("2");
+        expect(normalizeAudioSpeedValue("0.1", "minimax/speech-2.8-turbo")).toBe("0.5");
+        expect(normalizeAudioSpeedValue("1.25", "minimax/speech-2.8-turbo")).toBe("1.25");
+    });
+
+    test("music reuses the instructions field as the style description", () => {
+        const profile = audioSpeechProfile("minimax/music-2.5");
+        expect(profile.showInstructions).toBe(true);
+        expect(profile.instructionsTitle).toBe("风格描述");
+        expect(profile.showVoice).toBe(false);
+        expect(profile.showSpeed).toBe(false);
+        const settings = resolveAudioSpeechSettings("minimax/music-2.5", { audioFormat: "wav", audioInstructions: "独立民谣，木吉他" });
+        expect(settings.audioInstructions).toBe("独立民谣，木吉他");
+        expect(audioSettingsSummary({ model: "minimax/music-2.5", ...settings })).toBe("WAV");
+    });
+});

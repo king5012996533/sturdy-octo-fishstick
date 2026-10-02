@@ -90,3 +90,32 @@ func TestBinaryPayloadCreateResultRejectsEmpty(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+// providerOptions 的静态类型是 map[string]map[string]any。它必须以 JSON 形状进入
+// manifest 环境，否则 $ref 只能解析到命名空间一层，插件文档里声明的
+// parameters/input/extra_body 逃生口会被静默丢弃（表现为上游收到默认字段而不是调用方给的）。
+func TestManifestRequestValuesExposeProviderOptionsBelowNamespace(t *testing.T) {
+	request := GenerationRequest{
+		Capability: CapabilityAudio,
+		Model:      "minimax/speech-2.8-turbo",
+		Prompt:     "hello",
+		ProviderOptions: map[string]map[string]any{
+			"replicate-prediction-audio": {"input": map[string]any{"text": "raw"}, "voice_id": "Wise_Woman"},
+		},
+	}
+	env := map[string]any{"request": manifestRequestValues(request)}
+	value, err := evaluateManifestValue(map[string]any{"$ref": "request.providerOptions.replicate-prediction-audio.input.text"}, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "raw" {
+		t.Fatalf("providerOptions path = %#v, want raw", value)
+	}
+	nested, err := evaluateManifestValue(map[string]any{"$ref": "request.providerOptions.replicate-prediction-audio.voice_id"}, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nested != "Wise_Woman" {
+		t.Fatalf("providerOptions scalar = %#v, want Wise_Woman", nested)
+	}
+}

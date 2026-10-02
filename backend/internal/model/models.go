@@ -64,6 +64,7 @@ const (
 	ChannelInterfaceGeminiImage                 ChannelInterfaceType = "gemini-image"
 	ChannelInterfaceReplicatePredictionImage    ChannelInterfaceType = "replicate-prediction-image"
 	ChannelInterfaceReplicatePredictionVideo    ChannelInterfaceType = "replicate-prediction-video"
+	ChannelInterfaceReplicatePredictionAudio    ChannelInterfaceType = "replicate-prediction-audio"
 	ChannelInterfaceOpenAIAudio                 ChannelInterfaceType = "openai-audio"
 	ChannelInterfaceAsyncAudio                  ChannelInterfaceType = "async-audio"
 	ChannelInterfaceNewAPIVideo                 ChannelInterfaceType = "newapi"
