@@ -41,6 +41,29 @@ func TestFailServiceQuotaExceeded(t *testing.T) {
 	}
 }
 
+// 画布版本冲突与幂等冲突同为 409，靠 code / reason 区分。前端要在 409 里认出
+// "这是版本落后、可以收敛后重试"，所以这两个字段必须原样出现在响应体里。
+func TestFailServiceKeepsCanvasRevisionConflictIdentity(t *testing.T) {
+	recorder, context := responseTestContext()
+	failService(context, &app.AppError{
+		Status:  http.StatusConflict,
+		Code:    app.CodeCanvasRevisionConflict,
+		Reason:  app.ReasonCanvasRevisionConflict,
+		Message: "云端画布已有更新，已停止覆盖；请保留本地草稿并加载最新版本",
+	})
+
+	response := decodeFailureEnvelope(t, recorder)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusConflict)
+	}
+	if response.Code != app.CodeCanvasRevisionConflict || response.Reason != string(app.ReasonCanvasRevisionConflict) {
+		t.Fatalf("canvas conflict identity lost in response: %#v", response)
+	}
+	if response.Code == app.CodeIdempotencyConflict {
+		t.Fatal("画布版本冲突不能复用幂等冲突的 code")
+	}
+}
+
 func TestFailServiceHidesUnclassifiedInternalError(t *testing.T) {
 	recorder, context := responseTestContext()
 	failService(context, errors.New("database password=secret"))

@@ -4,6 +4,7 @@ import { http } from "@/services/api/request";
 import { resourceIdFromStorageKey } from "@/services/api/resources";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
+import { adoptRemoteCanvasRevision, isCanvasRevisionConflict } from "@/services/canvas-revision-rebase";
 
 type LocalCanvasContent = Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId">>;
 type CanvasSaveSummary = Pick<CanvasProject, "id" | "title" | "createdAt" | "updatedAt" | "revision">;
@@ -104,18 +105,14 @@ function syncLocalCanvasProject(id: string, includeGeneratedAssets: boolean): Pr
     const next = previous.catch(() => undefined).then(async () => {
         const project = openLocalCanvasProject(id);
         if (!project) return;
-        const assets = includeGeneratedAssets ? canvasGenerationCommitAssets(project, useAssetStore.getState().assets) : [];
-        const projectForSave = includeGeneratedAssets ? bindCanvasGenerationCommitAssets(project, assets) : project;
-        const endpoint = includeGeneratedAssets ? `/canvas-projects/${encodeURIComponent(id)}/generated-assets` : `/canvas-projects/${encodeURIComponent(id)}`;
-        const response = await http.put<{ project: CanvasSaveSummary }>(endpoint, includeGeneratedAssets ? { project: projectForSave, assets } : { project: projectForSave });
-        const saved = response.project;
+        const saved = await putCanvasProject(id, includeGeneratedAssets);
         if (!saved) return;
         useCanvasStore.setState((state) => ({
             projects: state.projects.map((current) => current.id === id
                 // Preserve edits made while the request was in flight; only the
                 // server-owned optimistic revision must advance.
                 ? {
-                    ...(includeGeneratedAssets ? bindCanvasGenerationCommitAssets(current, assets) : current),
+                    ...(includeGeneratedAssets ? bindCanvasGenerationCommitAssets(current, saved.assets) : current),
                     revision: saved.revision,
                     ...(current.updatedAt === project.updatedAt ? { updatedAt: saved.updatedAt } : {}),
                 }
@@ -130,6 +127,31 @@ function syncLocalCanvasProject(id: string, includeGeneratedAssets: boolean): Pr
     });
     backendSaveTails.set(id, tail);
     return tail;
+}
+
+/**
+ * 写入一次画布，并在服务端因为版本落后而拒绝时收敛版本重试一次。
+ *
+ * 重试前重新读一遍本地画布：等待远端 revision 的这段时间里用户可能又编辑过，拿旧的
+ * payload 重试等于把这几秒的改动吞掉。版本收敛只动乐观锁，本地草稿必须原样提交。
+ */
+async function putCanvasProject(id: string, includeGeneratedAssets: boolean) {
+    const attempt = async () => {
+        const project = openLocalCanvasProject(id);
+        if (!project) return undefined;
+        const assets = includeGeneratedAssets ? canvasGenerationCommitAssets(project, useAssetStore.getState().assets) : [];
+        const projectForSave = includeGeneratedAssets ? bindCanvasGenerationCommitAssets(project, assets) : project;
+        const endpoint = includeGeneratedAssets ? `/canvas-projects/${encodeURIComponent(id)}/generated-assets` : `/canvas-projects/${encodeURIComponent(id)}`;
+        const response = await http.put<{ project: CanvasSaveSummary }>(endpoint, includeGeneratedAssets ? { project: projectForSave, assets } : { project: projectForSave });
+        return response.project ? { ...response.project, assets } : undefined;
+    };
+    try {
+        return await attempt();
+    } catch (error) {
+        if (!isCanvasRevisionConflict(error) || !(await adoptRemoteCanvasRevision(id))) throw error;
+        console.warn("画布版本落后于云端，已收敛版本后重试保存", { id });
+        return await attempt();
+    }
 }
 
 export function syncLocalCanvasProjectToBackend(id: string): Promise<void> {

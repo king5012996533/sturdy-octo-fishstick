@@ -44,7 +44,14 @@ func SaveDocumentWithHistoryAndAssets(repo *repository.Repository, before *model
 }
 
 func canvasRevisionConflict() error {
-	return kernel.NewAppError(http.StatusConflict, "云端画布已有更新，已停止覆盖；请保留本地草稿并加载最新版本")
+	// 用自己的 reason 而不是笼统的 conflict：客户端据此判断"这次失败收敛版本后可以重试"，
+	// 与"引用的素材已变化"那类同样返回 409、但重试也没用的冲突分开。
+	return &kernel.AppError{
+		Status:  http.StatusConflict,
+		Code:    kernel.CodeCanvasRevisionConflict,
+		Reason:  kernel.ReasonCanvasRevisionConflict,
+		Message: "云端画布已有更新，已停止覆盖；请保留本地草稿并加载最新版本",
+	}
 }
 
 type CanvasHistoryList struct {

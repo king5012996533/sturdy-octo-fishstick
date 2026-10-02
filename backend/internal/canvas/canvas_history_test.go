@@ -94,3 +94,26 @@ func TestCanvasHistoryRestore(t *testing.T) {
 		t.Fatal("could not undo restore")
 	}
 }
+
+// 版本冲突必须带上自己的 code / reason：客户端据此判断"收敛版本后重试有用"，
+// 与同样返回 409、但重试也没用的「引用素材已变化」分开。只按 HTTP 409 判断会把
+// 后者也当成可重试冲突，于是陷入"收敛→重试→再失败"的循环。
+func TestCanvasRevisionConflictCarriesStableReason(t *testing.T) {
+	err := canvasRevisionConflict()
+	var appErr *kernel.AppError
+	if !errors.As(err, &appErr) {
+		t.Fatalf("error = %#v, want *kernel.AppError", err)
+	}
+	if appErr.Status != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", appErr.Status, http.StatusConflict)
+	}
+	if appErr.Code != kernel.CodeCanvasRevisionConflict {
+		t.Fatalf("code = %d, want %d", appErr.Code, kernel.CodeCanvasRevisionConflict)
+	}
+	if appErr.Reason != kernel.ReasonCanvasRevisionConflict {
+		t.Fatalf("reason = %q, want %q", appErr.Reason, kernel.ReasonCanvasRevisionConflict)
+	}
+	if appErr.Reason == kernel.ReasonConflict {
+		t.Fatal("reason 不能停在笼统的 conflict，否则客户端分不出可重试的版本冲突")
+	}
+}
