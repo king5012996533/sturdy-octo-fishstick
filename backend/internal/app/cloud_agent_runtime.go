@@ -45,14 +45,14 @@ type cloudAgentApproval struct {
 	Reason    string                    `json:"reason,omitempty"`
 }
 type cloudAgentRuntime struct {
-	Request              CloudAgentRequest         `json:"request"`
-	Policy               cloudAgentPolicySnapshot  `json:"policy"`
-	ParentID             string                    `json:"parentId,omitempty"`
-	Fingerprint          string                    `json:"fingerprint,omitempty"`
-	CreativeAnchor       cloudAgentCreativeAnchor  `json:"creativeAnchor,omitempty"`
-	TextHistory          []providerTextMessage     `json:"textHistory,omitempty"`
+	Request        CloudAgentRequest        `json:"request"`
+	Policy         cloudAgentPolicySnapshot `json:"policy"`
+	ParentID       string                   `json:"parentId,omitempty"`
+	Fingerprint    string                   `json:"fingerprint,omitempty"`
+	CreativeAnchor cloudAgentCreativeAnchor `json:"creativeAnchor,omitempty"`
+	TextHistory    []providerTextMessage    `json:"textHistory,omitempty"`
 	// InspectImages 保存上一步登记的待看图片，只在下一次模型调用时随消息发出，不写回持久化会话。
-	InspectImages []cloudAgentVisionImage `json:"inspectImages,omitempty"`
+	InspectImages        []cloudAgentVisionImage   `json:"inspectImages,omitempty"`
 	Skills               []cloudAgentSkill         `json:"skills"`
 	SkillReads           map[string]bool           `json:"skillReads,omitempty"`
 	Profile              cloudAgentProfileSnapshot `json:"profile"`
