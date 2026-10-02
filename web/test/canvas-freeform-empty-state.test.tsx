@@ -75,8 +75,10 @@ describe("BeefTV freeform canvas empty state", () => {
         const labels = resolveAddNodeMenuCommands(context).filter((command) => command.section === "node").slice(0, 8).map((command) => command.label);
         expect(labels).toEqual(["文本", "图片", "视频", "音频", "智能剪辑", "导演台", "逐帧拉片", "脚本"]);
         const commandsByLabel = new Map(resolveAddNodeMenuCommands(context).map((command) => [command.label, command]));
-        for (const label of ["智能剪辑", "导演台", "逐帧拉片", "脚本"]) {
+        // 导演台已随 3D 工作台落地并放开，它不在「正在开发」名单里；其余三个仍是占位。
+        for (const label of ["智能剪辑", "逐帧拉片", "脚本"]) {
             expect(commandsByLabel.get(label)?.disabledReason).toBe("正在开发");
         }
+        expect(commandsByLabel.get("导演台")?.disabledReason).toBeUndefined();
     });
 });
