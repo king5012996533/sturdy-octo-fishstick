@@ -20,9 +20,12 @@ const nodes: CanvasNodeData[] = [
 const baseConfig = { ...defaultConfig };
 
 describe("planBatchConnections", () => {
-    it("only accepts image inputs for the batch creation table", () => {
+    it("lets any card connect to the batch creation table", () => {
+        // 连线只表达上下游关系，"这张卡会不会被引用"由用户和模型能力决定，
+        // 不再因为源卡片类型与目标类型不同被拦掉。
         expect(canvasConnectionError(baseConfig, nodes, [], { fromNodeId: "image-a", toNodeId: "batch-table" })).toBe("");
-        expect(canvasConnectionError(baseConfig, nodes, [], { fromNodeId: "text-a", toNodeId: "batch-table" })).toContain("批量创作表节点只接受图片输入");
+        expect(canvasConnectionError(baseConfig, nodes, [], { fromNodeId: "text-a", toNodeId: "batch-table" })).toBe("");
+        expect(canvasConnectionError(baseConfig, nodes, [], { fromNodeId: "text-a", toNodeId: "missing-node" })).toBe("找不到连线目标节点");
     });
 
     it("plans all legal source nodes and preserves the target handle", () => {
@@ -93,7 +96,6 @@ describe("planBatchConnections", () => {
             nodes: [...nodes, { id: "new-image", type: CanvasNodeType.Image, title: "新图片", position: { x: 1200, y: 0 }, width: 320, height: 180 }],
             connections: [],
             config: constrainedConfig,
-            allowCapacityOverflow: true,
         });
         expect(result.connected).toEqual(["image-a", "image-b"]);
         expect(result.connections).toHaveLength(2);
@@ -106,7 +108,6 @@ describe("planBatchConnections", () => {
             nodes,
             connections: [],
             config: baseConfig,
-            allowCapacityOverflow: true,
         });
 
         expect(result.connected).toEqual(["image-a", "image-b"]);
@@ -122,7 +123,6 @@ describe("planBatchConnections", () => {
             nodes,
             connections: [],
             config: baseConfig,
-            allowCapacityOverflow: true,
         });
 
         expect(result.connections[0]?.toHandleId).toBe("batch-reference:reference-2");

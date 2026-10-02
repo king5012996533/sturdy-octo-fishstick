@@ -27,7 +27,7 @@ describe("本地转换节点注册", () => {
         }))).toBeNull();
     });
 
-    test("连接规则接受图片和视频，拒绝没有可读媒体的节点及第二个输入", () => {
+    test("连接规则不再按源卡片类型设限，只保留「只吃一路」的结构上限", () => {
         const image = node(CanvasNodeType.Image, "image");
         const video = node(CanvasNodeType.Video, "video");
         const text = node(CanvasNodeType.Text, "text");
@@ -37,7 +37,8 @@ describe("本地转换节点注册", () => {
 
         expect(canvasConnectionError(config, nodes, [], candidate(image.id))).toBe("");
         expect(canvasConnectionError(config, nodes, [], candidate(video.id))).toBe("");
-        expect(canvasConnectionError(config, nodes, [], candidate(text.id))).toContain("转换节点只接受图片或视频输入");
+        // 文本卡也能连上转换节点，具体能不能转由转换操作自己判断，不再在连线阶段拦。
+        expect(canvasConnectionError(config, nodes, [], candidate(text.id))).toBe("");
         expect(canvasConnectionError(config, nodes, [{ id: "existing", fromNodeId: image.id, toNodeId: conversion.id }], candidate(video.id))).toContain("转换节点最多连接 1 个输入");
     });
 

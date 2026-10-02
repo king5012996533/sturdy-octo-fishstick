@@ -363,11 +363,11 @@ describe("逻辑模型选择", () => {
 });
 
 describe("画布连线能力", () => {
-    test("超过所有视频模型的参考图上限时拒绝连线", () => {
+    test("超出模型参考图上限也允许连线，容量留到生成时收口", () => {
         const config = policyConfig();
         const nodes = [node("image-a", CanvasNodeType.Image), node("image-b", CanvasNodeType.Image), node("target", CanvasNodeType.Config, "video")];
         const connections: CanvasConnection[] = [{ id: "existing", fromNodeId: "image-a", toNodeId: "target" }];
-        expect(canvasConnectionError(config, nodes, connections, { fromNodeId: "image-b", toNodeId: "target" })).toContain("最多支持 1");
+        expect(canvasConnectionError(config, nodes, connections, { fromNodeId: "image-b", toNodeId: "target" })).toBe("");
     });
 
     test("存在音频细分模型时允许音频连接视频生成节点", () => {
@@ -376,10 +376,10 @@ describe("画布连线能力", () => {
         expect(canvasConnectionError(config, nodes, [], { fromNodeId: "audio", toNodeId: "target" })).toBe("");
     });
 
-    test("视频结果不能连接到图片生成节点", () => {
+    test("视频结果可以连接到图片生成节点，是否当参考由用户决定", () => {
         const config = policyConfig();
         const nodes = [node("video", CanvasNodeType.Video), node("target", CanvasNodeType.Image)];
-        expect(canvasConnectionError(config, nodes, [], { fromNodeId: "video", toNodeId: "target" })).toContain("不能连接参考视频");
+        expect(canvasConnectionError(config, nodes, [], { fromNodeId: "video", toNodeId: "target" })).toBe("");
     });
 
     test("单个角色卡可以连接到音频生成节点", () => {

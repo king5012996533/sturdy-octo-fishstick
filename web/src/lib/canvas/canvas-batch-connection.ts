@@ -22,8 +22,6 @@ export type BatchConnectionPlanOptions = {
     nodes: CanvasNodeData[];
     connections: CanvasConnection[];
     config: AiConfig;
-    // 创建聚合节点时保留完整图结构；生成提交阶段再按模型能力截取参考素材。
-    allowCapacityOverflow?: boolean;
 };
 
 export type BatchConnectionSkip = {
@@ -65,7 +63,7 @@ export function hasBatchConnectionCandidate(sourceNodeIds: string[], targetNodeI
     });
 }
 
-export function planBatchConnections({ sourceNodeIds, targetNodeId, targetHandleId, targetAnchorRatio, nodes, connections, config, allowCapacityOverflow = false }: BatchConnectionPlanOptions): BatchConnectionPlan {
+export function planBatchConnections({ sourceNodeIds, targetNodeId, targetHandleId, targetAnchorRatio, nodes, connections, config }: BatchConnectionPlanOptions): BatchConnectionPlan {
     const connected: string[] = [];
     const duplicates: string[] = [];
     const skipped: BatchConnectionSkip[] = [];
@@ -109,7 +107,7 @@ export function planBatchConnections({ sourceNodeIds, targetNodeId, targetHandle
             return;
         }
 
-        const policyError = canvasConnectionError(config, nodes, workingConnections, normalized, { ignoreCapacity: allowCapacityOverflow });
+        const policyError = canvasConnectionError(config, nodes, workingConnections, normalized);
         if (policyError) {
             skipped.push({ nodeId: source.id, reason: policyError });
             return;
