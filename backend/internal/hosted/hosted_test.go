@@ -27,8 +27,14 @@ import (
 // 管理端读数是两者合并的结果，断言必须能分别落到底。
 func newTestExtension(t *testing.T) (bootstrap.HostedExtension, *gorm.DB, *gorm.DB, *app.Service) {
 	t.Helper()
+	return newTestExtensionWithPaths(t, t.TempDir(), "")
+}
+
+// newTestExtensionWithPaths 允许调用方指定账号库路径：探活用例需要让"注册会话的
+// 扩展"和"被探测的运行时"共用同一本账号库，cookie 才能被运行时认出来。
+func newTestExtensionWithPaths(t *testing.T, dir string, authPath string) (bootstrap.HostedExtension, *gorm.DB, *gorm.DB, *app.Service) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
-	dir := t.TempDir()
 	canvasDB, err := database.Open(database.Config{Driver: "sqlite", DataDir: filepath.Join(dir, "canvas")})
 	if err != nil {
 		t.Fatalf("打开画布库失败: %v", err)
@@ -42,7 +48,9 @@ func newTestExtension(t *testing.T) (bootstrap.HostedExtension, *gorm.DB, *gorm.
 	}
 	service := app.NewLocal(repository.New(canvasDB), filepath.Join(dir, "canvas"))
 
-	authPath := filepath.Join(dir, "auth.db")
+	if authPath == "" {
+		authPath = filepath.Join(dir, "auth.db")
+	}
 	extension, err := New(bootstrap.HostedDeps{DataDir: dir, Service: service}, Options{
 		DatabaseDriver: "sqlite",
 		DatabaseURL:    authPath,

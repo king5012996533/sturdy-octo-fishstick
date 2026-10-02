@@ -180,8 +180,12 @@ func smsSender() auth.SMSSender {
 // 支付回调同样在这里显式登记，而不是让它自己去 init 里往这个切片追加：放行名单是
 // 一张安全边界清单，必须一眼看全，不能散落在各文件里。放行也不等于放权——回调的
 // 准入是渠道验签与金额核对（HandleBillingCallback），中间件只负责别提前判 401。
+// 探活路径也在这里登记：容器编排与外部监控要在会话建立之前就问"实例活着吗"，
+// 被登录中间件拦成 401 会把健康实例判死。放行范围保持最小——只有这两个探针，
+// 它们的响应里只有状态、构建信息与依赖就绪标记，没有账号、密钥或模型配置；
+// /api/health/startup、/api/health 与 /api/system/version 仍然要求登录。
 var anonymousPathPrefixes = []string{auth.BasePath, "/api/public/appearance", "/api/public/resources",
-	"/api/public/avatars", billingCallbackPathPrefix}
+	"/api/public/avatars", billingCallbackPathPrefix, "/api/health/live", "/api/health/ready"}
 
 func isAnonymousPath(path string) bool {
 	for _, prefix := range anonymousPathPrefixes {
