@@ -50,6 +50,20 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	hostedAuth, err := envBool("CANVAS_HOSTED_AUTH", false)
+	if err != nil {
+		return err
+	}
+	factory, err := hostedFactory(hosted.Options{
+		DatabaseDriver: env("CANVAS_AUTH_DATABASE_DRIVER", ""),
+		DatabaseURL:    strings.TrimSpace(os.Getenv("CANVAS_AUTH_DATABASE_URL")),
+		StateSecret:    strings.TrimSpace(os.Getenv("CANVAS_AUTH_STATE_SECRET")),
+		CookieSecure:   cookieSecure,
+		DevEchoCode:    devEchoCode,
+	}, hostedAuth)
+	if err != nil {
+		return err
+	}
 	runtime, err := bootstrap.Open(ctx, bootstrap.Config{
 		Profile:          bootstrap.ProfileServer,
 		DataDir:          dataDir,
@@ -59,13 +73,7 @@ func run(ctx context.Context) error {
 		AutoMigrate:      autoMigrate,
 		ShutdownTimeout:  workerTimeout,
 		RouterMiddleware: []gin.HandlerFunc{corsMiddleware},
-		HostedFactory: hostedFactory(hosted.Options{
-			DatabaseDriver: env("CANVAS_AUTH_DATABASE_DRIVER", ""),
-			DatabaseURL:    strings.TrimSpace(os.Getenv("CANVAS_AUTH_DATABASE_URL")),
-			StateSecret:    strings.TrimSpace(os.Getenv("CANVAS_AUTH_STATE_SECRET")),
-			CookieSecure:   cookieSecure,
-			DevEchoCode:    devEchoCode,
-		}),
+		HostedFactory:    factory,
 	})
 	if err != nil {
 		return err
@@ -235,15 +243,21 @@ func allowedOriginWithPolicy(c *gin.Context, origin string, policy corsPolicy) b
 	return (host == "localhost" || host == "127.0.0.1" || host == "::1") && (parsed.Scheme == "http" || parsed.Scheme == "https")
 }
 
-// hostedFactory 只在配置了账号库时装配托管能力。
+// hostedFactory 按显式开关装配托管能力。
 //
-// 未配置时返回 nil，服务端退回到单工作区模式；桌面版永远不注入工厂，
-// 因此认证代码不会进入本地二进制。
-func hostedFactory(options hosted.Options) bootstrap.HostedFactory {
+// 这里必须 fail-fast：托管形态下缺账号库会让服务退回单工作区模式，公网上就是一个
+// 不需要登录、却能照常调用上游渠道的共享工作区。宁可起不来，也不能悄悄降级——所以
+// "启用托管但没配账号库"是启动错误，而不是回退。
+//
+// 桌面版不读这个开关、也不注入工厂，认证代码因此不会进入桌面二进制。
+func hostedFactory(options hosted.Options, enabled bool) (bootstrap.HostedFactory, error) {
+	if !enabled {
+		return nil, nil
+	}
 	if strings.TrimSpace(options.DatabaseURL) == "" {
-		return nil
+		return nil, errors.New("已启用托管登录（CANVAS_HOSTED_AUTH=true）但缺少 CANVAS_AUTH_DATABASE_URL：拒绝以无登录的单工作区模式启动")
 	}
 	return func(deps bootstrap.HostedDeps) (bootstrap.HostedExtension, error) {
 		return hosted.New(deps, options)
-	}
+	}, nil
 }
