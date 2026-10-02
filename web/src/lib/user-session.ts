@@ -10,12 +10,18 @@ import { PLUGIN_STORE_KEY, usePluginStore } from "@/stores/use-plugin-store";
 import { defaultFeatureAvailability, useUserStore } from "@/stores/use-user-store";
 import type { WorkspaceBootstrapPayload } from "@/services/api/workspace";
 import { setWorkspaceCapabilitySnapshot } from "@/services/workspace-mode";
+import { withGenerationConsumersPaused } from "@/services/generation-consumer-lifecycle";
 
 /**
  * Hydrate the one implicit local workspace. This is deliberately not an auth
  * session: it only selects the persistence namespace and restores local stores.
  */
 export async function applyUserSession(payload: WorkspaceBootstrapPayload) {
+    // 换账号/换工作区之前先把旧的结果写入者中止并排空，避免旧素材被写进新命名空间。
+    return withGenerationConsumersPaused(() => hydrateLocalWorkspace(payload));
+}
+
+async function hydrateLocalWorkspace(payload: WorkspaceBootstrapPayload) {
     useUserStore.getState().setHydrated(false);
     setWorkspaceCapabilitySnapshot({
         contractVersion: payload.contractVersion,
