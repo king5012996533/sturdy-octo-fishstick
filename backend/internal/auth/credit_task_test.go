@@ -515,9 +515,9 @@ func TestQuoteTaskChargeBillsAudioPerRequest(t *testing.T) {
 		quantity int64
 		credits  int64
 	}{
-		{1, 200},  // 任务层的真实取值：一次调用
-		{0, 200},  // 用量缺失时计费域兜底成一个单位，而不是 0 元
-		{3, 600},  // 传 3 就是"3 次"，单位是次而不是秒
+		{1, 200}, // 任务层的真实取值：一次调用
+		{0, 200}, // 用量缺失时计费域兜底成一个单位，而不是 0 元
+		{3, 600}, // 传 3 就是"3 次"，单位是次而不是秒
 	} {
 		quote, err := env.service.QuoteTaskCharge(TaskChargeInput{
 			ModelKey:   "CHANNEL_000003::minimax/music-2.5",
