@@ -76,6 +76,8 @@ func (e *Extension) registerAdminRoutes(api *gin.RouterGroup) {
 	e.registerAdminRbacRoutes(group)
 	// 素材管理：素材列表、处置状态与占用读数。
 	e.registerAdminAssetRoutes(group)
+	// 生成产物：resources 全量对账，用来发现「上游有结果、用户没拿到」的产物。
+	e.registerAdminResourceRoutes(group)
 	// 模板管理：画布模板上下架、分类与推荐位。
 	e.registerAdminTemplateRoutes(group)
 	// 灵感管理：精选灵感广场的上下架、分类、推荐位与排序。

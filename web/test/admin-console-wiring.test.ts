@@ -15,6 +15,7 @@ describe("运营后台分区接线", () => {
     const sections: Array<{ key: string; pane: string; importPath: string }> = [
         { key: "roles", pane: "RolesPane", importPath: "./roles-pane" },
         { key: "assets", pane: "AssetsPane", importPath: "./assets-pane" },
+        { key: "resources", pane: "ResourcesPane", importPath: "./resources-pane" },
         { key: "templates", pane: "TemplatesPane", importPath: "./templates-pane" },
         { key: "tickets", pane: "TicketsPane", importPath: "./tickets-pane" },
         { key: "vendors", pane: "VendorsPane", importPath: "./vendors-pane" },

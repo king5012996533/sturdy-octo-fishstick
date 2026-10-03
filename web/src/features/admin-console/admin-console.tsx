@@ -1,5 +1,5 @@
 import { App, ConfigProvider, theme as antdTheme } from "antd";
-import { ArrowLeft, BadgePercent, Boxes, Coins, FileSignature, Gauge, Images, KeyRound, LayoutDashboard, LayoutTemplate, LifeBuoy, Package, RadioTower, Receipt, ScrollText, Send, Settings, ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, TicketPercent, Upload, Users, type LucideIcon } from "lucide-react";
+import { ArrowLeft, BadgePercent, Boxes, Clapperboard, Coins, FileSignature, Gauge, Images, KeyRound, LayoutDashboard, LayoutTemplate, LifeBuoy, Package, RadioTower, Receipt, ScrollText, Send, Settings, ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, TicketPercent, Upload, Users, type LucideIcon } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -24,6 +24,7 @@ import { PolicyPane } from "./policy-pane";
 import { PlansPane } from "./plans-pane";
 import { PostsPane } from "./posts-pane";
 import { PricingPane } from "./pricing-pane";
+import { ResourcesPane } from "./resources-pane";
 import { RolesPane } from "./roles-pane";
 import { SettingsPane } from "./settings-pane";
 import { TemplatesPane } from "./templates-pane";
@@ -31,7 +32,7 @@ import { TicketsPane } from "./tickets-pane";
 import { UsersPane } from "./users-pane";
 import { VendorsPane } from "./vendors-pane";
 
-type ConsoleSectionKey = "dashboard" | "users" | "roles" | "canvases" | "assets" | "templates" | "inspirations" | "posts" | "login-methods" | "agreements" | "gateways" | "plans" | "orders" | "credits" | "coupons" | "tickets" | "settings" | "vendors" | "channels" | "pricing" | "features" | "policy" | "audit";
+type ConsoleSectionKey = "dashboard" | "users" | "roles" | "canvases" | "assets" | "resources" | "templates" | "inspirations" | "posts" | "login-methods" | "agreements" | "gateways" | "plans" | "orders" | "credits" | "coupons" | "tickets" | "settings" | "vendors" | "channels" | "pricing" | "features" | "policy" | "audit";
 
 const consoleSections: Array<{ key: ConsoleSectionKey; label: string; description: string; icon: LucideIcon; pane: () => React.JSX.Element }> = [
     { key: "dashboard", label: "仪表盘", description: "用户、调用量与存储读数", icon: LayoutDashboard, pane: () => <DashboardPane /> },
@@ -39,6 +40,8 @@ const consoleSections: Array<{ key: ConsoleSectionKey; label: string; descriptio
     { key: "roles", label: "角色与权限", description: "角色定义与权限点分配", icon: ShieldCheck, pane: () => <RolesPane /> },
     { key: "canvases", label: "内容审核", description: "画布内容与处置", icon: ShieldAlert, pane: () => <CanvasPane /> },
     { key: "assets", label: "素材管理", description: "上传素材与处置状态", icon: Images, pane: () => <AssetsPane /> },
+    // 素材管理读客户端回写的 assets，这一页读产物表全量：用户没回写、上游却已产出的那批，只有这里看得见。
+    { key: "resources", label: "生成产物", description: "产物全量与未被用户拿到对账", icon: Clapperboard, pane: () => <ResourcesPane /> },
     { key: "templates", label: "模板管理", description: "画布模板上下架与推荐位", icon: LayoutTemplate, pane: () => <TemplatesPane /> },
     { key: "inspirations", label: "精选灵感", description: "首页广场内容与推荐位", icon: Sparkles, pane: () => <InspirationsPane /> },
     { key: "posts", label: "投稿审核", description: "用户投稿的待人队列与裁决", icon: Upload, pane: () => <PostsPane /> },

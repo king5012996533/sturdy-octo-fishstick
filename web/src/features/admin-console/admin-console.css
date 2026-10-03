@@ -811,6 +811,35 @@
     object-fit: contain;
 }
 
+/* 产物对账的预览：缩略图固定高度，避免每行高度被不同比例的图撑得参差。 */
+.admin-resource-preview-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 56px;
+    overflow: hidden;
+    border-radius: 6px;
+    background: var(--admin-field);
+}
+
+.admin-resource-thumb {
+    width: 100%;
+    height: 56px;
+    object-fit: cover;
+}
+
+.admin-resource-video {
+    width: 100%;
+    height: 56px;
+    object-fit: contain;
+    background: #000;
+}
+
+.admin-resource-audio {
+    width: 100%;
+    height: 40px;
+}
+
 .admin-asset-placeholder {
     font-size: var(--fs-tiny);
     color: var(--admin-ink-faint);
