@@ -18,8 +18,27 @@ import (
 // registerAdminCreditRoutes 挂载后台积分路由（已由 requireAdmin 守卫）。
 func (e *Extension) registerAdminCreditRoutes(group *gin.RouterGroup) {
 	group.GET("/credits/accounts", e.handleAdminCreditAccounts)
+	group.GET("/credits/accounts/:userId", e.handleAdminCreditAccount)
 	group.GET("/credits/ledger", e.handleAdminCreditLedger)
 	group.POST("/credits/adjust", e.handleAdminCreditAdjust)
+}
+
+// handleAdminCreditAccount 读单个账号的积分账户。
+//
+// 用户管理的抽屉要能自己刷新余额：调整完一次、或者从别处知道这个人刚充值过，
+// 都不该逼着运营回去翻一遍分页列表。
+func (e *Extension) handleAdminCreditAccount(c *gin.Context) {
+	userID := strings.TrimSpace(c.Param("userId"))
+	if userID == "" {
+		respondFailure(c, http.StatusBadRequest, "请指定要查询的账号")
+		return
+	}
+	wallet, err := e.service.CreditWallet(userID)
+	if err != nil {
+		respondServiceError(c, err)
+		return
+	}
+	respondOK(c, wallet)
 }
 
 func (e *Extension) handleAdminCreditAccounts(c *gin.Context) {

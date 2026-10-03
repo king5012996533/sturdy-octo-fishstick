@@ -82,6 +82,23 @@ func (s *Service) CreditWallet(userID string) (*CreditWalletView, error) {
 	return &view, nil
 }
 
+// AdminCreditWallets 批量读积分账户，按账号 ID 建索引。
+//
+// 缺失的账号不进 map：调用方（后台用户列表）补零余额视图即可。"没充过钱"和
+// "账户还没建"对运营是同一件事，没有必要让调用方区分这两种不存在。
+func (s *Service) AdminCreditWallets(userIDs []string) (map[string]CreditWalletView, error) {
+	accounts, err := s.store.CreditAccountsFor(userIDs)
+	if err != nil {
+		return nil, internalFailure(err)
+	}
+	wallets := make(map[string]CreditWalletView, len(accounts))
+	for index := range accounts {
+		account := accounts[index]
+		wallets[account.UserID] = CreditWalletViewOf(&account, account.UserID)
+	}
+	return wallets, nil
+}
+
 // CreditLedger 分页读流水。
 func (s *Service) CreditLedger(filter CreditLedgerFilter) ([]CreditLedgerEntryView, int64, error) {
 	filter.UserID = strings.TrimSpace(filter.UserID)

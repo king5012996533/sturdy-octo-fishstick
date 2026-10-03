@@ -34,10 +34,13 @@ type adminOverviewResponse struct {
 	Users *auth.AdminUserCounts `json:"users"`
 }
 
-// adminUserRow 是用户列表的一行：账号字段 + 画布侧的作品数。
+// adminUserRow 是用户列表的一行：账号字段 + 画布侧的作品数 + 账号库的积分账户。
 type adminUserRow struct {
 	auth.AdminUserView
 	Canvases int64 `json:"canvases"`
+	// Credit 是余额视图。取不到时为 nil，前端按零余额展示：账号列表本身不该
+	// 因为积分账户库里的一次抖动而整页失败。
+	Credit *auth.CreditWalletView `json:"credit,omitempty"`
 }
 
 type adminUserPageResponse struct {
@@ -181,6 +184,7 @@ func (e *Extension) handleAdminUserList(c *gin.Context) {
 			}
 		}
 	}
+	e.fillUserCredits(rows)
 	respondOK(c, adminUserPageResponse{Users: rows, Total: page.Total, Page: page.Page, PageSize: page.Limit})
 }
 
@@ -190,7 +194,37 @@ func (e *Extension) handleAdminUserDetail(c *gin.Context) {
 		respondServiceError(c, err)
 		return
 	}
-	respondOK(c, user)
+	row := adminUserRow{AdminUserView: *user}
+	rows := []adminUserRow{row}
+	e.fillUserCredits(rows)
+	respondOK(c, rows[0])
+}
+
+// fillUserCredits 给用户列表补上积分账户。
+//
+// 一次查询补齐整页，而不是每行一次：用户管理页的核心问题已经从"这个人是谁"
+// 变成"这个人还有多少积分"，补余额不能把一次列表变成 N 次查询。
+func (e *Extension) fillUserCredits(rows []adminUserRow) {
+	if e == nil || e.service == nil || len(rows) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+	wallets, err := e.service.AdminCreditWallets(ids)
+	if err != nil {
+		return
+	}
+	for index := range rows {
+		if wallet, ok := wallets[rows[index].ID]; ok {
+			rows[index].Credit = &wallet
+			continue
+		}
+		// 账户不存在等价于零余额：新注册用户没进过这个表，不该显示成"未知"。
+		empty := auth.CreditWalletView{UserID: rows[index].ID}
+		rows[index].Credit = &empty
+	}
 }
 
 func (e *Extension) handleAdminUserStatus(c *gin.Context) {

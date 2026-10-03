@@ -5,26 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { formatCount, formatDateTime } from "@/lib/format-usage";
 
 import { adjustAdminCredits, isInsufficientCreditsError, listAdminCreditAccounts, listAdminCreditLedger, type AdminCreditAccount, type AdminCreditKind, type AdminCreditLedgerEntry } from "./api";
-
-const kindOptions = [
-    { value: "", label: "全部类型" },
-    { value: "TASK_CHARGE", label: "任务扣费" },
-    { value: "TASK_REFUND", label: "任务退款" },
-    { value: "TOPUP", label: "充值到账" },
-    { value: "TOPUP_GIFT", label: "充值赠送" },
-    { value: "ADMIN_ADJUST", label: "人工调整" },
-];
-
-const kindViews: Record<AdminCreditKind, { label: string; color: string }> = {
-    TASK_CHARGE: { label: "任务扣费", color: "volcano" },
-    TASK_REFUND: { label: "任务退款", color: "blue" },
-    TOPUP: { label: "充值到账", color: "green" },
-    TOPUP_GIFT: { label: "充值赠送", color: "cyan" },
-    ADMIN_ADJUST: { label: "人工调整", color: "gold" },
-};
-
-const positiveInk = "#9ceac4";
-const negativeInk = "#ffb4b4";
+import { creditKindOptions, creditKindViews, creditNegativeInk, creditRefLabel, creditSignedInk, formatSignedCredits } from "./credit-presentation";
 
 function displayNameOf(account: AdminCreditAccount) {
     return account.name || account.username || account.email || account.phone || account.userId;
@@ -32,25 +13,6 @@ function displayNameOf(account: AdminCreditAccount) {
 
 function identifierOf(account: AdminCreditAccount) {
     return account.email || account.phone || account.username || account.userId;
-}
-
-/** 带符号展示：方向由正负号承担，颜色只是辅助，打印或截图黑白时也不会看反。 */
-function formatSignedCredits(value: number) {
-    const amount = Number.isFinite(value) ? Math.trunc(value) : 0;
-    const sign = amount > 0 ? "+" : amount < 0 ? "-" : "";
-    return `${sign}${formatCount(Math.abs(amount))}`;
-}
-
-function signedInk(value: number) {
-    if (value > 0) return positiveInk;
-    if (value < 0) return negativeInk;
-    return "var(--admin-ink-faint)";
-}
-
-/** 无外部单据的流水只回 SELF，那是本系统自己产生的账，展示出来只会变成噪声。 */
-function refLabelOf(entry: AdminCreditLedgerEntry) {
-    if (!entry.refId || entry.refType === "SELF") return "";
-    return `${entry.refType} ${entry.refId}`;
 }
 
 /**
@@ -199,7 +161,7 @@ export function CreditsPane() {
             key: "balance",
             width: 140,
             render: (value: number) => (
-                <b className="admin-console-mono" style={{ fontSize: "var(--fs-caption)", color: value < 0 ? negativeInk : "var(--admin-ink)" }}>
+                <b className="admin-console-mono" style={{ fontSize: "var(--fs-caption)", color: value < 0 ? creditNegativeInk : "var(--admin-ink)" }}>
                     {formatCount(value)}
                 </b>
             ),
@@ -272,7 +234,7 @@ export function CreditsPane() {
             key: "kind",
             width: 104,
             render: (kind: AdminCreditKind) => {
-                const view = kindViews[kind];
+                const view = creditKindViews[kind];
                 return view ? <Tag color={view.color}>{view.label}</Tag> : <Tag>{kind}</Tag>;
             },
         },
@@ -282,7 +244,7 @@ export function CreditsPane() {
             key: "amount",
             width: 110,
             render: (value: number) => (
-                <b className="admin-console-mono" style={{ fontSize: "var(--fs-caption)", color: signedInk(value) }}>
+                <b className="admin-console-mono" style={{ fontSize: "var(--fs-caption)", color: creditSignedInk(value) }}>
                     {formatSignedCredits(value)}
                 </b>
             ),
@@ -298,7 +260,7 @@ export function CreditsPane() {
             title: "说明",
             key: "note",
             render: (_, entry) => {
-                const ref = refLabelOf(entry);
+                const ref = creditRefLabel(entry);
                 return (
                     <span className="flex min-w-0 flex-col">
                         <span className="admin-user-name">{entry.note || "—"}</span>
@@ -434,7 +396,7 @@ export function CreditsPane() {
                     <div className="admin-toolbar">
                         <Select
                             value={ledgerKind}
-                            options={kindOptions}
+                            options={creditKindOptions}
                             style={{ width: 150 }}
                             onChange={(value) => {
                                 setLedgerPage(1);

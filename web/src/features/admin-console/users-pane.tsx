@@ -1,10 +1,12 @@
 import { Button, Form, Input, Modal, Popconfirm, Select, Table, Tag, type TableProps } from "antd";
-import { KeyRound, LogOut, RefreshCw, Search, ShieldCheck, ShieldOff, UserX, UserCheck } from "lucide-react";
+import { Coins, KeyRound, LogOut, RefreshCw, Search, ShieldCheck, ShieldOff, UserX, UserCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { formatCount } from "@/lib/format-usage";
 import { useUserStore } from "@/stores/use-user-store";
 
 import { forceAdminUserLogout, listAdminUsers, resetAdminUserPassword, updateAdminUserRole, updateAdminUserStatus, type AdminUser } from "./api";
+import { UserCreditsDrawer } from "./user-credits-drawer";
 
 const statusOptions = [
     { value: "", label: "全部状态" },
@@ -55,6 +57,7 @@ export function UsersPane() {
     const [notice, setNotice] = useState("");
     const [busyId, setBusyId] = useState("");
     const [passwordTarget, setPasswordTarget] = useState<AdminUser | null>(null);
+    const [creditTarget, setCreditTarget] = useState<AdminUser | null>(null);
     const [passwordForm] = Form.useForm<{ password: string }>();
     const [resetting, setResetting] = useState(false);
 
@@ -184,17 +187,36 @@ export function UsersPane() {
             ),
         },
         { title: "作品", dataIndex: "canvases", key: "canvases", width: 76, render: (value: number) => value?.toLocaleString("zh-CN") ?? "0" },
+        {
+            title: "积分",
+            key: "credit",
+            width: 132,
+            render: (_, user) => {
+                const credit = user.credit;
+                return (
+                    <span className="flex min-w-0 flex-col">
+                        <b className="admin-console-mono" style={{ fontSize: "var(--fs-caption)", color: (credit?.balance ?? 0) < 0 ? "#ffb4b4" : "var(--admin-ink)" }}>
+                            {formatCount(credit?.balance ?? 0)}
+                        </b>
+                        <span className="admin-user-sub">已用 {formatCount(credit?.lifetimeOut ?? 0)}</span>
+                    </span>
+                );
+            },
+        },
         { title: "最后活跃", dataIndex: "lastActiveAt", key: "lastActiveAt", width: 168, render: (value?: string) => formatTime(value) },
         { title: "注册时间", dataIndex: "createdAt", key: "createdAt", width: 168, render: (value?: string) => formatTime(value) },
         {
             title: "操作",
             key: "actions",
-            width: 300,
+            width: 360,
             render: (_, user) => {
                 const isSelf = user.id === currentUser?.id;
                 const busy = busyId === user.id;
                 return (
                     <div className="flex flex-wrap items-center gap-1">
+                        <Button size="small" type="text" icon={<Coins className="size-3.5" />} onClick={() => setCreditTarget(user)}>
+                            积分
+                        </Button>
                         <Popconfirm
                             title={user.status === "DISABLED" ? "解封这个账号？" : "封禁这个账号？"}
                             description={user.status === "DISABLED" ? "解封后用户可重新登录。" : "封禁会同时吊销该账号的全部会话。"}
@@ -244,7 +266,7 @@ export function UsersPane() {
             <div className="admin-section-head">
                 <div>
                     <h2 className="admin-section-title">用户管理</h2>
-                    <p className="admin-section-desc">账号、角色与在线状态；封禁和重置密码都会立刻吊销该账号的全部会话。</p>
+                    <p className="admin-section-desc">账号、角色、在线状态与积分；点「积分」可以看余额、消耗明细并直接充值。封禁和重置密码都会立刻吊销该账号的全部会话。</p>
                 </div>
                 <Button icon={<RefreshCw className="size-3.5" />} loading={loading} onClick={() => void load({ keyword, status, role, page, pageSize })}>
                     刷新
@@ -335,6 +357,14 @@ export function UsersPane() {
                     </Form.Item>
                 </Form>
             </Modal>
+
+            <UserCreditsDrawer
+                user={creditTarget}
+                onClose={() => setCreditTarget(null)}
+                // 余额变了就重拉当前页：表格里的数字和抽屉是同一份账，两边不一致
+                // 比暂时旧一点更难解释。
+                onAdjusted={() => void load({ keyword, status, role, page, pageSize })}
+            />
         </div>
     );
 }

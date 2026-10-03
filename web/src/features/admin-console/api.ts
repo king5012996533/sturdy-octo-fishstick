@@ -323,6 +323,8 @@ export type AdminUser = {
     lastActiveAt?: string;
     /** 作品数来自画布库；统计失败时服务端退化为 0。 */
     canvases: number;
+    /** 积分账户：列表就带着余额，运营先看"还剩多少"，再去查明细。 */
+    credit?: AdminCreditWallet;
 };
 
 export type AdminUserPage = {
@@ -965,6 +967,16 @@ export function listAdminCreditLedger(userId: string, options: { kind?: string; 
 /** 手工调整：amount 可正可负，note 即审计依据，服务端强制必填。 */
 export function adjustAdminCredits(input: { userId: string; amount: number; note: string }) {
     return http.post<{ entry: AdminCreditLedgerEntry; wallet: AdminCreditWallet }>("/admin/credits/adjust", input);
+}
+
+/**
+ * 读单个账号的积分账户。
+ *
+ * 用户管理的积分抽屉用它刷新余额：调整完一次、或者换一个人看，都不该逼运营回去
+ * 翻一遍分页列表才能看到新的数。
+ */
+export function getAdminCreditAccount(userId: string) {
+    return http.get<AdminCreditWallet>(`/admin/credits/accounts/${encodeURIComponent(userId)}`);
 }
 
 /**

@@ -76,6 +76,43 @@ func (s *Store) CreditAccountFor(userID string) (*CreditAccount, error) {
 	return &account, nil
 }
 
+// CreditAccountsFor 批量读多个账号的积分账户。
+//
+// 后台用户列表要用一次查询补齐整页余额：逐行调用 CreditAccountFor 会把一次列表
+// 放大成二十次查询，而这一页是运营翻得最勤的页面之一。
+func (s *Store) CreditAccountsFor(userIDs []string) ([]CreditAccount, error) {
+	ids := normalizeCreditUserIDs(userIDs)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var accounts []CreditAccount
+	if err := s.db.Where("user_id IN ?", ids).Find(&accounts).Error; err != nil {
+		return nil, fmt.Errorf("auth: 批量读取积分账户失败: %w", err)
+	}
+	return accounts, nil
+}
+
+// normalizeCreditUserIDs 去掉空值与重复值。
+//
+// 空 ID 匹配不到任何行，重复 ID 只会把 IN 拉长；两者都不影响结果，
+// 但没有理由让一次列表查询带着它们进 SQL。
+func normalizeCreditUserIDs(userIDs []string) []string {
+	ids := make([]string, 0, len(userIDs))
+	seen := make(map[string]struct{}, len(userIDs))
+	for _, raw := range userIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // EnsureCreditAccount 幂等地建出一个零余额账户。
 //
 // 冲突时不做任何更新：重复调用不该把 balance 冲回零，也不该刷新 updated_at——
