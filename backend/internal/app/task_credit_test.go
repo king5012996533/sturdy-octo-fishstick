@@ -248,8 +248,8 @@ func TestTaskChargeModelKeyFallsBackToTaskModel(t *testing.T) {
 
 // TestTaskChargeTierFollowsUpstreamImageQuality 覆盖图片按质量档取价。
 //
-// 上游对 gpt-image-2 的 low / medium / high 分别定价（差价 10.7 倍），档位是取价的第三
-// 个维度，认错就等于按另一个成本出货。
+// 上游对图片模型按 quality 分档定价（gpt-image-2.5 的 low 与 max 相差约 40 倍），档位是
+// 取价的第三个维度，认错就等于按另一个成本出货。
 func TestTaskChargeTierFollowsUpstreamImageQuality(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -259,6 +259,8 @@ func TestTaskChargeTierFollowsUpstreamImageQuality(t *testing.T) {
 		{name: "小写档位归一成大写", intent: ModelRequestIntent{Capability: "image", Options: map[string]any{"quality": "low"}}, want: "LOW"},
 		{name: "中档", intent: ModelRequestIntent{Capability: "image", Options: map[string]any{"quality": "medium"}}, want: "MEDIUM"},
 		{name: "高档", intent: ModelRequestIntent{Capability: "image", Options: map[string]any{"quality": "high"}}, want: "HIGH"},
+		{name: "极高档", intent: ModelRequestIntent{Capability: "image", Options: map[string]any{"quality": "xhigh"}}, want: "XHIGH"},
+		{name: "最高档", intent: ModelRequestIntent{Capability: "image", Options: map[string]any{"quality": "MAX"}}, want: "MAX"},
 		// 面板选 auto 时不会带 quality，这时必须是空档而不是某个具体档：回落到低档就等于
 		// 用 low 的成本去卖一次 high 的调用。
 		{name: "面板选 auto 时为空白档", intent: ModelRequestIntent{Capability: "image", Options: map[string]any{"count": "1"}}, want: ""},

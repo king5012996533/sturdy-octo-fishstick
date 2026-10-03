@@ -45,9 +45,8 @@ import urllib.request
 # text 与 audio 刻意不在治理范围内：Agent 的脑子（DeepSeek）与将来的音频模型
 # 走的是另一套取舍，把它们一起收进来会让这个脚本在执行时需要理解更多上下文。
 CATALOG: dict[str, set[str]] = {
-    # OpenAI 图片族走同一份质量标准（low/medium/high，见 seed-image-model-prices.py）；
-    # 2.5 系比 2.0 多了上游 xhigh/max 两档，但 auth.ImagePriceTiers 只认三档，因此界面
-    # 仍只放开 low/medium/high，先不把额外两档带进价目。
+    # OpenAI 图片族走同一份质量标准（见 seed-image-model-prices.py）：2.5 系比 2.0 多出
+    # 上游 xhigh/max 两档，档位枚举、能力合同与价目都已按五档对齐；2.0 仍只有三档。
     "image": {
         "openai/gpt-image-2",
         "openai/gpt-image-2.5-sunburst",

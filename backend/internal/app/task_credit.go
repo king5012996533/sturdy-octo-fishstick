@@ -289,8 +289,9 @@ func taskChargeQuantity(intent ModelRequestIntent) int64 {
 
 // taskChargeTier 取本次调用落在哪个价格档位。
 //
-// 只有图片在提交时就能确定档位：上游按 quality 的 low / medium / high 分别定价，价差在
-// 十倍量级，不按档取价就必然有一头算错。这里只认上游真实存在的三个档位：
+// 只有图片在提交时就能确定档位：上游按 quality 的 low / medium / high / xhigh / max
+// 分别定价，价差到四十倍（low $0.012 对 max $0.50），不按档取价就必然有一头算错。
+// 这里只认上游真实存在的档位：
 //
 //   - 面板选 auto（或压根没带 quality）时返回空档，由定价侧去要"不区分质量"那一行；
 //     绝不回落到某个具体档位——那等于用一个自己没验过的成本出货，正是"按最低价卖 4K"
@@ -309,6 +310,8 @@ const (
 	tierLow    = "LOW"
 	tierMedium = "MEDIUM"
 	tierHigh   = "HIGH"
+	tierXHigh  = "XHIGH"
+	tierMax    = "MAX"
 	tierShort  = "SHORT"
 	tierLong   = "LONG"
 )
@@ -321,7 +324,7 @@ func taskChargeTier(intent ModelRequestIntent) string {
 			return ""
 		}
 		switch tier := strings.ToUpper(strings.TrimSpace(fmt.Sprint(raw))); tier {
-		case tierLow, tierMedium, tierHigh:
+		case tierLow, tierMedium, tierHigh, tierXHigh, tierMax:
 			return tier
 		default:
 			return ""

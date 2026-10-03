@@ -52,6 +52,9 @@ export const qualityOptions = [
     { value: "low", label: "低", description: "更快生成" },
     { value: "medium", label: "中", description: "均衡模式" },
     { value: "high", label: "高", description: "优先细节" },
+    // gpt-image-2.5 的两档：单价高，界面按"极高 / 最高"区分，避免与 high 混淆。
+    { value: "xhigh", label: "极高", description: "细节与成本都更高" },
+    { value: "max", label: "最高", description: "最高质量，单价最高" },
     // grok2api / xAI Imagine：quality 映射 resolution
     { value: "1k", label: "1K", description: "标准清晰度" },
     { value: "2k", label: "2K", description: "更高清晰度" },

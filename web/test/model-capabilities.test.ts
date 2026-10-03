@@ -99,18 +99,24 @@ test("replicate image capability matches each upstream schema", () => {
     assert.equal(unknown.references.maxImages, 0);
 });
 
-// gpt-image 族（含 2.5 的 sunburst/flare）与 Go 侧共用同一份合同：三档质量、1-10 张输出、
-// 最多 4 张参考图。2.5 上游还有 xhigh/max，但价目只认三档，两边都不许放开。
-test("replicate gpt-image family shares one contract across 2.0 and 2.5", () => {
-    for (const model of ["openai/gpt-image-2", "openai/gpt-image-2.5-sunburst", "openai/gpt-image-2.5-flare"]) {
+// gpt-image 与 Go 侧共用同一份合同：1-10 张输出、最多 4 张参考图。2.5 上游 quality 五档
+// 齐备（价目五档各一行），2.0 只到 high——前缀相同但档位不同，必须按 2.5 细分。
+test("replicate gpt-image contract splits 2.0 three tiers from 2.5 five tiers", () => {
+    for (const model of ["openai/gpt-image-2.5-sunburst", "openai/gpt-image-2.5-flare"]) {
         const image = defaultModelCapabilityConfig("replicate-prediction-image", model).image!;
-        assert.deepEqual(image.quality.values, ["low", "medium", "high"], model);
+        assert.deepEqual(image.quality.values, ["low", "medium", "high", "xhigh", "max"], model);
         assert.equal(image.quality.default, "low", model);
         assert.equal(image.maxOutputs, 10, model);
         assert.equal(image.references.maxImages, 4, model);
         assert.equal(image.size.parameter, "aspect_ratio", model);
         assert.equal(image.size.allowCustom, false, model);
     }
+    // 2.0 上游没有这两档：写宽了用户会在提交时被上游拒绝。
+    const image20 = defaultModelCapabilityConfig("replicate-prediction-image", "openai/gpt-image-2").image!;
+    assert.deepEqual(image20.quality.values, ["low", "medium", "high"]);
+    assert.equal(image20.quality.default, "low");
+    assert.equal(image20.maxOutputs, 10);
+    assert.equal(image20.references.maxImages, 4);
 
     // imagen-4-fast 没有 image_size 参数，档位只剩 1k；imagen-4 有 1k/2k。
     const imagenFast = defaultModelCapabilityConfig("replicate-prediction-image", "google/imagen-4-fast").image!;

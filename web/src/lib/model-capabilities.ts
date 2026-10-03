@@ -542,9 +542,11 @@ function applyReplicateImageCapability(image: ImageCapabilityConfig, model = "")
         image.maxOutputs = maxOutputs;
         image.references.maxImages = maxImages;
     };
-    // gpt-image 族（含 2.5 的 sunburst/flare）：档位直通上游 quality，参考图走 input_images，
-    // 输出数量走 number_of_images（1-10）。上游 2.5 还有 xhigh/max 两档，但价目只认三档，
-    // 所以与 Go 侧一样只放开 low/medium/high——两边必须逐字一致。
+    // gpt-image-2.5（sunburst/flare）：档位直通上游 quality，参考图走 input_images，
+    // 输出数量走 number_of_images（1-10）。上游 quality 五档齐备，low 与 max 相差 40 倍。
+    if (owner === "openai" && base.startsWith("gpt-image-2.5")) return apply(replicateGPTImageRatios, ["low", "medium", "high", "xhigh", "max"], 10, 4, "low");
+    // gpt-image-2.0：上游只到 high。这两档不能跟着前缀一起放开，否则面板会露出一个选了就报错的档位。
+    // 本文件是 Go 侧模型能力合同的镜像，两边的档位列表必须逐字一致。
     if (owner === "openai" && base.startsWith("gpt-image")) return apply(replicateGPTImageRatios, ["low", "medium", "high"], 10, 4, "low");
     if (base.startsWith("flux-2-")) return apply(replicateKleinRatios, replicateImageRatioTiers, 1, 4, "1k");
     if (base.startsWith("flux-kontext-")) return apply(replicateKontextRatios, replicateImageRatioTiers, 1, 1, "1k");

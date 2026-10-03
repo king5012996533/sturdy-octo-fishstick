@@ -177,13 +177,16 @@ KINO_ADMIN_COOKIE='<Cookie>' KINO_BASE_URL=https://kinotv.xingtudesign.com/api \
 | `openai/gpt-image-2` | `HIGH` | $0.128 | 465 分（¥4.65） | 80.2% |
 | `openai/gpt-image-2` | 空档（未指定质量） | $0.128 | 465 分（¥4.65） | 80.2% |
 | `openai/gpt-image-2.5-sunburst` / `-flare` | `LOW` / `MEDIUM` / `HIGH` | $0.012 / $0.047 / $0.128 | 45 / 170 / 465 分 | 约 80% |
+| `openai/gpt-image-2.5-sunburst` / `-flare` | `XHIGH` | $0.25 | 900 分（¥9.00） | 80.0% |
+| `openai/gpt-image-2.5-sunburst` / `-flare` | `MAX` | $0.50 | 1800 分（¥18.00） | 80.0% |
 | `openai/gpt-image-2.5-sunburst` / `-flare` | 空档（未指定质量） | $0.25 | 900 分（¥9.00） | 80.0% |
 | `google/imagen-4` | 不区分档位 | $0.04 | 145 分（¥1.45） | 80.0% |
 | `google/imagen-4-fast` | 不区分档位 | $0.02 | 75 分（¥0.75） | 80.0% |
 
-2.5 系在上游还有 `xhigh`（$0.25）与 `max`（$0.50）两档，但 `auth.ImagePriceTiers` 只认
-`LOW` / `MEDIUM` / `HIGH`，能力合同也只放开三档，所以界面不提供这两档。将来要卖，先扩
-档位枚举，再回来补价目。
+2.5 系的 `xhigh`（$0.25）与 `max`（$0.50）两档已放开，界面与价目都按五档走。`gpt-image-2.0`
+上游没有这两档，能力合同按 `gpt-image-2.5` 前缀区分，2.0 仍然只有 `LOW` / `MEDIUM` / `HIGH`。
+`xhigh` 与 2.5 系的空档（auto）同价，但语义不同：空档是"面板没传质量"，`xhigh` 是用户主动选的，
+两者必须各占一行，任何一种"取不到就退回别档"的实现都会在这里算错钱。
 
 图片线的倍率是 **×5**，比文本线的 ×2 高：视频按走量定价、几乎不赚钱，图片承担这套价目
 的毛利。倍率是产品决策，不是算出来的，改 `scripts/seed-image-model-prices.py` 里的
@@ -192,7 +195,8 @@ KINO_ADMIN_COOKIE='<Cookie>' KINO_BASE_URL=https://kinotv.xingtudesign.com/api \
 两处关键推论：
 
 - **尺寸不参与计价。** 上游价目里没有宽高维度，所以"用户选了 4K 却按最低价卖"在计价上
-  不成立；真正的价差全部来自质量档，low 与 high 相差 **10.7 倍**。`google/imagen-4` 系
+  不成立；真正的价差全部来自质量档，2.0 的 low 与 high 相差 **10.7 倍**，2.5 系 low 与 max
+相差约 **40 倍**。`google/imagen-4` 系
   界面上是 1k/2k 两档，那两档是**分辨率**、不进价目，整个模型只有一行不区分档位的价。
 - **空档必须是独立的一行，且成本要逐模型填。** 空档代表"面板没把 `quality` 传下来"，
   上游此时按 `auto` 计费：`gpt-image-2` 的 auto 与 high 同价（$0.128），而 2.5 系的 auto

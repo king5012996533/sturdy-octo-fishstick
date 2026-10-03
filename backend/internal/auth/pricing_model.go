@@ -83,7 +83,8 @@ func DefaultUnitFor(capability ModelCapability) PriceUnit {
 // 档位的取值集合由能力决定，见 validPriceTier：
 //
 //   - 文本按 token 性质分三档，必须齐备；
-//   - 图片按上游的 quality 参数分三档，另允许留空表示"这个模型不区分质量"；
+//   - 图片按上游的 quality 参数分档（low / medium / high / xhigh / max 五档，不是每个
+//     模型都五档齐备，比如 gpt-image-2.0 只到 high），另允许留空表示"这个模型不区分质量"；
 //   - 音频按输出时长分三档（能按秒指定时长的音乐模型），另允许留空表示"这个音频模型
 //     不看时长"——配音与整首歌这类时长由上游决定的模型就落在这一档；
 //   - 视频目前只有一个价，档位留空。
@@ -102,10 +103,14 @@ const (
 	// PriceTierOutput 是文本模型生成的那部分。
 	PriceTierOutput PriceTier = "OUTPUT"
 
-	// 图片三档与上游的 quality 参数一一对应，大小写按原值保留。
+	// 图片档位与上游的 quality 参数一一对应，大小写按原值保留。
+	// 2.5 系比 2.0 多了 xhigh / max 两档，价差到 40 倍（low $0.012 对 max $0.50），
+	// 必须各占一行，不能挤进 HIGH。
 	PriceTierLow    PriceTier = "LOW"
 	PriceTierMedium PriceTier = "MEDIUM"
 	PriceTierHigh   PriceTier = "HIGH"
+	PriceTierXHigh  PriceTier = "XHIGH"
+	PriceTierMax    PriceTier = "MAX"
 
 	// 音频三档按输出时长划分，边界见 app 层的 audioPriceTier——时长到档位的映射是
 	// 运营口径，与"档位叫什么"分开放在两处，改边界不必动定价域。
@@ -119,8 +124,11 @@ const (
 // 三个入口各排一次就会出现"同一笔钱三种写法"。
 var TextPriceTiers = []PriceTier{PriceTierCache, PriceTierInput, PriceTierOutput}
 
-// ImagePriceTiers 是图片按上游 quality 参数划分的三个档位，顺序为"由便宜到贵"。
-var ImagePriceTiers = []PriceTier{PriceTierLow, PriceTierMedium, PriceTierHigh}
+// ImagePriceTiers 是图片按上游 quality 参数划分的档位，顺序为"由便宜到贵"。
+//
+// 五档是当前上游 quality 的完整取值集合。具体某个模型支持哪几档由能力合同
+// （ImageQualityConfig.Values）决定，定价域只负责"这几档都合法、且顺序可复核"。
+var ImagePriceTiers = []PriceTier{PriceTierLow, PriceTierMedium, PriceTierHigh, PriceTierXHigh, PriceTierMax}
 
 // AudioPriceTiers 是音频按输出时长划分的三个档位，顺序为"由短到长"。
 //
@@ -139,7 +147,8 @@ func validPriceTier(capability string, raw string) bool {
 		return tier == PriceTierCache || tier == PriceTierInput || tier == PriceTierOutput
 	case CapabilityImage:
 		// 图片允许留空：上游不是每个图片模型都有 quality 维度，没有维度时一档价就是全部。
-		return tier == PriceTierNone || tier == PriceTierLow || tier == PriceTierMedium || tier == PriceTierHigh
+		return tier == PriceTierNone || tier == PriceTierLow || tier == PriceTierMedium || tier == PriceTierHigh ||
+			tier == PriceTierXHigh || tier == PriceTierMax
 	case CapabilityAudio:
 		// 音频允许留空：配音与整首歌的时长由上游决定，给它们分档只会逼运营配一堆用不上的价。
 		return tier == PriceTierNone || tier == PriceTierShort || tier == PriceTierMedium || tier == PriceTierLong
@@ -308,7 +317,7 @@ func priceTierRequirementMessage(capability string) string {
 	case CapabilityText:
 		return "文本单价必须指定档位：CACHE / INPUT / OUTPUT"
 	case CapabilityImage:
-		return "图片单价档位只能是 LOW / MEDIUM / HIGH，或留空表示不区分质量档位"
+		return "图片单价档位只能是 LOW / MEDIUM / HIGH / XHIGH / MAX，或留空表示不区分质量档位"
 	case CapabilityAudio:
 		return "音频单价档位只能是 SHORT / MEDIUM / LONG，或留空表示不按时长分档"
 	case CapabilityVideo:

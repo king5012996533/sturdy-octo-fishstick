@@ -36,15 +36,15 @@ func TestValidPriceTierFollowsCapability(t *testing.T) {
 	}
 }
 
-// TestPriceTierSetsMatchCapability 覆盖两个档位集合本身：顺序固定，且图片三档都在白名单里。
+// TestPriceTierSetsMatchCapability 覆盖两个档位集合本身：顺序固定，且图片每一档都在白名单里。
 //
 // 顺序不是装饰：账单要能按同一顺序复核，集合写漏一档就等于那个档位永远配不上价。
 func TestPriceTierSetsMatchCapability(t *testing.T) {
 	if len(TextPriceTiers) != 3 || TextPriceTiers[0] != PriceTierCache || TextPriceTiers[2] != PriceTierOutput {
 		t.Fatalf("文本三档的顺序应是 CACHE / INPUT / OUTPUT，实际 %v", TextPriceTiers)
 	}
-	if len(ImagePriceTiers) != 3 || ImagePriceTiers[0] != PriceTierLow || ImagePriceTiers[2] != PriceTierHigh {
-		t.Fatalf("图片三档的顺序应是 LOW / MEDIUM / HIGH，实际 %v", ImagePriceTiers)
+	if len(ImagePriceTiers) != 5 || ImagePriceTiers[0] != PriceTierLow || ImagePriceTiers[4] != PriceTierMax {
+		t.Fatalf("图片档位的顺序应是 LOW / MEDIUM / HIGH / XHIGH / MAX，实际 %v", ImagePriceTiers)
 	}
 	for _, tier := range ImagePriceTiers {
 		if !validPriceTier("IMAGE", string(tier)) {

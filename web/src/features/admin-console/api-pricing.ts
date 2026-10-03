@@ -38,7 +38,7 @@ export type ModelPriceUnit = "TOKEN_1M" | "TOKEN_1K" | "IMAGE" | "SECOND" | "REQ
  *
  * MEDIUM 是图片与音频共用的词，含义随能力变化：图片是中质量，音频是中等时长。
  */
-export type ModelPricePriceTier = "" | "CACHE" | "INPUT" | "OUTPUT" | "LOW" | "MEDIUM" | "HIGH" | "SHORT" | "LONG";
+export type ModelPricePriceTier = "" | "CACHE" | "INPUT" | "OUTPUT" | "LOW" | "MEDIUM" | "HIGH" | "XHIGH" | "MAX" | "SHORT" | "LONG";
 
 export type ModelPrice = {
     id: string;

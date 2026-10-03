@@ -16,9 +16,8 @@ UPSTREAM_USD_PER_IMAGE，重跑一遍，而不是靠谁记得当初在后台点�
 
 ## 为什么只按质量档，不按分辨率
 
-上游 Replicate 对 OpenAI 图片族的价目是 low / medium / high / auto 四档（2.5 系还多
-xhigh / max，但界面与价目只放开三档，见下），**没有尺寸维度**：同一质量档下 1:1 与
-4K 同价。所以"用户选了 4K 却按最便宜的价卖"这种事在当前价目上不会成立——分辨率不参与
+上游 Replicate 对 OpenAI 图片族的价目是 low / medium / high / xhigh / max / auto 六档
+（2.0 只到 high，2.5 系五档齐备），**没有尺寸维度**：同一质量档下 1:1 与 4K 同价。所以"用户选了 4K 却按最便宜的价卖"这种事在当前价目上不会成立——分辨率不参与
 计价，质量档才是唯一的价格变量。google/imagen-4 系连质量维度都没有（界面上的 1k/2k
 是分辨率档，不参与计价），整个模型只有"不区分档位"一行价。
 
@@ -26,9 +25,10 @@ xhigh / max，但界面与价目只放开三档，见下），**没有尺寸维�
 计费，所以空档成本必须填**各自模型的** auto 价：2.0 是 $0.128，而 2.5 系是 $0.25。
 两份价目长得几乎一样，空档抄错就是资损，而且不会报错。
 
-2.5 系上游还有 xhigh（$0.25）与 max（$0.50）两档，但 auth.ImagePriceTiers 只认
-LOW / MEDIUM / HIGH 三档，能力合同也只放开 low/medium/high，所以这里不写这两档：
-写进去后台存不下，只会让脚本报一个看起来像接口故障的档位错误。将来要卖，先扩档位枚举。
+2.5 系的 xhigh（$0.25）与 max（$0.50）要求 auth.ImagePriceTiers 与能力合同同步扩档，
+两处都已放开；2.0 上游没有这两档，能力合同按 base 前缀区分，所以它的价目里也不写这两行
+（写了会在面板露出一个选了就报错的档位）。xhigh 与 auto 同价 $0.25，是两行不同的价，
+空档不能拿 xhigh 顶替：空档代表"面板没传质量"，与用户主动选 xhigh 是两种请求。
 
 ## 为什么是「上游价 × 5」
 
@@ -43,6 +43,8 @@ LOW / MEDIUM / HIGH 三档，能力合同也只放开 low/medium/high，所以�
 | gpt-image-2 / 2.5 系 | low | $0.012 | 45 分（¥0.45） | 80.8% |
 | gpt-image-2 / 2.5 系 | medium | $0.047 | 170 分（¥1.70） | 80.1% |
 | gpt-image-2 / 2.5 系 | high | $0.128 | 465 分（¥4.65） | 80.2% |
+| gpt-image-2.5 系 | xhigh | $0.25 | 900 分（¥9.00） | 80.0% |
+| gpt-image-2.5 系 | max | $0.50 | 1800 分（¥18.00） | 80.0% |
 | gpt-image-2 | 空档（auto） | $0.128 | 465 分（¥4.65） | 80.2% |
 | gpt-image-2.5 系 | 空档（auto） | $0.25 | 900 分（¥9.00） | 80.0% |
 | imagen-4 | 不区分档位 | $0.04 | 145 分（¥1.45） | 80.0% |
@@ -71,7 +73,7 @@ from decimal import ROUND_CEILING, Decimal
 # 上游 Replicate 的在售图片价目，单位：美元/张。外层键是计费用标识，内层键是价格档位。
 #
 # 内层顺序即写入顺序（由便宜到贵、空档最后），预览输出与幂等比较都按这个顺序复核。
-# 档位取值与 auth.ImagePriceTiers 对齐：LOW / MEDIUM / HIGH 是质量档，
+# 档位取值与 auth.ImagePriceTiers 对齐：LOW / MEDIUM / HIGH / XHIGH / MAX 是质量档，
 # 空串表示"这个模型不按质量分档"——imagen 系没有质量维度，只有空档一行。
 UPSTREAM_USD_PER_IMAGE: dict[str, dict[str, str]] = {
     "CHANNEL_000003::openai/gpt-image-2": {
@@ -85,13 +87,18 @@ UPSTREAM_USD_PER_IMAGE: dict[str, dict[str, str]] = {
         "LOW": "0.012",
         "MEDIUM": "0.047",
         "HIGH": "0.128",
+        "XHIGH": "0.25",
+        "MAX": "0.50",
         # 2.5 系 auto 是 $0.25，是 2.0 的近两倍：这条不能抄上面那一份。
+        # 它与 XHIGH 同价，但语义不同（漏传质量 vs 主动选极高），两行都要留。
         "": "0.25",
     },
     "CHANNEL_000003::openai/gpt-image-2.5-flare": {
         "LOW": "0.012",
         "MEDIUM": "0.047",
         "HIGH": "0.128",
+        "XHIGH": "0.25",
+        "MAX": "0.50",
         # flare 与 sunburst 同价目，同样不能用 2.0 的 auto 价。
         "": "0.25",
     },
@@ -113,6 +120,8 @@ TIER_NOTE = {
     "LOW": "上游 low 档",
     "MEDIUM": "上游 medium 档",
     "HIGH": "上游 high 档",
+    "XHIGH": "上游 xhigh 档",
+    "MAX": "上游 max 档",
 }
 
 # 售价相对上游成本的倍率：5 = ×5（约 80% 毛利）。产品定价决策，见文件头 docstring：

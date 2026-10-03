@@ -37,9 +37,9 @@ const unitLabels: Record<ModelPriceUnit, string> = { TOKEN_1M: "百万 token", T
 /**
  * 价格档位：同一模型同一能力下"这次调用按哪一行价结算"的键。
  *
- * 文本三档差到两个数量级（DeepSeek 输出价是缓存命中价的 200 倍）；图片三档对应上游的
- * quality 参数，low $0.012 / medium $0.047 / high $0.128，相差 10.7 倍。挤进一行只能填
- * 折中值，而折中值在真实流量里必定错一头。
+ * 文本三档差到两个数量级（DeepSeek 输出价是缓存命中价的 200 倍）；图片档位对应上游的
+ * quality 参数，low $0.012 / medium $0.047 / high $0.128 / xhigh $0.25 / max $0.50，
+ * 首尾相差约 40 倍。挤进一行只能填折中值，而折中值在真实流量里必定错一头。
  */
 const tierLabels: Record<ModelPricePriceTier, string> = {
     "": "不区分",
@@ -49,6 +49,8 @@ const tierLabels: Record<ModelPricePriceTier, string> = {
     LOW: "低（low）",
     MEDIUM: "中（medium）",
     HIGH: "高（high）",
+    XHIGH: "极高（xhigh）",
+    MAX: "最高（max）",
     SHORT: "短（≤30 秒）",
     LONG: "长（>90 秒）",
 };
@@ -68,7 +70,7 @@ const audioTierLabels: Record<ModelPricePriceTier, string> = { ...tierLabels, ME
  */
 const tierOptionsByCapability: Record<ModelPriceCapability, { value: ModelPricePriceTier; label: string }[]> = {
     TEXT: (["CACHE", "INPUT", "OUTPUT"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] })),
-    IMAGE: (["", "LOW", "MEDIUM", "HIGH"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] })),
+    IMAGE: (["", "LOW", "MEDIUM", "HIGH", "XHIGH", "MAX"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] })),
     VIDEO: [{ value: "", label: tierLabels[""] }],
     AUDIO: (["", "SHORT", "MEDIUM", "LONG"] as ModelPricePriceTier[]).map((value) => ({ value, label: audioTierLabels[value] })),
 };
@@ -83,7 +85,7 @@ const defaultTierByCapability: Record<ModelPriceCapability, ModelPricePriceTier>
 
 const tierExtraByCapability: Record<ModelPriceCapability, string> = {
     TEXT: "文本三档必填：缓存命中 / 缓存未命中 / 输出各配一行，缺一档这条模型就用不了。",
-    IMAGE: "图片可按质量档配价（low / medium / high）；留空表示不区分，上游按 auto 计费。",
+    IMAGE: "图片可按质量档配价（low / medium / high / xhigh / max，不是每个模型都五档齐备）；留空表示不区分，上游按 auto 计费。",
     VIDEO: "视频只有一档：选「不区分」。",
     // 音频的空档不是任何一档的别名，它是"取不到时长"时的兜底价（旧前端不带时长参数，
     // 上游会按缺省产出 60 秒），所以要跟三档一起配，不能只配三档。

@@ -785,19 +785,28 @@ func TestDefaultImageCapabilityConfigForReplicateFamilies(t *testing.T) {
 		t.Fatalf("gpt-image-2 capability rejected: %v", err)
 	}
 
-	// 2.5 系（sunburst/flare）与 2.0 共用同一份合同：同样只能出 1-10 张、最多 4 张参考图。
-	// 上游 2.5 的 quality 还多出 xhigh/max 两档，但价目只承认 LOW/MEDIUM/HIGH 三档，
-	// 露出算不出价的档位只会让用户在提交时报错，所以合同里必须只有三档。
+	// 2.5 系（sunburst/flare）比 2.0 多两档质量：上游 quality 五档齐备，价目五档各有
+	// 一行，所以合同要一起放开，否则 xhigh/max 在面板上选不到、选到了也算不出价。
 	for _, name := range []string{"openai/gpt-image-2.5-sunburst", "openai/gpt-image-2.5-flare"} {
 		gptImage25 := DefaultImageCapabilityConfig("replicate-prediction-image", name)
 		if gptImage25.MaxOutputs != 10 || gptImage25.References.MaxImages != 4 || gptImage25.Quality.Default != "low" {
 			t.Fatalf("%s outputs=%d refs=%d quality=%#v", name, gptImage25.MaxOutputs, gptImage25.References.MaxImages, gptImage25.Quality)
 		}
-		if len(gptImage25.Quality.Values) != 3 || containsCapabilityString(gptImage25.Quality.Values, "xhigh") || containsCapabilityString(gptImage25.Quality.Values, "max") {
-			t.Fatalf("%s quality = %#v, 只应放开 low/medium/high", name, gptImage25.Quality.Values)
+		for _, tier := range []string{"low", "medium", "high", "xhigh", "max"} {
+			if !containsCapabilityString(gptImage25.Quality.Values, tier) {
+				t.Fatalf("%s quality = %#v, 缺少 %q 档", name, gptImage25.Quality.Values, tier)
+			}
+		}
+		if len(gptImage25.Quality.Values) != 5 {
+			t.Fatalf("%s quality = %#v, 应放开五档", name, gptImage25.Quality.Values)
 		}
 		if err := validateImageCapabilityConfig(gptImage25); err != nil {
 			t.Fatalf("%s capability rejected: %v", name, err)
+		}
+		// 2.0 上游没有 xhigh/max，不能跟着前缀一起放开：选了就报错的档位比没有更糟。
+		gptImage20 := DefaultImageCapabilityConfig("replicate-prediction-image", "openai/gpt-image-2")
+		if containsCapabilityString(gptImage20.Quality.Values, "xhigh") || containsCapabilityString(gptImage20.Quality.Values, "max") {
+			t.Fatalf("gpt-image-2 quality = %#v, 不应出现 xhigh/max", gptImage20.Quality.Values)
 		}
 	}
 

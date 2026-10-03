@@ -27,7 +27,7 @@
 | `imageCount` | integer | 否 | `input.num_outputs` / `input.max_images` / `input.number_of_images` | 输出数量；按模型支持的同义字段并列下发，未知字段由上游忽略。 |
 | `aspectRatio` | string | 否 | `input.aspect_ratio` | 宽高比；能力合同已把尺寸归一成比例，插件直通上游。 |
 | `resolution` | string | 否 | `input.image_size` / `input.size` | 分辨率档位；仅 Google（1K/2K）与 ByteDance（1K/2K/4K）图片模型使用。 |
-| `quality` | string | 否 | `input.quality`（OpenAI 图片族）/ `input.image_size` / `input.size` | OpenAI 图片族直通 `input.quality`（low/medium/high/auto）；Google、ByteDance 仍由档位字符串决定分辨率字段。 |
+| `quality` | string | 否 | `input.quality`（OpenAI 图片族）/ `input.image_size` / `input.size` | OpenAI 图片族直通 `input.quality`（low/medium/high/xhigh/max/auto，实际可选档以能力合同为准）；Google、ByteDance 仍由档位字符串决定分辨率字段。 |
 | `providerOptions` | object | 否 | `provider-specific fields` | 插件命名空间内的厂商扩展字段。 |
 
 ## 上游请求模板逐字段清单
@@ -64,7 +64,7 @@
 
 | 统一字段 | 上游键 | 说明 |
 | --- | --- | --- |
-| `quality` | `input.quality` | 直通上游质量档位 `low` / `medium` / `high` / `auto`；创作端 1K/2K/4K 档位映射为 low/medium/high。 |
+| `quality` | `input.quality` | 直通上游质量档位 `low` / `medium` / `high` / `xhigh` / `max` / `auto`；创作端 1K/2K/4K 档位映射为 low/medium/high。 |
 | `images` | `input.input_images` | 参考图或编辑源图数组；上游键名为 `input_images`，与通用模型的 `images` 不同。 |
 | `providerOptions.replicate-prediction-image.moderation` | `input.moderation` | 审核档位 `auto` / `low`；未显式配置时缺省 `low`，用于压低试跑成本。 |
 

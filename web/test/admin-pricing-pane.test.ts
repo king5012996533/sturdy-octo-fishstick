@@ -149,18 +149,20 @@ describe("后台模型定价面板", () => {
         expect(pane).toContain("preview.source");
     });
 
-    test("档位随能力收敛：文本三档 / 图片三档质量 + 空档 / 音频三档时长 + 兜底 / 视频只有空档", () => {
+    test("档位随能力收敛：文本三档 / 图片五档质量 + 空档 / 音频三档时长 + 兜底 / 视频只有空档", () => {
         const pane = read(panePath);
         // 选项按能力取，不是一份全局写死的列表。
         expect(pane).toContain("tierOptionsByCapability");
         expect(pane).toContain('TEXT: (["CACHE", "INPUT", "OUTPUT"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] }))');
-        expect(pane).toContain('IMAGE: (["", "LOW", "MEDIUM", "HIGH"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] }))');
+        expect(pane).toContain('IMAGE: (["", "LOW", "MEDIUM", "HIGH", "XHIGH", "MAX"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] }))');
         expect(pane).toContain('VIDEO: [{ value: "", label: tierLabels[""] }]');
         expect(pane).toContain('AUDIO: (["", "SHORT", "MEDIUM", "LONG"] as ModelPricePriceTier[]).map((value) => ({ value, label: audioTierLabels[value] }))');
-        // 图片三档质量与文案都要在，否则运营选不到 low / medium / high。
+        // 图片五档质量与文案都要在，否则运营选不到 low / medium / high / xhigh / max。
         expect(pane).toContain('LOW: "低（low）"');
         expect(pane).toContain('MEDIUM: "中（medium）"');
         expect(pane).toContain('HIGH: "高（high）"');
+        expect(pane).toContain('XHIGH: "极高（xhigh）"');
+        expect(pane).toContain('MAX: "最高（max）"');
         // 音频三档必须带时长区间，否则运营不知道边界落在哪。
         expect(pane).toContain('SHORT: "短（≤30 秒）"');
         expect(pane).toContain('LONG: "长（>90 秒）"');
@@ -204,9 +206,9 @@ describe("后台模型定价面板", () => {
         expect(api).toContain('http.post<{ resolution: PricingResolution }>("/admin/billing/model-prices/preview", input)');
         // 类型与后端契约字段一致。
         expect(api).toContain('export type ModelPriceUnit = "TOKEN_1M" | "TOKEN_1K" | "IMAGE" | "SECOND" | "REQUEST";');
-        // 分档的价格必须能表达：文本的三行靠 priceTier 区分，图片的三档质量价同理。
+        // 分档的价格必须能表达：文本的三行靠 priceTier 区分，图片的五档质量价同理。
         expect(api).toContain(
-            'export type ModelPricePriceTier = "" | "CACHE" | "INPUT" | "OUTPUT" | "LOW" | "MEDIUM" | "HIGH" | "SHORT" | "LONG";',
+            'export type ModelPricePriceTier = "" | "CACHE" | "INPUT" | "OUTPUT" | "LOW" | "MEDIUM" | "HIGH" | "XHIGH" | "MAX" | "SHORT" | "LONG";',
         );
         expect(api).toContain("priceTier: ModelPricePriceTier;");
         // 旧字段名残留会让请求体与服务端契约对不上（服务端读 priceTier）。

@@ -270,8 +270,10 @@ func TestQuoteTaskChargeRejectsUnknownCapability(t *testing.T) {
 
 // TestQuoteTaskChargePricesImageByQualityTier 覆盖图片按上游质量档取价。
 //
-// gpt-image-2 的三档上游成本是 $0.012 / $0.047 / $0.128（差 10.7 倍）。三行价必须各自
-// 独立命中：任何"取不到就退回某个档"的实现都会在 high 上按 low 的成本出货。
+// gpt-image-2.5 的五档上游成本是 $0.012 / $0.047 / $0.128 / $0.25 / $0.50（首尾差约
+// 40 倍）。五行价必须各自独立命中：任何"取不到就退回某个档"的实现都会在 max 上按 low
+// 的成本出货。空档另占一行、不是任何档的别名，所以这里也从 93 改成与 LOW 不同的值，
+// 让"空档被退回 LOW"这类实现无处可藏。
 func TestQuoteTaskChargePricesImageByQualityTier(t *testing.T) {
 	env := newCreditTaskEnv(t)
 	rows := []struct {
@@ -282,8 +284,10 @@ func TestQuoteTaskChargePricesImageByQualityTier(t *testing.T) {
 		{PriceTierLow, 9, 18},
 		{PriceTierMedium, 34, 68},
 		{PriceTierHigh, 93, 186},
+		{PriceTierXHigh, 180, 360},
+		{PriceTierMax, 360, 720},
 		// 空档是"面板没指定质量"时的价（上游按 auto 计费），它不是任何一档的别名。
-		{PriceTierNone, 93, 186},
+		{PriceTierNone, 120, 240},
 	}
 	for _, row := range rows {
 		upstream := row.upstream
