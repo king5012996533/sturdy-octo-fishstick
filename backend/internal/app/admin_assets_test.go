@@ -21,7 +21,7 @@ func newAdminAssetTestService(t *testing.T) (*Service, *gorm.DB) {
 		t.Fatal(err)
 	}
 	// 素材与审核状态同库；workspaces 提供 owner 昵称（画布库里就是这张表）。
-	if err := db.AutoMigrate(&model.Asset{}, &model.AssetVersion{}, &model.AssetModeration{}, &model.Workspace{}); err != nil {
+	if err := db.AutoMigrate(&model.Asset{}, &model.AssetVersion{}, &model.AssetModeration{}, &model.Workspace{}, &model.Resource{}); err != nil {
 		t.Fatal(err)
 	}
 	return New(repository.New(db), t.TempDir()), db

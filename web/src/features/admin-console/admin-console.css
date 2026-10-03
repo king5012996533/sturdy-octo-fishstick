@@ -854,6 +854,38 @@ body.admin-overlay-host .admin-form-narrow {
     height: 40px;
 }
 
+/* 素材详情的本体预览：列表里的缩略图在这里要放大到能看清内容。 */
+.admin-asset-detail-preview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 180px;
+    padding: 10px;
+    overflow: hidden;
+    border: 1px solid var(--admin-hairline-soft);
+    border-radius: var(--r-md);
+    background: var(--admin-field);
+}
+
+.admin-asset-detail-preview .admin-resource-thumb {
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    max-height: 420px;
+    object-fit: contain;
+}
+
+.admin-asset-detail-preview .admin-resource-video {
+    width: 100%;
+    height: auto;
+    max-height: 420px;
+}
+
+.admin-asset-detail-preview .admin-resource-audio {
+    width: 100%;
+    height: 44px;
+}
+
 .admin-asset-placeholder {
     font-size: var(--fs-tiny);
     color: var(--admin-ink-faint);

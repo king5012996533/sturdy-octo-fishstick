@@ -78,7 +78,8 @@ describe("后台生成产物面板", () => {
         expect(pane).toContain("resource.previewUrl");
         expect(pane).toContain("DatePicker.RangePicker");
         expect(pane).toContain("startOf(\"day\").toISOString()");
-        expect(pane).toContain('kind === "video"');
-        expect(pane).toContain('kind === "audio"');
+        // 播放器渲染搬到共用的 media-preview：这里只钉住接线，产物页必须把签名地址
+        // 与资源类型一起交给它，不能自己拼一套。
+        expect(pane).toContain("kind={resource.kind} src={resource.previewUrl}");
     });
 });

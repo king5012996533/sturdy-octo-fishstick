@@ -24,6 +24,16 @@ export type AdminAsset = {
      * 它不是对象存储真实用量（不做物理对象去重），只用于排序与概览。
      */
     payloadBytes: number;
+    /**
+     * 素材本体：assets 只存定义，本体是 payload 引用的 resources。没有可播本体时
+     * 四个字段都为空——用「无预览」区分纯文本素材与引用失效，而不是留空白框。
+     */
+    resourceId?: string;
+    /** 资源本体的媒体类型（image/video/audio），决定用图片还是播放器渲染。 */
+    mediaKind?: string;
+    mimeType?: string;
+    /** 现场签发的只读预览地址，12 小时后过期；签不出来时为空串。 */
+    previewUrl?: string;
     moderationStatus: AdminAssetModerationStatus;
     moderationReason?: string;
     createdAt: string;

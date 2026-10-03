@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { formatBytes, formatCount, formatDateTime } from "@/lib/format-usage";
 
 import { listAdminResources, type AdminResource, type AdminResourceReconciliation, type AdminResourceTotals } from "./api-resources";
+import { MediaPreview } from "./media-preview";
 import { chargeStateColor, chargeStateLabel, ResourcesReconciliation } from "./resources-reconciliation";
 
 const kindOptions = [
@@ -35,20 +36,6 @@ function formatDimension(resource: AdminResource) {
     if (resource.width > 0 && resource.height > 0) return `${resource.width}×${resource.height}`;
     if (resource.durationMs > 0) return formatDuration(resource.durationMs);
     return "—";
-}
-
-/** 有签名地址才渲染播放器，签不出来时给出明确的空态而不是空白框。 */
-function ResourcePreview({ resource }: { resource: AdminResource }) {
-    if (!resource.previewUrl) {
-        return <span className="admin-asset-placeholder">无预览</span>;
-    }
-    if (resource.kind === "video") {
-        return <video className="admin-resource-video" src={resource.previewUrl} muted playsInline preload="metadata" controls />;
-    }
-    if (resource.kind === "audio") {
-        return <audio className="admin-resource-audio" src={resource.previewUrl} controls preload="metadata" />;
-    }
-    return <img className="admin-resource-thumb" src={resource.previewUrl} alt="" loading="lazy" />;
 }
 
 /**
@@ -131,7 +118,7 @@ export function ResourcesPane() {
             width: 132,
             render: (_, resource) => (
                 <div className="admin-resource-preview-cell">
-                    <ResourcePreview resource={resource} />
+                    <MediaPreview kind={resource.kind} src={resource.previewUrl} />
                 </div>
             ),
         },

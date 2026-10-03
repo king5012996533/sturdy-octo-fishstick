@@ -22,10 +22,13 @@ type AdminAssetFilter struct {
 
 // AdminAssetRow 是管理端素材列表的一行。
 //
-// PayloadBytes 是占用字节的近似值：assets 表没有文件大小字段，列表里也不适合把
-// 整段 payload_json 读出来算长度，因此用 payload_json 与素材各版本 definition_json
-// 的字符长度相加作为口径。它不等于对象存储里真实占用的字节数——同一份物理对象被
-// 多次引用也不会去重，详见 adminAssetBytesExpr 的注释。
+// PayloadBytes 是占用字节的近似值：assets 表没有文件大小字段，因此在 SQL 里用
+// payload_json 与素材各版本 definition_json 的字符长度相加作为口径。它不等于对象
+// 存储里真实占用的字节数——同一份物理对象被多次引用也不会去重，详见
+// adminAssetBytesExpr 的注释。
+//
+// PayloadJSON 是素材定义的原文：管理端要看素材本体，而本体只以资源引用的形式记在
+// 这里，所以列表也要把它带出来交给 app 层解析。它只服务于预览，不进对外视图。
 type AdminAssetRow struct {
 	ID               string
 	UserID           string
@@ -36,6 +39,7 @@ type AdminAssetRow struct {
 	Title            string
 	VersionCount     int64
 	PayloadBytes     int64
+	PayloadJSON      string
 	ModerationStatus string
 	ModerationReason string
 	CreatedAt        time.Time
@@ -74,6 +78,7 @@ const adminAssetSelectColumns = `assets.id AS id,
 	assets.title AS title,
 	(SELECT COUNT(*) FROM asset_versions WHERE asset_versions.asset_id = assets.id) AS version_count,
 	` + adminAssetBytesExpr + ` AS payload_bytes,
+	COALESCE(assets.payload_json, '') AS payload_json,
 	COALESCE(asset_moderation.status, '') AS moderation_status,
 	COALESCE(asset_moderation.reason, '') AS moderation_reason,
 	assets.created_at AS created_at,

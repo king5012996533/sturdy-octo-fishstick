@@ -39,7 +39,7 @@ const consoleSections: Array<{ key: ConsoleSectionKey; label: string; descriptio
     { key: "users", label: "用户管理", description: "账号、角色与封禁", icon: Users, pane: () => <UsersPane /> },
     { key: "roles", label: "角色与权限", description: "角色定义与权限点分配", icon: ShieldCheck, pane: () => <RolesPane /> },
     { key: "canvases", label: "内容审核", description: "画布内容与处置", icon: ShieldAlert, pane: () => <CanvasPane /> },
-    { key: "assets", label: "素材管理", description: "上传素材与处置状态", icon: Images, pane: () => <AssetsPane /> },
+    { key: "assets", label: "素材管理", description: "素材本体预览与处置状态", icon: Images, pane: () => <AssetsPane /> },
     // 素材管理读客户端回写的 assets，这一页读产物表全量：用户没回写、上游却已产出的那批，只有这里看得见。
     { key: "resources", label: "生成产物", description: "产物全量与未被用户拿到对账", icon: Clapperboard, pane: () => <ResourcesPane /> },
     { key: "templates", label: "模板管理", description: "画布模板上下架与推荐位", icon: LayoutTemplate, pane: () => <TemplatesPane /> },

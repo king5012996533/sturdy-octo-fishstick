@@ -28,7 +28,14 @@ type AdminAssetRowView struct {
 	VersionCount int64  `json:"versionCount"`
 	// PayloadBytes 是占用字节的近似值（payload_json + 各版本 definition_json 的字符长度），
 	// 不是对象存储真实用量，详见 repository.AdminAssetRow 的注释。
-	PayloadBytes     int64     `json:"payloadBytes"`
+	PayloadBytes int64 `json:"payloadBytes"`
+	// ResourceID / MediaKind / MimeType / PreviewURL 描述素材本体：assets 只存定义，
+	// 本体是 payload 引用的 resources。没有可播本体时这四个字段全为空，前端据此
+	// 区分"纯文本素材"和"引用已失效"，而不是留一个打不开的空白框。
+	ResourceID       string    `json:"resourceId,omitempty"`
+	MediaKind        string    `json:"mediaKind,omitempty"`
+	MimeType         string    `json:"mimeType,omitempty"`
+	PreviewURL       string    `json:"previewUrl,omitempty"`
 	ModerationStatus string    `json:"moderationStatus"`
 	ModerationReason string    `json:"moderationReason,omitempty"`
 	CreatedAt        time.Time `json:"createdAt"`
@@ -81,9 +88,12 @@ func (s *Service) AdminAssetPage(filter repository.AdminAssetFilter) (*AdminAsse
 		return nil, err
 	}
 	assets := make([]AdminAssetRowView, 0, len(rows))
+	payloads := make(map[string]string, len(rows))
 	for _, row := range rows {
 		assets = append(assets, adminAssetRowView(row))
+		payloads[row.ID] = row.PayloadJSON
 	}
+	s.fillAssetPreviews(assets, payloads)
 	return &AdminAssetPageView{
 		Assets: assets, Total: total, Page: filter.Page, PageSize: filter.PageSize,
 		Totals: AdminAssetTotalsView{
@@ -102,8 +112,9 @@ func (s *Service) AdminAssetDetail(id string) (*AdminAssetRowView, error) {
 	if err != nil {
 		return nil, err
 	}
-	view := adminAssetRowView(*row)
-	return &view, nil
+	views := []AdminAssetRowView{adminAssetRowView(*row)}
+	s.fillAssetPreviews(views, map[string]string{row.ID: row.PayloadJSON})
+	return &views[0], nil
 }
 
 // ModerateAsset 记录一次素材处置。
@@ -147,8 +158,11 @@ func (s *Service) ModerateAsset(assetID string, status string, reason string, ac
 	if err != nil {
 		return nil, err
 	}
-	view := adminAssetRowView(*updated)
-	return &view, nil
+	// 处置后前端会拿返回值直接刷新抽屉，预览必须一起带上，否则一次隐藏操作就会让
+	// 管理员眼前的素材变成空白。
+	views := []AdminAssetRowView{adminAssetRowView(*updated)}
+	s.fillAssetPreviews(views, map[string]string{updated.ID: updated.PayloadJSON})
+	return &views[0], nil
 }
 
 // adminAssetRowView 把仓储行翻成对外视图，并把缺失的审核状态兜底成正常。

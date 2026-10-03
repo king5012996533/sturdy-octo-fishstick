@@ -6,6 +6,7 @@ import { assetCategoryLabel } from "@/lib/asset-category";
 import { formatBytes, formatCount, formatDateTime } from "@/lib/format-usage";
 
 import { getAdminAsset, listAdminAssets, moderateAdminAsset, type AdminAsset, type AdminAssetModerationStatus, type AdminAssetTotals } from "./api-assets";
+import { MediaPreview } from "./media-preview";
 
 const statusOptions = [
     { value: "", label: "全部处置状态" },
@@ -171,6 +172,16 @@ export function AssetsPane() {
 
     const columns: TableProps<AdminAsset>["columns"] = [
         {
+            title: "预览",
+            key: "preview",
+            width: 88,
+            render: (_, asset) => (
+                <div className="admin-resource-preview-cell">
+                    <MediaPreview kind={asset.mediaKind || asset.kind} src={asset.previewUrl} />
+                </div>
+            ),
+        },
+        {
             title: "标题",
             key: "title",
             render: (_, asset) => (
@@ -229,7 +240,7 @@ export function AssetsPane() {
                 <div>
                     <h2 className="admin-section-title">素材资源</h2>
                     <p className="admin-section-desc">
-                        全站素材的处置状态与规模概览。隐藏或删除只改变平台侧可见性，不清理对象存储文件；「占用」是按 payload 与版本定义字符长度估算的近似值。
+                        全站素材的处置状态与规模概览，点开任意一条可以直接看素材本体。「占用」是按 payload 与版本定义字符长度估算的近似值；隐藏或删除只改变平台侧可见性，不清理对象存储文件。
                     </p>
                 </div>
                 <Button icon={<RefreshCw className="size-3.5" />} loading={loading} onClick={reload}>
@@ -331,6 +342,16 @@ export function AssetsPane() {
                     <p className="admin-user-sub">加载中…</p>
                 ) : detail ? (
                     <div className="flex flex-col gap-3">
+                        <div className="admin-asset-detail-preview">
+                            <MediaPreview kind={detail.mediaKind || detail.kind} src={detail.previewUrl} />
+                        </div>
+                        {detail.resourceId ? (
+                            <p className="admin-user-sub">
+                                本体资源 <code>{detail.resourceId}</code> · 预览地址 12 小时内有效，刷新即可重新签发
+                            </p>
+                        ) : (
+                            <p className="admin-user-sub">这条素材没有可预览的本体：纯文本素材，或它引用的资源已经失效。</p>
+                        )}
                         <div className="admin-canvas-meta">
                             <span><b>账号</b>{ownerOf(detail)}</span>
                             <span><b>素材 ID</b><code>{detail.id}</code></span>
