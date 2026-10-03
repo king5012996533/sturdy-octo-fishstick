@@ -1,0 +1,165 @@
+{
+  "note": "模型广场文案。改文案改这个文件，再重跑 scripts/publish-model-showcase.py；不要直接改后台。sourceUrl/sourceNote 由 --refresh-upstream 抓取维护。",
+  "models": [
+    {
+      "modelKey": "openai/gpt-image-2.5-sunburst",
+      "tagline": "精细编辑档：文字渲染与指令跟随最强的一代",
+      "summary": "面向需要反复改稿的商业出图：在图里改文字、换局部、保持角色一致，指令跟随与文字清晰度是这一系里最好的。支持多图参考融合。",
+      "highlights": [
+        "画质 5 档：low / medium / high / xhigh / max",
+        "最多 4 张参考图，可多图融合编辑",
+        "7 种画幅比，含 1:1 / 16:9 / 9:16"
+      ],
+      "upstream": {
+        "url": "https://replicate.com/openai/gpt-image-2.5-sunburst",
+        "description": "OpenAI's most capable image model, built for workflows where editing precision matters most. Generate and edit images from text and image inputs with strong instruction following, sharp text rendering, and detailed control.",
+        "fetchedAt": "2026-10-04"
+      }
+    },
+    {
+      "modelKey": "openai/gpt-image-2.5-flare",
+      "tagline": "同代里的速度档，日常出图首选",
+      "summary": "与 Sunburst 同参数、同画质档，出图更快，适合批量出图和日常配图；对细节最苛刻的成图可以换到 Sunburst。",
+      "highlights": [
+        "画质 5 档：low / medium / high / xhigh / max",
+        "最多 4 张参考图",
+        "7 种画幅比，适合批量出图"
+      ],
+      "upstream": {
+        "url": "https://replicate.com/openai/gpt-image-2.5-flare",
+        "description": "OpenAI's fastest model for high-quality, everyday image generation. Generate and edit images from text and image inputs with strong instruction following and sharp text rendering.",
+        "fetchedAt": "2026-10-04"
+      }
+    },
+    {
+      "modelKey": "openai/gpt-image-2",
+      "tagline": "上一代旗舰，性价比更好的通用生图",
+      "summary": "指令跟随与文字渲染依然可靠，画质分 low / medium / high 三档，适合日常插图、封面与商品图。",
+      "highlights": [
+        "画质 3 档：low / medium / high",
+        "最多 4 张参考图",
+        "7 种画幅比"
+      ],
+      "upstream": {
+        "url": "https://replicate.com/openai/gpt-image-2",
+        "description": "OpenAI's state-of-the-art image generation model. Create and edit images from text with strong instruction following, sharp text rendering, and detailed editing.",
+        "fetchedAt": "2026-10-04"
+      }
+    },
+    {
+      "modelKey": "google/imagen-4",
+      "tagline": "Google 旗舰生图，写实质感最耐看",
+      "summary": "Imagen 4 的旗舰档：写实质感与光影层次是它的强项，适合人物、静物与场景图。分辨率可在 1k / 2k 之间选。",
+      "highlights": [
+        "分辨率 1k / 2k 可选",
+        "5 种画幅比",
+        "单次出 1 张，适合精细出图"
+      ],
+      "upstream": {
+        "url": "https://replicate.com/google/imagen-4",
+        "description": "Google's Imagen 4 flagship model",
+        "fetchedAt": "2026-10-04"
+      }
+    },
+    {
+      "modelKey": "google/imagen-4-fast",
+      "tagline": "Imagen 4 的速度档，单价最低的一档",
+      "summary": "画质够用、速度和成本优先：分辨率固定 1k，单价是这一系里最低的，适合大批量出草图、分镜和素材配图。",
+      "highlights": [
+        "分辨率 1k",
+        "5 种画幅比",
+        "单次出 1 张，适合批量出图"
+      ],
+      "upstream": {
+        "url": "https://replicate.com/google/imagen-4-fast",
+        "description": "Use this fast version of Imagen 4 when speed and cost are more important than quality",
+        "fetchedAt": "2026-10-04"
+      }
+    },
+    {
+      "modelKey": "lucataco/ace-step",
+      "tagline": "文字生成器乐，时长 1 秒到 4 分钟可指定",
+      "summary": "写一段情绪与乐器描述就能生成一段器乐；留空歌词是纯配乐，填词也可以唱。时长从 1 秒到 240 秒自由指定，适合给成片铺底。",
+      "highlights": [
+        "可指定 1–240 秒时长",
+        "留空歌词即纯器乐，填词可带人声",
+        "短 / 中 / 长三档时长预设"
+      ],
+      "upstream": {
+        "url": "https://replicate.com/lucataco/ace-step",
+        "description": "A Step Towards Music Generation Foundation Model text2music",
+        "fetchedAt": "2026-10-04"
+      }
+    },
+    {
+      "modelKey": "minimax/music-2.5",
+      "tagline": "整首歌生成：人声、歌词与编曲一次出来",
+      "summary": "给一段文字描述就能生成完整歌曲，可以带人声与歌词，也可以是纯器乐；用结构标签能控制主歌、副歌的段落走向。",
+      "highlights": [
+        "支持人声、歌词与多轨编曲",
+        "最长约 5 分钟",
+        "可用结构标签控制段落"
+      ],
+      "upstream": {
+        "url": "https://replicate.com/minimax/music-2.5",
+        "description": "Generate full-length songs with vocals, lyrics, and rich instrumentation from a text prompt",
+        "fetchedAt": "2026-10-04"
+      }
+    },
+    {
+      "modelKey": "minimax/speech-2.8-turbo",
+      "tagline": "中文情感配音，音色与语速都能指定",
+      "summary": "把文案转成自然的口播：情绪与音色可控，适合短视频解说、口播与有声内容，支持 40 多种语言。",
+      "highlights": [
+        "情绪与音色可控",
+        "支持 40+ 语言",
+        "适合解说、口播与有声内容"
+      ],
+      "upstream": {
+        "url": "https://replicate.com/minimax/speech-2.8-turbo",
+        "description": "Minimax Speech 2.8 Turbo: Turn text into natural, expressive speech with voice cloning, emotion control, and support for 40+ languages",
+        "fetchedAt": "2026-10-04"
+      }
+    },
+    {
+      "modelKey": "deepseek-flash",
+      "tagline": "能读图的快速文本模型",
+      "summary": "响应快、成本低的文本模型，可以直接把图片丢进去让它读；适合提示词改写、脚本草稿和批量文案。",
+      "highlights": [
+        "支持图片输入，最多 4 张",
+        "单次上下文 32000 字符",
+        "流式输出，边写边看"
+      ]
+    },
+    {
+      "modelKey": "deepseek-v4-pro",
+      "tagline": "长文与多轮改写的主力文本模型",
+      "summary": "写分镜脚本、拆解长文、做多轮改写时更稳的一档；纯文本输入，支持流式输出。",
+      "highlights": [
+        "单次上下文 32000 字符",
+        "流式输出",
+        "适合长文与多轮改写"
+      ]
+    },
+    {
+      "modelKey": "seedance-2.0",
+      "tagline": "5 / 10 / 15 秒，分段叙事的视频主力",
+      "summary": "单条可选 5 / 10 / 15 秒，最多带 10 张参考图锁定角色与场景，适合把分镜逐段变成成片。",
+      "highlights": [
+        "单条 5 / 10 / 15 秒可选",
+        "720p，6 种画幅比（含 21:9）",
+        "最多 10 张参考图"
+      ]
+    },
+    {
+      "modelKey": "seedance-2.5",
+      "tagline": "单条 30 秒长镜头，跨镜头一致性更好",
+      "summary": "一次生成 30 秒长镜头，跨镜头的角色与场景一致性更好，适合完整段落而不是碎片镜头。",
+      "highlights": [
+        "单条 30 秒",
+        "720p，6 种画幅比（含 21:9）",
+        "最多 10 张参考图"
+      ]
+    }
+  ]
+}
