@@ -29,6 +29,8 @@ func MigrateHostedSharedSchema(db *gorm.DB) error {
 	//
 	// 厂商凭据刻意只存"指向某条 system channel"的指针与展示用尾号，密钥本体仍留在
 	// model_channels（那里已经有一套加密与脱敏），避免同一条密钥两处各存一份。
+	// 模型广场文案同理：它是运营维护的对外内容，桌面端没有广场，只读它自己仓库里那
+	// 份本地文案。
 	if err := db.AutoMigrate(
 		&model.AdminAuditEvent{},
 		&model.CanvasModeration{},
@@ -37,6 +39,7 @@ func MigrateHostedSharedSchema(db *gorm.DB) error {
 		&model.ModelVendor{},
 		&model.VendorCredential{},
 		&model.CreationInspiration{},
+		&model.ModelShowcaseEntry{},
 	); err != nil {
 		return fmt.Errorf("迁移托管共享结构: %w", err)
 	}

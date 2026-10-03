@@ -91,6 +91,7 @@ func (e *Extension) registerAdminRoutes(api *gin.RouterGroup) {
 	e.registerAdminTicketRoutes(group)
 	// 模型定价：计费倍率规则与模型单价（单价可留空占位，售价由倍率算出）。
 	e.registerAdminPricingRoutes(group)
+	e.registerAdminModelShowcaseRoutes(group)
 	// 模型厂商：厂商、厂商下的凭据与模型目录（凭据落成 system channel，前台不持密钥）。
 	e.registerAdminVendorRoutes(group)
 }

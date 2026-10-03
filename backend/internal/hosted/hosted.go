@@ -185,7 +185,7 @@ func smsSender() auth.SMSSender {
 // 它们的响应里只有状态、构建信息与依赖就绪标记，没有账号、密钥或模型配置；
 // /api/health/startup、/api/health 与 /api/system/version 仍然要求登录。
 var anonymousPathPrefixes = []string{auth.BasePath, "/api/public/appearance", "/api/public/resources",
-	"/api/public/avatars", billingCallbackPathPrefix, "/api/health/live", "/api/health/ready"}
+	"/api/public/avatars", "/api/public/models", billingCallbackPathPrefix, "/api/health/live", "/api/health/ready"}
 
 func isAnonymousPath(path string) bool {
 	for _, prefix := range anonymousPathPrefixes {
@@ -262,6 +262,8 @@ func (e *Extension) RegisterRoutes(api *gin.RouterGroup) {
 	e.registerInspirationCatalogRoutes(api)
 	// 投稿：用户把自己的生成产物发布到广场，等待人工审核。
 	e.registerCreationPostRoutes(api)
+	// 模型广场：模型介绍与价目，未登录可见（登记在 anonymousPathPrefixes）。
+	e.registerModelShowcaseRoutes(api)
 	// 计费清理协程：超时未支付的订单必须由平台自己关闭（用户放弃支付后没人会手动取消），
 	// 否则待支付读数失真，且订单占用的优惠券永远不会归还。
 	e.startBillingJanitor()
