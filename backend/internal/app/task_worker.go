@@ -215,7 +215,7 @@ func (w *taskWorkerCoordinator) processClaimedTask(task *model.Task, globalSlot 
 	result, canvasOps, err := routeResult.result, routeResult.canvasOps, routeResult.err
 	providerSucceeded := routeResult.providerSucceeded
 	if err == nil {
-		result, err = s.persistGeneratedMediaResult(task.UserID, result)
+		result, err = s.persistGeneratedMediaResultForTask(task, result)
 	}
 	if err == nil {
 		_, err = s.finalizeCharacterTurnaroundTask(*task, result)

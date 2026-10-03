@@ -266,7 +266,7 @@ func (s *Service) uploadResource(userID string, header *multipart.FileHeader, ki
 	if err != nil {
 		return nil, err
 	}
-	resource, stored, err := s.storeResource(userID, kind, header.Filename, mimeType, header.Size, width, height, durationMs, file, uploadKey, forceLocal)
+	resource, stored, err := s.storeResource(userID, kind, header.Filename, mimeType, header.Size, width, height, durationMs, file, uploadKey, forceLocal, resourceOrigin{Source: resourceSourceUpload})
 	if err != nil {
 		s.releaseUserUploadQuota(userID, day, header.Size)
 	} else if stored {
@@ -312,7 +312,7 @@ func (s *Service) uploadResourceFile(userID string, fileName string, size int64,
 	if err != nil {
 		return nil, err
 	}
-	resource, stored, err := s.storeResource(userID, kind, fileName, mimeType, size, width, height, durationMs, file, uploadKey, forceLocal)
+	resource, stored, err := s.storeResource(userID, kind, fileName, mimeType, size, width, height, durationMs, file, uploadKey, forceLocal, resourceOrigin{Source: resourceSourceUpload})
 	if err != nil {
 		s.releaseUserUploadQuota(userID, day, size)
 	} else if stored {
@@ -378,7 +378,7 @@ func (s *Service) ImportResourceURL(userID string, rawURL string, kind string, w
 	if err != nil {
 		return nil, err
 	}
-	resource, stored, err := s.storeResource(userID, kind, payload.fileName, payload.mimeType, size, width, height, durationMs, bytes.NewReader(payload.data), uploadKey, s.localResourceStorage)
+	resource, stored, err := s.storeResource(userID, kind, payload.fileName, payload.mimeType, size, width, height, durationMs, bytes.NewReader(payload.data), uploadKey, s.localResourceStorage, resourceOrigin{Source: resourceSourceImport})
 	if err != nil {
 		s.releaseUserUploadQuota(userID, day, size)
 	} else if stored {
@@ -461,7 +461,7 @@ func (s *Service) openResourceRange(userID string, resource *model.Resource, ran
 	return &ResourceStream{Resource: resource, Body: body, StatusCode: http.StatusOK, ContentLength: resource.Size, AcceptRanges: "bytes"}, nil
 }
 
-func (s *Service) storeResource(userID string, kind string, fileName string, mimeType string, size int64, width int, height int, durationMs int64, body io.Reader, uploadKey *string, forceLocal bool) (*model.Resource, bool, error) {
+func (s *Service) storeResource(userID string, kind string, fileName string, mimeType string, size int64, width int, height int, durationMs int64, body io.Reader, uploadKey *string, forceLocal bool, origin resourceOrigin) (*model.Resource, bool, error) {
 	_ = forceLocal
 	if existing, err := s.resourceForUploadKey(userID, uploadKey); err != nil {
 		return nil, false, err
@@ -474,7 +474,7 @@ func (s *Service) storeResource(userID string, kind string, fileName string, mim
 	now := time.Now()
 	kind = normalizeResourceKind(kind, mimeType)
 	objectKey := localObjectKey(userID, kind, fileName, mimeType, now)
-	resource := model.Resource{ID: newID(), UserID: userID, Kind: kind, Status: model.ResourceStatusPending, Provider: "local", ObjectKey: objectKey, MimeType: mimeType, Size: size, Width: width, Height: height, DurationMs: durationMs, UploadKey: uploadKey, CreatedAt: now, UpdatedAt: now}
+	resource := model.Resource{ID: newID(), UserID: userID, Kind: kind, Status: model.ResourceStatusPending, Provider: "local", ObjectKey: objectKey, MimeType: mimeType, Size: size, Width: width, Height: height, DurationMs: durationMs, UploadKey: uploadKey, TaskID: origin.TaskID, Source: origin.Source, CreatedAt: now, UpdatedAt: now}
 	if err := s.repo.CreateResource(&resource); err != nil {
 		if existing, lookupErr := s.resourceForUploadKey(userID, uploadKey); lookupErr == nil && existing != nil {
 			if existing.Status == model.ResourceStatusReady {
@@ -612,15 +612,29 @@ func localObjectKey(userID string, kind string, fileName string, mimeType string
 	return path.Join("users", safeObjectSegment(userID), kind, now.Format("2006/01/02"), newID()+ext)
 }
 
+// persistGeneratedMediaResult 落库一段生成结果。调用方没有任务上下文时走这里，
+// 产物因此只能标成 legacy：宁可自认来源不明，也不要给它安一个错的任务。
 func (s *Service) persistGeneratedMediaResult(userID string, result map[string]interface{}) (map[string]interface{}, error) {
-	return s.persistGeneratedMediaResultMode(userID, result, false, true)
+	return s.persistGeneratedMediaResultWithOrigin(userID, result, false, true, resourceOrigin{Source: resourceSourceLegacy})
+}
+
+// persistGeneratedMediaResultForTask 是生成主链路与人工恢复的入口：带上任务，
+// 产物才能被后台对账认领。
+func (s *Service) persistGeneratedMediaResultForTask(task *model.Task, result map[string]interface{}) (map[string]interface{}, error) {
+	return s.persistGeneratedMediaResultWithOrigin(task.UserID, result, false, true, resourceOrigin{Source: resourceSourceGeneration, TaskID: task.ID})
 }
 
 func (s *Service) persistLegacyGeneratedMediaResult(userID string, result map[string]interface{}) (map[string]interface{}, error) {
-	return s.persistGeneratedMediaResultMode(userID, result, true, false)
+	return s.persistGeneratedMediaResultWithOrigin(userID, result, true, false, resourceOrigin{Source: resourceSourceLegacy})
 }
 
-func (s *Service) persistGeneratedMediaResultMode(userID string, result map[string]interface{}, skipInvalidDataURL bool, enforceQuota bool) (map[string]interface{}, error) {
+// persistLegacyGeneratedMediaResultForTask 用于存量数据的转存：入参是旧数据（因此禁用
+// 配额与坏 data URL 检查），但产出它的任务还在，来源照样能确定。
+func (s *Service) persistLegacyGeneratedMediaResultForTask(task *model.Task, result map[string]interface{}) (map[string]interface{}, error) {
+	return s.persistGeneratedMediaResultWithOrigin(task.UserID, result, true, false, resourceOrigin{Source: resourceSourceGeneration, TaskID: task.ID})
+}
+
+func (s *Service) persistGeneratedMediaResultWithOrigin(userID string, result map[string]interface{}, skipInvalidDataURL bool, enforceQuota bool, origin resourceOrigin) (map[string]interface{}, error) {
 	if result == nil {
 		return map[string]interface{}{}, nil
 	}
@@ -632,24 +646,20 @@ func (s *Service) persistGeneratedMediaResultMode(userID string, result map[stri
 	if err := json.Unmarshal(encoded, &normalized); err != nil {
 		return nil, err
 	}
-	value, err := s.persistGeneratedMediaValueMode(userID, normalized, "", skipInvalidDataURL, enforceQuota)
+	value, err := s.persistGeneratedMediaValueWithOrigin(userID, normalized, "", skipInvalidDataURL, enforceQuota, origin)
 	if err != nil {
 		return nil, err
 	}
 	return value.(map[string]interface{}), nil
 }
 
-func (s *Service) persistGeneratedMediaValue(userID string, value interface{}) (interface{}, error) {
-	return s.persistGeneratedMediaValueMode(userID, value, "", false, true)
-}
-
 // kindHint 是结果里的位置给出的素材种类证据：video / audio / images 字段下的产物，
 // 即使上游只报传输层占位类型，也必须归到对应种类和容器。
-func (s *Service) persistGeneratedMediaValueMode(userID string, value interface{}, kindHint string, skipInvalidDataURL bool, enforceQuota bool) (interface{}, error) {
+func (s *Service) persistGeneratedMediaValueWithOrigin(userID string, value interface{}, kindHint string, skipInvalidDataURL bool, enforceQuota bool, origin resourceOrigin) (interface{}, error) {
 	switch item := value.(type) {
 	case []interface{}:
 		for index, child := range item {
-			stored, err := s.persistGeneratedMediaValueMode(userID, child, kindHint, skipInvalidDataURL, enforceQuota)
+			stored, err := s.persistGeneratedMediaValueWithOrigin(userID, child, kindHint, skipInvalidDataURL, enforceQuota, origin)
 			if err != nil {
 				return nil, err
 			}
@@ -689,7 +699,7 @@ func (s *Service) persistGeneratedMediaValueMode(userID string, value interface{
 						return nil, err
 					}
 				}
-				resource, _, err := s.storeResource(userID, kind, "generated."+extensionFromMimeType(mimeType), mimeType, int64(len(data)), width, height, durationMs, bytes.NewReader(data), nil, s.localResourceStorage)
+				resource, _, err := s.storeResource(userID, kind, "generated."+extensionFromMimeType(mimeType), mimeType, int64(len(data)), width, height, durationMs, bytes.NewReader(data), nil, s.localResourceStorage, origin)
 				if err != nil {
 					if enforceQuota {
 						s.releaseUserUploadQuota(userID, quotaDay, int64(len(data)))
@@ -721,7 +731,7 @@ func (s *Service) persistGeneratedMediaValueMode(userID string, value interface{
 			}
 		}
 		for key, child := range item {
-			stored, err := s.persistGeneratedMediaValueMode(userID, child, generatedMediaKindHint(key, kindHint), skipInvalidDataURL, enforceQuota)
+			stored, err := s.persistGeneratedMediaValueWithOrigin(userID, child, generatedMediaKindHint(key, kindHint), skipInvalidDataURL, enforceQuota, origin)
 			if err != nil {
 				return nil, err
 			}

@@ -39,7 +39,7 @@ func (s *Service) CompactInlineTaskMedia() (StorageCompactionSummary, error) {
 			summary.Skipped = append(summary.Skipped, StorageCompactionSkip{TaskID: task.ID, Reason: "结果 JSON 无法解析"})
 			continue
 		}
-		stored, err := s.persistLegacyGeneratedMediaResult(task.UserID, result)
+		stored, err := s.persistLegacyGeneratedMediaResultForTask(&task, result)
 		if err != nil {
 			summary.Failed = append(summary.Failed, StorageCompactionFailure{TaskID: task.ID, Error: err.Error()})
 			continue

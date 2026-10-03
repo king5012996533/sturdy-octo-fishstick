@@ -23,8 +23,14 @@ type Resource struct {
 	Kind     string         `json:"kind" gorm:"index;size:24"`
 	Status   ResourceStatus `json:"status" gorm:"index;size:24"`
 	Provider string         `json:"provider" gorm:"size:24"`
-	Endpoint string         `json:"endpoint"`
-	Bucket   string         `json:"bucket" gorm:"size:160"`
+	// TaskID 是产出这条产物的生成任务，用户上传的素材为空。后台靠它对账"上游出了结果、
+	// 我们却没扣费"，所以生成链路必须写；历史数据由一次性回填补齐（见 app 的回填实现）。
+	TaskID string `json:"-" gorm:"index;size:36"`
+	// Source 是产物的来路：generation / upload / import / render / legacy。
+	// 同样是"没关联任务"，用户上传和生成产物的处理方式完全不同，后台需要分诊。
+	Source   string `json:"-" gorm:"size:32"`
+	Endpoint string `json:"endpoint"`
+	Bucket   string `json:"bucket" gorm:"size:160"`
 	// 用户 OSS 每次修改都会生成新版本，资源固定引用创建时的存储与密钥；只有同一存储位置才可复用当前 CDN。
 	StorageSettingID string `json:"-" gorm:"index;size:36"`
 	ObjectKey        string `json:"objectKey" gorm:"index"`

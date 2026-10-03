@@ -49,7 +49,7 @@ func (s *Service) MigrateLegacyStorage() (StorageMigrationSummary, error) {
 			if err := json.Unmarshal([]byte(tasks[index].InputJSON), &input); err != nil {
 				return summary, fmt.Errorf("解析任务 %s 的旧输入失败：%w", tasks[index].ID, err)
 			}
-			stored, storeErr := s.persistLegacyGeneratedMediaResult(tasks[index].UserID, input)
+			stored, storeErr := s.persistLegacyGeneratedMediaResultForTask(&tasks[index], input)
 			if storeErr != nil {
 				return summary, fmt.Errorf("迁移任务 %s 的旧输入媒体失败：%w", tasks[index].ID, storeErr)
 			}
@@ -65,7 +65,7 @@ func (s *Service) MigrateLegacyStorage() (StorageMigrationSummary, error) {
 			if err := json.Unmarshal([]byte(tasks[index].ResultJSON), &result); err != nil {
 				return summary, fmt.Errorf("解析任务 %s 的旧结果失败：%w", tasks[index].ID, err)
 			}
-			stored, storeErr := s.persistLegacyGeneratedMediaResult(tasks[index].UserID, result)
+			stored, storeErr := s.persistLegacyGeneratedMediaResultForTask(&tasks[index], result)
 			if storeErr != nil {
 				return summary, fmt.Errorf("迁移任务 %s 的旧结果媒体失败：%w", tasks[index].ID, storeErr)
 			}

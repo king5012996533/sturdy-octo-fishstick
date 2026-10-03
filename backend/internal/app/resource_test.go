@@ -270,14 +270,14 @@ func newResourceTestService(t *testing.T) *Service {
 func TestStoreResourceReusesReadyUploadIdentity(t *testing.T) {
 	svc := newResourceTestService(t)
 	uploadKey := normalizedResourceUploadKey([]string{"image:user-1:logical-upload"})
-	first, stored, err := svc.storeResource("user-1", "image", "first.png", "image/png", 7, 1, 1, 0, bytes.NewReader([]byte("payload")), uploadKey, false)
+	first, stored, err := svc.storeResource("user-1", "image", "first.png", "image/png", 7, 1, 1, 0, bytes.NewReader([]byte("payload")), uploadKey, false, resourceOrigin{Source: resourceSourceUpload})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !stored {
 		t.Fatal("first upload was not stored")
 	}
-	second, stored, err := svc.storeResource("user-1", "image", "second.png", "image/png", 7, 1, 1, 0, bytes.NewReader([]byte("payload")), uploadKey, false)
+	second, stored, err := svc.storeResource("user-1", "image", "second.png", "image/png", 7, 1, 1, 0, bytes.NewReader([]byte("payload")), uploadKey, false, resourceOrigin{Source: resourceSourceUpload})
 	if err != nil {
 		t.Fatal(err)
 	}
