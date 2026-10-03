@@ -91,8 +91,31 @@ function hostedAdminRoutes() {
     ];
 }
 
+/**
+ * 模型广场（公开页）路由。
+ *
+ * 与运营后台同一手法：常量在构建期替换，本地/桌面构建返回空数组，函数体内的动态 import
+ * 变成死代码被摇树删除——本地形态根本没有 /api/public/models。
+ *
+ * 刻意挂在工作区路由组之外：广场要给未登录访客看，不能继承 WorkspaceLayout 那套
+ * 需要账号的外壳与顶栏。
+ */
+function modelShowcaseRoutes() {
+    if (!__BEEFTV_HOSTED_AUTH__) return [];
+    const ModelShowcaseListPage = lazy(() => import("@/features/model-showcase/model-showcase-list-page").then((module) => ({ default: module.ModelShowcaseListPage })));
+    const ModelShowcaseDetailPage = lazy(() => import("@/features/model-showcase/model-showcase-detail-page").then((module) => ({ default: module.ModelShowcaseDetailPage })));
+    const fallback = <FullScreenLoader label="正在打开模型广场" detail="准备模型信息" />;
+    return [
+        { path: "/models", element: <Suspense fallback={fallback}><ModelShowcaseListPage /></Suspense>, errorElement: <RouteErrorPage /> },
+        // 详情用通配：模型标识自带斜杠（openai/gpt-image-2.5-sunburst），路径参数会在
+        // 不同代理上解出不同结果，通配让斜杠原样留在路径段里。
+        { path: "/models/*", element: <Suspense fallback={fallback}><ModelShowcaseDetailPage /></Suspense>, errorElement: <RouteErrorPage /> },
+    ];
+}
+
 export const router = createBrowserRouter([
     ...(import.meta.env.DEV ? devRoutes() : []),
+    ...modelShowcaseRoutes(),
     {
         element: <WorkspaceLayout />,
         errorElement: <RouteErrorPage />,

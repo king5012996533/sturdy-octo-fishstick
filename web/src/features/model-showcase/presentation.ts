@@ -1,0 +1,116 @@
+import { creditUnitRateLabel } from "@/lib/credit-price-label";
+
+import type { ShowcaseModel, ShowcasePrice, ShowcaseSpec } from "./api";
+
+/** 广场上的能力分组：未知能力归到"其他"，不会从列表里消失。 */
+export type ShowcaseCapability = "all" | "image" | "video" | "audio" | "text" | "other";
+
+const CAPABILITY_LABELS: Record<Exclude<ShowcaseCapability, "all">, string> = {
+    image: "图片",
+    video: "视频",
+    audio: "音频",
+    text: "文本",
+    other: "其他",
+};
+
+/** 列表筛选栏的顺序：图片是当前主力，放最前。 */
+export const SHOWCASE_CAPABILITY_FILTERS: Array<{ key: ShowcaseCapability; label: string }> = [
+    { key: "all", label: "全部" },
+    { key: "image", label: "图片" },
+    { key: "video", label: "视频" },
+    { key: "audio", label: "音频" },
+    { key: "text", label: "文本" },
+    { key: "other", label: "其他" },
+];
+
+export function capabilityKey(capability: string): Exclude<ShowcaseCapability, "all"> {
+    const value = (capability || "").trim().toLowerCase();
+    return value === "image" || value === "video" || value === "audio" || value === "text" ? value : "other";
+}
+
+export function capabilityLabel(capability: string): string {
+    return CAPABILITY_LABELS[capabilityKey(capability)];
+}
+
+export type ShowcaseFilter = {
+    capability: ShowcaseCapability;
+    keyword: string;
+};
+
+/** 搜索覆盖展示名、模型标识与文案：用户记得住名字，记不住 slug。 */
+export function filterShowcaseModels(models: ShowcaseModel[], filter: ShowcaseFilter): ShowcaseModel[] {
+    const keyword = filter.keyword.trim().toLowerCase();
+    return models.filter((model) => {
+        if (filter.capability !== "all" && capabilityKey(model.capability) !== filter.capability) return false;
+        if (!keyword) return true;
+        return [model.displayName, model.slug, model.tagline, model.summary, ...model.highlights].join(" ").toLowerCase().includes(keyword);
+    });
+}
+
+export function priceLabel(price: ShowcasePrice): string {
+    if (!price.priced || price.sellUnitPrice === null) return "暂不可用";
+    return creditUnitRateLabel(price.unit, price.sellUnitPrice);
+}
+
+/** 档位名走运营配置，可能已经是中文；只在档位名缺失时兜底成"默认档"。 */
+export function tierLabel(priceTier: string): string {
+    const tier = (priceTier || "").trim();
+    return tier || "默认档";
+}
+
+export function unitLabel(unit: string): string {
+    switch (unit) {
+        case "IMAGE":
+            return "张";
+        case "SECOND":
+            return "秒";
+        case "TOKEN_1M":
+            return "百万 token";
+        case "TOKEN_1K":
+            return "千 token";
+        default:
+            return "次";
+    }
+}
+
+export type SpecRow = { label: string; value: string };
+
+/**
+ * 参数表只翻译，不补值：某一行没有数据就整行不渲染。
+ *
+ * 渲染一排"—"看起来信息更全，实际是在告诉用户"这个模型什么都不会"。用户按缺值行去选参数，
+ * 故障点会落到生成失败上，而广场页面早就给过一个错误暗示。
+ */
+export function specRows(spec: ShowcaseSpec, capability: string): SpecRow[] {
+    const rows: SpecRow[] = [];
+    const key = capabilityKey(capability);
+
+    if (spec.ratios.length) rows.push({ label: "画面比例", value: spec.ratios.join(" / ") });
+    if (spec.resolutions.length) rows.push({ label: "分辨率", value: spec.resolutions.join(" / ") });
+    if (spec.qualityTiers.length) rows.push({ label: "画质档位", value: spec.qualityTiers.join(" / ") });
+    if (spec.durations.length) rows.push({ label: "可选时长", value: `${spec.durations.join(" / ")} 秒` });
+    if (spec.range && spec.range.max > 0) {
+        const step = spec.range.step > 0 ? `，${spec.range.step} 秒步进` : "";
+        rows.push({ label: "时长范围", value: `${spec.range.min}–${spec.range.max} 秒${step}` });
+    }
+    if (spec.generateAudio) rows.push({ label: "声音", value: "支持生成音频" });
+    if (spec.maxOutputs > 0) rows.push({ label: "单次输出", value: key === "image" ? `最多 ${spec.maxOutputs} 张` : `最多 ${spec.maxOutputs} 个` });
+    if (spec.maxReferenceImages > 0) rows.push({ label: "参考图", value: `最多 ${spec.maxReferenceImages} 张` });
+    if (spec.maxReferenceVideos > 0) rows.push({ label: "参考视频", value: `最多 ${spec.maxReferenceVideos} 段` });
+    return rows;
+}
+
+/**
+ * 列表卡的副标题：运营定位语优先，其次摘要；两者都没写就返回空串，卡片整行不渲染。
+ *
+ * 不用统一兜底句：几十张卡都写着同一句话，页面立刻显出模板味，而且那句话没告诉用户
+ * 任何事。宁可让卡片短一行，也不批量生产废话。
+ */
+export function cardSubtitle(model: ShowcaseModel): string {
+    return model.tagline.trim() || model.summary.trim();
+}
+
+/** 详情页的导语：与卡片同源，兜底句说明"点得进去、用得上"，不提任何未发布的能力。 */
+export function detailLead(model: ShowcaseModel): string {
+    return model.tagline.trim() || model.summary.trim() || "该模型已在平台开放使用，价格与创作台一致。";
+}

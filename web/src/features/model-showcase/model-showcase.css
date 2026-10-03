@@ -1,0 +1,640 @@
+/*
+ * 模型广场（公开页）样式。
+ *
+ * 这一页在登录门之外渲染：拿不到工作区外壳的任何布局约束，因此自带一整套页面骨架
+ * （顶栏 / 主区 / 页脚）与配色令牌，不依赖 .app-workspace-* 那一套。
+ *
+ * 三条刻意约束：
+ *   - 版面按「一眼一个重点」排：主标题与卡片名是唯一的高对比文本，其余全部压到次级灰；
+ *   - 卡片只用一道发丝描边分界，阴影只在悬停时出现——静态阴影多了就成密密麻麻；
+ *   - 明暗两套都走同一个令牌名，主题切换不额外写分支。
+ */
+
+.showcase-scene {
+    --showcase-ink: var(--foreground);
+    --showcase-muted: color-mix(in srgb, var(--foreground) 62%, transparent);
+    --showcase-faint: color-mix(in srgb, var(--foreground) 42%, transparent);
+    --showcase-line: var(--workspace-border);
+    --showcase-card: var(--surface);
+    --showcase-accent: #6366f1;
+    --showcase-radius: 18px;
+    --showcase-max-width: 1280px;
+
+    position: relative;
+    display: flex;
+    min-height: 100vh;
+    flex-direction: column;
+    background: var(--background);
+    color: var(--showcase-ink);
+}
+
+/* 顶部一层极淡的光晕：给白底/深底都加一点纵深，但不与卡片抢注意力。 */
+.showcase-scene::before {
+    position: absolute;
+    z-index: 0;
+    top: -240px;
+    left: 50%;
+    width: min(1200px, 140vw);
+    height: 520px;
+    transform: translateX(-50%);
+    background: radial-gradient(50% 50% at 50% 50%, color-mix(in srgb, var(--showcase-accent) 22%, transparent), transparent 72%);
+    content: "";
+    pointer-events: none;
+}
+
+.showcase-scene > * {
+    position: relative;
+    z-index: 1;
+}
+
+/* ---------- 顶栏 ---------- */
+
+.showcase-topbar {
+    position: sticky;
+    z-index: 5;
+    top: 0;
+    border-bottom: 1px solid var(--showcase-line);
+    background: color-mix(in srgb, var(--background) 82%, transparent);
+    backdrop-filter: blur(14px);
+}
+
+.showcase-topbar-inner {
+    display: flex;
+    width: 100%;
+    max-width: var(--showcase-max-width);
+    align-items: center;
+    gap: 14px;
+    margin: 0 auto;
+    padding: 14px 28px;
+}
+
+.showcase-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: inherit;
+    text-decoration: none;
+}
+
+.showcase-brand-wordmark {
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+
+.showcase-topbar-divider {
+    width: 1px;
+    height: 18px;
+    background: var(--showcase-line);
+}
+
+.showcase-topbar-section {
+    color: var(--showcase-muted);
+    font-size: 13px;
+}
+
+.showcase-enter {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    padding: 9px 16px;
+    border-radius: 999px;
+    background: var(--showcase-ink);
+    color: var(--background);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+        opacity 0.18s ease,
+        transform 0.18s ease;
+}
+
+.showcase-enter:hover {
+    opacity: 0.86;
+    transform: translateY(-1px);
+}
+
+/* ---------- 主区骨架 ---------- */
+
+.showcase-main {
+    width: 100%;
+    max-width: var(--showcase-max-width);
+    margin: 0 auto;
+    padding: 56px 28px 72px;
+    flex: 1;
+}
+
+.showcase-hero {
+    display: grid;
+    max-width: 720px;
+    gap: 14px;
+    margin-bottom: 36px;
+}
+
+.showcase-eyebrow {
+    color: var(--showcase-faint);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+}
+
+.showcase-hero h1 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: clamp(30px, 4vw, 44px);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.14;
+}
+
+.showcase-hero p {
+    margin: 0;
+    color: var(--showcase-muted);
+    font-size: 15px;
+    line-height: 1.75;
+}
+
+.showcase-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 26px;
+    color: var(--showcase-muted);
+    font-size: 13px;
+    text-decoration: none;
+    transition: color 0.16s ease;
+}
+
+.showcase-back:hover {
+    color: var(--showcase-ink);
+}
+
+/* ---------- 筛选栏 ---------- */
+
+.showcase-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.showcase-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.showcase-chip {
+    padding: 8px 15px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--foreground) 6%, transparent);
+    color: var(--showcase-muted);
+    cursor: pointer;
+    font-size: 13px;
+    transition:
+        background 0.16s ease,
+        color 0.16s ease,
+        border-color 0.16s ease;
+}
+
+.showcase-chip:hover {
+    color: var(--showcase-ink);
+}
+
+.showcase-chip.is-active {
+    border-color: color-mix(in srgb, var(--showcase-accent) 42%, transparent);
+    background: color-mix(in srgb, var(--showcase-accent) 16%, transparent);
+    color: var(--showcase-ink);
+    font-weight: 600;
+}
+
+.showcase-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 240px;
+    margin-left: auto;
+    padding: 9px 14px;
+    border: 1px solid var(--showcase-line);
+    border-radius: 999px;
+    background: var(--showcase-card);
+    color: var(--showcase-faint);
+}
+
+.showcase-search input {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: var(--showcase-ink);
+    font-size: 13px;
+    outline: none;
+}
+
+.showcase-search input::placeholder {
+    color: var(--showcase-faint);
+}
+
+.showcase-count {
+    margin: 0 0 14px;
+    color: var(--showcase-faint);
+    font-size: 12px;
+}
+
+/* ---------- 卡片栅格 ---------- */
+
+.showcase-grid {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+}
+
+.showcase-card {
+    display: grid;
+    align-content: start;
+    gap: 14px;
+    padding: 22px;
+    border: 1px solid var(--showcase-line);
+    border-radius: var(--showcase-radius);
+    background: var(--showcase-card);
+    color: inherit;
+    text-decoration: none;
+    transition:
+        border-color 0.18s ease,
+        box-shadow 0.18s ease,
+        transform 0.18s ease;
+}
+
+.showcase-card:hover {
+    border-color: color-mix(in srgb, var(--showcase-accent) 46%, var(--showcase-line));
+    box-shadow: 0 18px 44px color-mix(in srgb, var(--foreground) 10%, transparent);
+    transform: translateY(-2px);
+}
+
+.showcase-card-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.showcase-card-mark {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    place-items: center;
+    border: 1px solid var(--showcase-line);
+    border-radius: 13px;
+    background: color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+.showcase-card-identity {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+}
+
+.showcase-card-name {
+    overflow: hidden;
+    font-size: 15px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.showcase-card-slug {
+    overflow: hidden;
+    color: var(--showcase-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.showcase-card-tagline {
+    display: -webkit-box;
+    overflow: hidden;
+    color: var(--showcase-muted);
+    font-size: 13px;
+    line-height: 1.65;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+/* 能力标签在卡片里靠右、与名字同一行；详情页里它跟在按钮旁边，所以外边距写在使用处。 */
+.showcase-card-head .showcase-tag {
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.showcase-tag {
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--foreground) 7%, transparent);
+    color: var(--showcase-muted);
+    font-size: 11px;
+}
+
+/* ---------- 详情页 ---------- */
+
+.showcase-detail-head {
+    display: grid;
+    gap: 20px;
+    margin-bottom: 34px;
+}
+
+.showcase-detail-title {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.showcase-detail-mark {
+    display: grid;
+    width: 62px;
+    height: 62px;
+    flex-shrink: 0;
+    place-items: center;
+    border: 1px solid var(--showcase-line);
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+.showcase-detail-title h1 {
+    margin: 0 0 2px;
+    font-family: var(--font-display);
+    font-size: clamp(24px, 3vw, 34px);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+
+.showcase-detail-title p {
+    margin: 0;
+    color: var(--showcase-faint);
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.showcase-lead {
+    max-width: 760px;
+    margin: 0;
+    color: var(--showcase-muted);
+    font-size: 15px;
+    line-height: 1.8;
+}
+
+.showcase-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.showcase-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 22px;
+    border-radius: 999px;
+    background: var(--showcase-ink);
+    color: var(--background);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+        opacity 0.18s ease,
+        transform 0.18s ease;
+}
+
+.showcase-primary:hover {
+    opacity: 0.86;
+    transform: translateY(-1px);
+}
+
+.showcase-detail-body {
+    display: grid;
+    gap: 26px;
+    grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+    align-items: start;
+}
+
+.showcase-panel {
+    padding: 24px;
+    border: 1px solid var(--showcase-line);
+    border-radius: var(--showcase-radius);
+    background: var(--showcase-card);
+}
+
+.showcase-panel + .showcase-panel {
+    margin-top: 20px;
+}
+
+.showcase-panel-title {
+    margin: 0 0 16px;
+    color: var(--showcase-faint);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+.showcase-highlights {
+    display: grid;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.showcase-highlights li {
+    display: flex;
+    gap: 10px;
+    color: var(--showcase-muted);
+    font-size: 14px;
+    line-height: 1.7;
+}
+
+.showcase-highlights svg {
+    flex-shrink: 0;
+    margin-top: 3px;
+    color: var(--showcase-accent);
+}
+
+.showcase-side {
+    display: grid;
+    gap: 20px;
+}
+
+/* ---------- 表格 ---------- */
+
+.showcase-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.showcase-table th {
+    padding: 0 0 10px;
+    border-bottom: 1px solid var(--showcase-line);
+    color: var(--showcase-faint);
+    font-weight: 500;
+    text-align: left;
+}
+
+.showcase-table th:not(:first-child),
+.showcase-table td:not(:first-child) {
+    text-align: right;
+}
+
+.showcase-table td {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--showcase-line);
+    color: var(--showcase-muted);
+}
+
+.showcase-table tr:last-child td {
+    border-bottom: 0;
+    padding-bottom: 0;
+}
+
+.showcase-table td strong {
+    color: var(--showcase-ink);
+    font-weight: 600;
+}
+
+.showcase-table .is-unavailable {
+    color: var(--showcase-faint);
+}
+
+/* 参数表是左对齐的键值对，与价格表的右对齐数字列分开一套。 */
+.showcase-spec-table td {
+    padding: 11px 0;
+    border-bottom: 1px solid var(--showcase-line);
+}
+
+.showcase-spec-table tr:last-child td {
+    border-bottom: 0;
+    padding-bottom: 0;
+}
+
+.showcase-spec-table .showcase-spec-label {
+    width: 38%;
+    color: var(--showcase-faint);
+    text-align: left;
+}
+
+.showcase-spec-table td:not(.showcase-spec-label) {
+    text-align: left;
+}
+
+/* ---------- 状态块 ---------- */
+
+.showcase-state {
+    display: grid;
+    justify-items: center;
+    gap: 14px;
+    padding: 72px 24px;
+    border: 1px dashed var(--showcase-line);
+    border-radius: var(--showcase-radius);
+    color: var(--showcase-muted);
+    text-align: center;
+}
+
+.showcase-state strong {
+    color: var(--showcase-ink);
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.showcase-state p {
+    max-width: 420px;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+.showcase-retry {
+    padding: 9px 18px;
+    border: 1px solid var(--showcase-line);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--showcase-ink);
+    cursor: pointer;
+    font-size: 13px;
+    transition: border-color 0.16s ease;
+}
+
+.showcase-retry:hover {
+    border-color: color-mix(in srgb, var(--showcase-accent) 46%, var(--showcase-line));
+}
+
+.showcase-skeleton {
+    height: 168px;
+    border: 1px solid var(--showcase-line);
+    border-radius: var(--showcase-radius);
+    background: linear-gradient(100deg, color-mix(in srgb, var(--foreground) 4%, transparent) 30%, color-mix(in srgb, var(--foreground) 8%, transparent) 50%, color-mix(in srgb, var(--foreground) 4%, transparent) 70%);
+    background-size: 220% 100%;
+    animation: showcase-skeleton 1.4s ease-in-out infinite;
+}
+
+@keyframes showcase-skeleton {
+    from {
+        background-position: 130% 0;
+    }
+
+    to {
+        background-position: -30% 0;
+    }
+}
+
+.showcase-footer {
+    max-width: var(--showcase-max-width);
+    margin: 0 auto;
+    padding: 26px 28px 40px;
+    color: var(--showcase-faint);
+}
+
+/* 尊重系统"减少动态效果"：骨架与位移全部停掉。 */
+@media (prefers-reduced-motion: reduce) {
+    .showcase-skeleton {
+        animation: none;
+    }
+
+    .showcase-card:hover,
+    .showcase-enter:hover,
+    .showcase-primary:hover {
+        transform: none;
+    }
+}
+
+@media (max-width: 900px) {
+    .showcase-detail-body {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 640px) {
+    .showcase-topbar-inner,
+    .showcase-main {
+        padding-right: 18px;
+        padding-left: 18px;
+    }
+
+    .showcase-main {
+        padding-top: 36px;
+    }
+
+    .showcase-search {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .showcase-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

@@ -7,6 +7,7 @@ import zhCN from "antd/locale/zh_CN";
 import { WorkspaceBootstrapHydrator } from "@/components/workspace/workspace-bootstrap-hydrator";
 import { FullScreenLoader } from "@/components/ui/aceternity/full-screen-loader";
 import { getAntThemeConfig } from "@/lib/app-theme";
+import { isPublicRoutePath } from "@/lib/public-routes";
 import { applySkinTheme } from "@/lib/skin-themes";
 import { appQueryClient } from "@/lib/query-client";
 import { router } from "@/router";
@@ -83,11 +84,18 @@ export function AppProviders({ children }: { children: ReactNode }) {
     // 只精确匹配该路径；生产构建中 import.meta.env.DEV 为 false，本分支被摇树删除。
     const isolateDevRepro = import.meta.env.DEV && typeof window !== "undefined" && window.location.pathname === "/dev/director-repro";
 
+    // 公开页（当前是模型广场）在登录门之外渲染。
+    //
+    // 放行范围由 lib/public-routes 的显式白名单决定，不是"看着像公开就放行"；除白名单外的
+    // 路径鉴权行为一字不变。同时一并跳过工作区水合：水合在拿不到 bootstrap 时会回落成
+    // 本地工作区，那等于给未登录访客伪造一个账号会话。
+    const publicPage = __BEEFTV_HOSTED_AUTH__ && isPublicRoutePath(pathname);
+
     return (
         <ConfigProvider locale={zhCN} theme={getAntThemeConfig(dark, appearance.activeSkin)}>
             <App message={{ duration: 3, maxCount: 3 }} notification={{ duration: 4.5, maxCount: 3, placement: "topRight" }}>
                 <QueryClientProvider client={appQueryClient}>
-                    {isolateDevRepro ? (
+                    {isolateDevRepro || publicPage ? (
                         children
                     ) : (
                         <HostedAuthBoundary>

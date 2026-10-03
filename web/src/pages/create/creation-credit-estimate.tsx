@@ -1,4 +1,5 @@
 import type { TaskChargeEstimate } from "@/hooks/use-task-charge-quote";
+import { creditUnitRateLabel } from "@/lib/credit-price-label";
 import { cn } from "@/lib/utils";
 
 /**
@@ -50,17 +51,18 @@ export function CreationCreditEstimate({ estimate, className, compact = false }:
     );
 }
 
-/** chargeHint 把"单价 × 用量"渲染成悬停可看的算式。 */
+/** chargeHint 把"单价 × 用量"渲染成悬停可看的算式；单价文案与模型广场共用一份。 */
 function chargeHint(unit: string, sellUnitPrice: number | null, quantity: number) {
     if (sellUnitPrice === null) return "";
+    const rate = creditUnitRateLabel(unit, sellUnitPrice);
     switch (unit) {
         case "IMAGE":
-            return `${sellUnitPrice} 积分/张 × ${quantity} 张`;
+            return `${rate} × ${quantity} 张`;
         case "SECOND":
-            return `${sellUnitPrice} 积分/秒 × ${quantity} 秒`;
+            return `${rate} × ${quantity} 秒`;
         case "TOKEN_1M":
-            return `${sellUnitPrice} 积分/百万 token（起步价，不足一次调用按一次计）`;
+            return `${rate}（起步价，不足一次调用按一次计）`;
         default:
-            return `${sellUnitPrice} 积分/次`;
+            return rate;
     }
 }
