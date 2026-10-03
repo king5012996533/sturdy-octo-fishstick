@@ -16,7 +16,6 @@ import (
 type systemStatus struct {
 	db       *gorm.DB
 	service  *app.Service
-	local    bool
 	started  atomic.Bool
 	draining atomic.Bool
 }
@@ -38,8 +37,8 @@ type systemStatusChecks struct {
 	Schema   bool `json:"schema"`
 }
 
-func newSystemStatus(db *gorm.DB, svc *app.Service, local ...bool) *systemStatus {
-	return &systemStatus{db: db, service: svc, local: len(local) > 0 && local[0]}
+func newSystemStatus(db *gorm.DB, svc *app.Service) *systemStatus {
+	return &systemStatus{db: db, service: svc}
 }
 
 func (s *systemStatus) markStarted() { s.started.Store(true) }
@@ -64,12 +63,10 @@ func (s *systemStatus) snapshot(ctx context.Context) systemStatusSnapshot {
 	}
 	if s.db != nil {
 		snapshot.Checks.Database = s.db.WithContext(ctx).Exec("SELECT 1").Error == nil
-		if s.local {
-			if err := database.RequireLocalSchema(s.db); err == nil {
-				snapshot.Schema = database.SchemaStatus{Current: 1, Expected: 1, Ready: true}
-				snapshot.Checks.Schema = true
-			}
-		} else if schema, err := database.ReadSchemaStatus(s.db); err == nil {
+		// 这里必须读真实版本，不能返回常量。之前写死 1/1 时，存量库漏跑迁移
+		// （真实版本落后于 CurrentSchemaVersion）探活依然报 ready，故障只能从业务侧发现。
+		// 启动阶段已经跑过 MigrateLocalSchema 或 RequireLocalSchema，两者都保证版本一致。
+		if schema, err := database.ReadSchemaStatus(s.db); err == nil {
 			snapshot.Schema = schema
 			snapshot.Checks.Schema = schema.Ready
 		}

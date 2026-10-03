@@ -222,7 +222,7 @@ func Open(_ context.Context, raw Config) (*Runtime, error) {
 		router.Use(canvasHandler.WorkspaceMiddleware(scope))
 	}
 	api := router.Group("/api")
-	status := newSystemStatus(db, svc, true)
+	status := newSystemStatus(db, svc)
 	registerSystemStatusRoutes(api, status)
 	if hosted != nil {
 		hosted.RegisterRoutes(api)
