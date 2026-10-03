@@ -51,6 +51,12 @@
 | `BEEFTV_SMS_TEMPLATE_PARAM_KEY` | 模板里验证码变量的名字，默认 `code`（模板写作 `${code}`） |
 | `BEEFTV_SMS_REGION_ID` / `BEEFTV_SMS_ENDPOINT` | 覆盖短信接入点，默认 `cn-hangzhou` 与 `dysmsapi.aliyuncs.com` |
 
+短信签名有两道关，**阿里云审核通过不等于能发出去**：阿里云审核通过后还要把签名提交运营商做
+实名报备（端口报备），报备完成前 `SendSms` 会返回成功、但回执是 `PORT_NOT_REGISTERED`，
+用户收不到短信。报备时长官方口径 7-10 个工作日。排查顺序因此是：
+`SendSms` 直接报错 → 看参数与凭据；`SendSms` 成功但回执失败 → 看报备，
+别再去翻代码。
+
 未配置 SMTP 或短信凭据时，启动日志会明确提示「禁止用于生产」——日志可见者等于可以登录任意账号。
 短信通道手写阿里云 RPC 签名（`aliyun*` 系列函数），只依赖标准库，不引入 SDK。
 `PHONE_CODE` 与 `EMAIL_CODE` 完全同构：同一套通道抽象、同一套注册/登录语义。
