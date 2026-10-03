@@ -91,6 +91,9 @@ func (s *AliyunSMSSender) SendLoginCode(ctx context.Context, to string, code str
 
 	query := url.Values{}
 	query.Set("Action", "SendSms")
+	// 身份参数必须进 query：少了它阿里云只会回一句「AccessKeyId is mandatory」，
+	// 而本地签名照样能算出来，看起来像"签名不对"，实际是参数根本没带上。
+	query.Set("AccessKeyId", strings.TrimSpace(s.AccessKeyID))
 	query.Set("Version", aliyunAPIVersion)
 	query.Set("RegionId", firstNonEmpty(s.RegionID, aliyunDefaultRegion))
 	query.Set("PhoneNumbers", strings.TrimSpace(to))

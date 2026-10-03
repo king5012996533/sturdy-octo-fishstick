@@ -324,8 +324,11 @@ func TestAliyunSendLoginCodeSignsRequest(t *testing.T) {
 		t.Fatalf("上游请求数 = %d，期望 1", len(transport.requests))
 	}
 	captured := transport.requests[0].URL.Query()
+	// AccessKeyId 曾经漏在这里：字段校验通过、签名也自洽，但请求里没有身份参数，
+	// 线上只会拿到「AccessKeyId is mandatory」。必填参数要逐项断言，不能只断言签名。
 	expected := map[string]string{
 		"Action":        "SendSms",
+		"AccessKeyId":   "test-key-id",
 		"Version":       aliyunAPIVersion,
 		"RegionId":      aliyunDefaultRegion,
 		"PhoneNumbers":  "13800138000",
