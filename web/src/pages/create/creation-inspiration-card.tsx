@@ -1,6 +1,7 @@
 import { ArrowUp, Play } from "lucide-react";
 
 import type { CreationInspiration } from "./creation-inspirations";
+import { CreationInspirationCover } from "./creation-inspiration-cover";
 
 /**
  * 精选灵感卡：整张图打底、文字压在图上。
@@ -37,7 +38,7 @@ export function CreationInspirationCard({ item, hero, onStart, onPlay }: { item:
     return (
         <button type="button" className={`product-collection-card creation-featured-card ${hero ? "is-featured-hero" : ""}`} onClick={playable ? onPlay : onStart} aria-label={playable ? `播放作品《${item.title}》` : undefined}>
             <span className="creation-featured-media">
-                <img src={item.image} alt="" loading="lazy" referrerPolicy={item.sourceUrl ? "no-referrer" : undefined} />
+                <CreationInspirationCover src={item.image} alt="" loading="lazy" referrerPolicy={item.sourceUrl ? "no-referrer" : undefined} />
                 <span className="creation-inspiration-overlay">{playable ? <><Play />播放作品</> : <><ArrowUp />使用这个创意</>}</span>
             </span>
             {/* 小标（em）在 DOM 里排在标题之后，靠 CSS 的 order 提到最上：这样无障碍读出来
