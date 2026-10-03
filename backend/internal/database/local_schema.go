@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 2
+const CurrentSchemaVersion int64 = 3
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -73,6 +73,7 @@ func migrateLocalSchema(db *gorm.DB, beforeApply func(int64) error) error {
 	migrations := []localMigration{
 		{version: 1, name: "local-core-schema", apply: migrateLocalCoreSchema},
 		{version: 2, name: "retire-hosted-schema", destructive: true, apply: migrateRetiredHostedSchema},
+		{version: 3, name: "resource-provenance", apply: migrateResourceProvenance},
 	}
 	current, err := currentSchemaVersion(db)
 	if err != nil {
@@ -113,6 +114,18 @@ func migrateLocalCoreSchema(tx *gorm.DB) error {
 		return err
 	}
 	return backfillProjectUnitWordCounts(tx)
+}
+
+// migrateResourceProvenance 给资源表补上溯源列（task_id / source）。
+//
+// 单独一次版本化迁移而不是靠核心迁移里的 AutoMigrate：那条只在首次建库时执行，
+// 已上线的库不会再跑，字段会静默缺失——写入报错还算好的，对账读到的全是"未关联任务"
+// 才是真正难查的那种故障。
+func migrateResourceProvenance(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.Resource{}); err != nil {
+		return fmt.Errorf("迁移资源溯源列: %w", err)
+	}
+	return nil
 }
 
 func migrateRetiredHostedSchema(tx *gorm.DB) error {

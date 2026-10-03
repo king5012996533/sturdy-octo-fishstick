@@ -63,6 +63,53 @@ func TestLocalSchemaRecordsVersionAndIsIdempotent(t *testing.T) {
 	}
 }
 
+// 已上线的库停在 v2，核心迁移不会再执行，新列必须由版本化迁移补上。
+func TestLocalSchemaUpgradeAddsResourceProvenanceColumns(t *testing.T) {
+	db, err := Open(Config{Driver: "sqlite", DSN: "file:local-schema-resource-provenance?mode=memory&cache=shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("CREATE TABLE resources (id TEXT PRIMARY KEY, kind TEXT, storage_key TEXT, created_at datetime)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("INSERT INTO resources (id, kind) VALUES ('legacy-resource', 'image')").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&localSchemaMigration{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, applied := range []localSchemaMigration{
+		{Version: 1, Name: "local-core-schema", AppliedAt: time.Now().UTC()},
+		{Version: 2, Name: "retire-hosted-schema", AppliedAt: time.Now().UTC()},
+	} {
+		if err := db.Create(&applied).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if db.Migrator().HasColumn("resources", "task_id") {
+		t.Fatal("前置条件不成立：模拟库里已存在 task_id")
+	}
+	if err := MigrateLocalSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range []string{"task_id", "source"} {
+		if !db.Migrator().HasColumn("resources", column) {
+			t.Fatalf("resources 升级后仍缺少溯源列 %q", column)
+		}
+	}
+	if !db.Migrator().HasIndex("resources", "idx_resources_task_id") {
+		t.Fatal("resources 缺少 task_id 索引，对账查询会全表扫")
+	}
+	version, err := currentSchemaVersion(db)
+	if err != nil || version != CurrentSchemaVersion {
+		t.Fatalf("升级后版本 = %d, err = %v, 期望 %d", version, err, CurrentSchemaVersion)
+	}
+	var kind string
+	if err := db.Table("resources").Where("id = ?", "legacy-resource").Pluck("kind", &kind).Error; err != nil || kind != "image" {
+		t.Fatalf("升级冲掉了旧数据: kind = %q, err = %v", kind, err)
+	}
+}
+
 func TestHostedCleanupCreatesRecoverableSQLiteBackup(t *testing.T) {
 	dataDir := t.TempDir()
 	databasePath := filepath.Join(dataDir, "canvas.db")
