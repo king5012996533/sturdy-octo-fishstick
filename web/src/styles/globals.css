@@ -20950,17 +20950,23 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 .app-user-workspace .creation-featured-heading-main { display: flex; min-width: 0; align-items: baseline; gap: 16px; }
 .app-user-workspace .creation-featured-more {
     display: inline-flex;
+    min-height: 40px;
     align-items: center;
     gap: 8px;
-    border: 0;
-    background: transparent;
-    color: var(--user-ink-muted);
+    border: 1px solid var(--user-border);
+    border-radius: 999px;
+    background: var(--user-surface-muted);
+    color: var(--user-ink);
     cursor: pointer;
-    font-size: 12px;
-    padding: 4px 0;
-    transition: color var(--user-motion);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 0 16px;
+    transition: background var(--user-motion), border-color var(--user-motion), color var(--user-motion), transform var(--user-motion);
 }
-.app-user-workspace .creation-featured-more:hover { color: var(--user-ink); }
+.app-user-workspace .creation-featured-more:hover { border-color: var(--user-border-strong); background: var(--user-surface-hover); transform: translateX(2px); }
+.app-user-workspace .creation-featured-more:active { transform: translateX(2px) scale(.98); }
+.app-user-workspace .creation-featured-more:focus-visible { outline: 2px solid color-mix(in srgb, var(--user-ink) 40%, transparent); outline-offset: 2px; }
+.app-user-workspace .creation-featured-more-count { color: var(--user-ink-soft); font-size: 11px; font-weight: 500; }
 .app-user-workspace .creation-featured-more svg { width: 14px; height: 14px; }
 /* 未选中的集合页签（Skill）此前和栏目名同号同字重，两个"标题"并排抢视线；
    压到常规字重 + 低对比，它才退回成页签，栏目名独自占住层级。 */

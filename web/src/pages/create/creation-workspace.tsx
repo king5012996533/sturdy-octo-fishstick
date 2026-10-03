@@ -54,6 +54,7 @@ import { creationLibtvInspirations } from "./creation-inspirations-libtv";
 import { CreationInspirationCard } from "./creation-inspiration-card";
 import { CreationInspirationPlayer } from "./creation-inspiration-player";
 import { CreationInspirationFooter } from "./creation-inspiration-footer";
+import { CREATION_INSPIRATION_PAGE_SIZE, CREATION_INSPIRATION_PAGE_STEP, creationInspirationProgress, creationInspirationRevealIndex, revealCreationInspirationCard } from "./creation-inspiration-more";
 
 const CanvasPromptOptimizerDrawer = lazy(() => import("@/components/canvas/canvas-prompt-optimizer-drawer").then((module) => ({ default: module.CanvasPromptOptimizerDrawer })));
 
@@ -779,8 +780,10 @@ const creationSkillWorks = [
 export function CreationFeaturedWorks({ onStartPrompt, onUseInspiration }: { onStartPrompt: (mode: CreationMode, prompt: string) => void; onUseInspiration: (item: CreationInspiration) => void }) {
     const navigate = useNavigate();
     const [filter, setFilter] = useState<"all" | CreationMode>("all");
-    // 首页 bento 是"一张主推荐占 2×2 + 若干单格"，13 张正好铺满四行，末尾不留缺口。
-    const [limit, setLimit] = useState(13);
+    const [limit, setLimit] = useState(CREATION_INSPIRATION_PAGE_SIZE);
+    // 展开后要卷回视野的那张新卡，交给 effect 在渲染完成后再滚，否则会滚到展开前的位置。
+    const revealIndexRef = useRef<number | null>(null);
+    const featuredGridRef = useRef<HTMLDivElement | null>(null);
     const [collection, setCollection] = useState<"inspiration" | "skill">("inspiration");
     const [skillSection, setSkillSection] = useState<"recommended" | "mine">("recommended");
     const [mySkills, setMySkills] = useState<Skill[]>([]);
@@ -793,7 +796,14 @@ export function CreationFeaturedWorks({ onStartPrompt, onUseInspiration }: { onS
     // 没有这份目录），而不是留一个空广场。
     const creationInspirationPool = remoteInspirations?.length ? remoteInspirations : localCreationInspirationPool;
     const filtered = creationInspirationPool.filter((item) => filter === "all" || item.mode === filter);
+    const inspirationProgress = creationInspirationProgress(limit, filtered.length);
     const isSkill = collection === "skill";
+    useEffect(() => {
+        const index = revealIndexRef.current;
+        if (index === null) return;
+        revealIndexRef.current = null;
+        revealCreationInspirationCard(featuredGridRef.current, index);
+    }, [limit]);
     useEffect(() => {
         let cancelled = false;
         void loadCreationInspirations()
@@ -820,6 +830,10 @@ export function CreationFeaturedWorks({ onStartPrompt, onUseInspiration }: { onS
         uses: skill.version || "已安装",
     }));
     const visibleSkills = skillSection === "mine" ? installedSkillWorks : creationSkillWorks;
+    const revealMoreInspirations = () => {
+        revealIndexRef.current = creationInspirationRevealIndex(limit, filtered.length);
+        setLimit((count) => count + CREATION_INSPIRATION_PAGE_STEP);
+    };
     return <section className="creation-featured-works" aria-labelledby="creation-featured-title">
         <div className="creation-featured-heading">
             {/* 这一行照抄参考页的字卡节奏：栏目名 + 全大写小标，展开入口挪到最右侧。 */}
@@ -830,9 +844,11 @@ export function CreationFeaturedWorks({ onStartPrompt, onUseInspiration }: { onS
                 </div>
                 <span className="creation-featured-eyebrow">Inspiration</span>
             </div>
-            {!isSkill && limit < filtered.length ? (
-                <button type="button" className="creation-featured-more" onClick={() => setLimit((count) => count + 12)}>
+            {!isSkill && inspirationProgress.remaining > 0 ? (
+                // 剩余张数放在按钮上：点下去这个数字当场变小，用户不用滚到底也知道点到了。
+                <button type="button" className="creation-featured-more" onClick={revealMoreInspirations} aria-label={`查看更多，还有 ${inspirationProgress.remaining} 个创意`}>
                     查看更多
+                    <span className="creation-featured-more-count">还有 {inspirationProgress.remaining} 个</span>
                     <ArrowRight aria-hidden="true" />
                 </button>
             ) : null}
@@ -851,7 +867,7 @@ export function CreationFeaturedWorks({ onStartPrompt, onUseInspiration }: { onS
                 .filter((tab) => tab.value === "all" || tab.count > 0)
                 .map(({ value, count }) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => { setFilter(value); setLimit(13); }}>{value === "all" ? "全部灵感" : modeLabels[value]}<span>{count}</span></button>)}
         </div>}
-        <div className={`creation-featured-layout ${isSkill ? "creation-skill-grid" : ""}`}>
+        <div ref={featuredGridRef} className={`creation-featured-layout ${isSkill ? "creation-skill-grid" : ""}`}>
                 {isSkill ? visibleSkills.map((item) => <button key={item.title} type="button" className="product-collection-card creation-featured-card creation-skill-card" onClick={() => onStartPrompt("video", item.prompt)}>
                     <span className="creation-featured-media"><img src={item.image} alt="" loading="lazy" /><span className="creation-skill-type">视频</span><span className="creation-skill-hover-use"><Sparkles />使用</span></span>
                     <span className="creation-featured-copy"><strong>{item.title}</strong><span>{item.description}</span><em><Sparkles />{item.author} · {item.uses}</em>
@@ -859,7 +875,7 @@ export function CreationFeaturedWorks({ onStartPrompt, onUseInspiration }: { onS
                 </button>) : filtered.slice(0, limit).map((item, index) => <CreationInspirationCard key={item.title} item={item} hero={index === 0} onStart={() => onUseInspiration(item)} onPlay={item.videoUrl ? () => setPlayingInspiration(item) : undefined} />)}
         </div>
         {isSkill && skillSection === "mine" && mySkillsLoaded && !visibleSkills.length ? <div className="creation-skill-empty"><Sparkles /><strong>还没有安装 Skill</strong><span>上传、安装或创建一个 Skill 后，它会显示在这里。</span></div> : null}
-        <CreationInspirationFooter shown={isSkill ? visibleSkills.length : Math.min(limit, filtered.length)} total={isSkill ? undefined : filtered.length} unit={isSkill ? "个 Skill" : "个创意"} />
+        <CreationInspirationFooter shown={isSkill ? visibleSkills.length : inspirationProgress.shown} total={isSkill ? undefined : inspirationProgress.total} unit={isSkill ? "个 Skill" : "个创意"} />
         {playingInspiration ? <CreationInspirationPlayer
             item={playingInspiration}
             onUse={() => { const item = playingInspiration; setPlayingInspiration(null); onUseInspiration(item); }}
