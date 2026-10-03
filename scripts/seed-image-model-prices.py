@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""把图片模型 openai/gpt-image-2 的质量三档价写进定价表。
+"""把在售图片模型的质量档价写进定价表。
 
-这份价目是产品决策，不是默认值，所以和 pin-model-catalog.py、seed-text-model-prices.py
-一样做成"可重放"的：价目变了就改下面的 UPSTREAM_USD_PER_IMAGE，重跑一遍，而不是靠谁
-记得当初在后台点过什么。
+覆盖 openai/gpt-image-2、openai/gpt-image-2.5-sunburst、openai/gpt-image-2.5-flare
+与 google/imagen-4 / imagen-4-fast。这份价目是产品决策，不是默认值，所以和
+pin-model-catalog.py、seed-text-model-prices.py 一样做成"可重放"的：价目变了就改下面的
+UPSTREAM_USD_PER_IMAGE，重跑一遍，而不是靠谁记得当初在后台点过什么。
 
 用法（默认预览，不加 --apply 不写任何东西）：
 
@@ -15,14 +16,19 @@
 
 ## 为什么只按质量档，不按分辨率
 
-上游 Replicate 对 openai/gpt-image-2 的价目是 low / medium / high / auto 四档，
-**没有尺寸维度**：同一质量档下 1:1 与 4K 同价。所以"用户选了 4K 却按最便宜的价卖"
-这种事在当前价目上不会成立——分辨率不参与计价，质量档才是唯一的价格变量。
+上游 Replicate 对 OpenAI 图片族的价目是 low / medium / high / auto 四档（2.5 系还多
+xhigh / max，但界面与价目只放开三档，见下），**没有尺寸维度**：同一质量档下 1:1 与
+4K 同价。所以"用户选了 4K 却按最便宜的价卖"这种事在当前价目上不会成立——分辨率不参与
+计价，质量档才是唯一的价格变量。google/imagen-4 系连质量维度都没有（界面上的 1k/2k
+是分辨率档，不参与计价），整个模型只有"不区分档位"一行价。
 
-价目里唯一要防的坑是 auto 与 high 同价。模型配置默认传 low，一旦哪天漏传质量参数，
-上游就按 auto 收，价格与 high 一致。空档（priceTier 为空）那一行存在的意义就是给
-"没传质量"留一个 high 价的落点，绝不让它回落到 low——low 与 high 差 10.7 倍，
-落错档就是资损，而且不会报错。
+价目里唯一要防的坑是空档（priceTier 为空）。它代表"面板没传质量"，上游此时按 auto
+计费，所以空档成本必须填**各自模型的** auto 价：2.0 是 $0.128，而 2.5 系是 $0.25。
+两份价目长得几乎一样，空档抄错就是资损，而且不会报错。
+
+2.5 系上游还有 xhigh（$0.25）与 max（$0.50）两档，但 auth.ImagePriceTiers 只认
+LOW / MEDIUM / HIGH 三档，能力合同也只放开 low/medium/high，所以这里不写这两档：
+写进去后台存不下，只会让脚本报一个看起来像接口故障的档位错误。将来要卖，先扩档位枚举。
 
 ## 为什么是「上游价 × 5」
 
@@ -32,11 +38,15 @@
 倍率取 5 是**产品定的**，不是算出来的：视频线按走量定价、几乎不赚钱，图片线承担这套
 价目的毛利。×5 对应约 80% 毛利（×2 只有 50%），三档都一样：
 
-| 档位 | 上游成本 | ×5 售价 | 毛利 |
-| --- | --- | --- | --- |
-| low | $0.012 | 45 分（¥0.45） | 80.8% |
-| medium | $0.047 | 170 分（¥1.70） | 80.1% |
-| high / auto | $0.128 | 465 分（¥4.65） | 80.2% |
+| 模型 | 档位 | 上游成本 | ×5 售价 | 毛利 |
+| --- | --- | --- | --- | --- |
+| gpt-image-2 / 2.5 系 | low | $0.012 | 45 分（¥0.45） | 80.8% |
+| gpt-image-2 / 2.5 系 | medium | $0.047 | 170 分（¥1.70） | 80.1% |
+| gpt-image-2 / 2.5 系 | high | $0.128 | 465 分（¥4.65） | 80.2% |
+| gpt-image-2 | 空档（auto） | $0.128 | 465 分（¥4.65） | 80.2% |
+| gpt-image-2.5 系 | 空档（auto） | $0.25 | 900 分（¥9.00） | 80.0% |
+| imagen-4 | 不区分档位 | $0.04 | 145 分（¥1.45） | 80.0% |
+| imagen-4-fast | 不区分档位 | $0.02 | 75 分（¥0.75） | 80.0% |
 
 调价只改这个常量，重跑脚本即可；`same_as_existing` 会把倍率变化识别成"需要更新"。
 
@@ -58,28 +68,51 @@ import urllib.parse
 import urllib.request
 from decimal import ROUND_CEILING, Decimal
 
-# 上游 Replicate 对 openai/gpt-image-2 的价目，单位：美元/张。
-# 只有质量档一个维度：分辨率不进价目，所以这里没有尺寸键。
-UPSTREAM_USD_PER_IMAGE: dict[str, str] = {
-    "LOW": "0.012",
-    "MEDIUM": "0.047",
-    "HIGH": "0.128",
-    # 空档 = 用户没选质量，上游此时按 auto 计费，而 auto 与 high 同价，故成本取 0.128。
-    "": "0.128",
+# 上游 Replicate 的在售图片价目，单位：美元/张。外层键是计费用标识，内层键是价格档位。
+#
+# 内层顺序即写入顺序（由便宜到贵、空档最后），预览输出与幂等比较都按这个顺序复核。
+# 档位取值与 auth.ImagePriceTiers 对齐：LOW / MEDIUM / HIGH 是质量档，
+# 空串表示"这个模型不按质量分档"——imagen 系没有质量维度，只有空档一行。
+UPSTREAM_USD_PER_IMAGE: dict[str, dict[str, str]] = {
+    "CHANNEL_000003::openai/gpt-image-2": {
+        "LOW": "0.012",
+        "MEDIUM": "0.047",
+        "HIGH": "0.128",
+        # 空档 = 面板没选质量，上游按 auto 计费；本模型 auto 与 high 同价，故成本取 0.128。
+        "": "0.128",
+    },
+    "CHANNEL_000003::openai/gpt-image-2.5-sunburst": {
+        "LOW": "0.012",
+        "MEDIUM": "0.047",
+        "HIGH": "0.128",
+        # 2.5 系 auto 是 $0.25，是 2.0 的近两倍：这条不能抄上面那一份。
+        "": "0.25",
+    },
+    "CHANNEL_000003::openai/gpt-image-2.5-flare": {
+        "LOW": "0.012",
+        "MEDIUM": "0.047",
+        "HIGH": "0.128",
+        # flare 与 sunburst 同价目，同样不能用 2.0 的 auto 价。
+        "": "0.25",
+    },
+    "CHANNEL_000003::google/imagen-4": {
+        # 无质量维度，上游按张计价。
+        "": "0.04",
+    },
+    "CHANNEL_000003::google/imagen-4-fast": {
+        "": "0.02",
+    },
 }
 
 # 美元 → 人民币汇率。上游按美元计价，换算成人民币后再乘 100 得到分。
 USD_CNY_RATE = "7.2"
 
-# 写入顺序固定（由便宜到贵，空档最后）：预览输出与幂等比较都按这个顺序复核。
-TIER_ORDER = ("LOW", "MEDIUM", "HIGH", "")
-
-# 每档的自解释文案。空档必须点明它与 high 同价的原因，否则后人看到它会以为是重复配置。
+# 质量档的自解释文案。空档的写法由 note_for 决定：分档模型是"漏传质量"的 auto 落点，
+# 不分档模型（imagen）只有一行价，写"未指定质量"会让人以为是漏配。
 TIER_NOTE = {
     "LOW": "上游 low 档",
     "MEDIUM": "上游 medium 档",
     "HIGH": "上游 high 档",
-    "": "未指定质量（上游按 auto 计费，与 high 同价）",
 }
 
 # 售价相对上游成本的倍率：5 = ×5（约 80% 毛利）。产品定价决策，见文件头 docstring：
@@ -89,8 +122,7 @@ TIER_NOTE = {
 MULTIPLIER = "5"
 MULTIPLIER_BP = int(Decimal(MULTIPLIER) * 10000)
 
-# 计费用标识 = 渠道路径 + "::" + 上游模型名（与 taskChargeModelKey 同一口径）。
-MODEL_KEY = "CHANNEL_000003::openai/gpt-image-2"
+# 单价表按"计费用标识"归属：渠道路径 + "::" + 上游模型名（与 taskChargeModelKey 同一口径）。
 CAPABILITY = "IMAGE"
 UNIT = "IMAGE"
 VENDOR_CODE = "replicate"
@@ -126,32 +158,36 @@ def upstream_fen(usd: str) -> int:
     return int(fen.to_integral_value(rounding=ROUND_CEILING))
 
 
-def note_for(tier: str, usd: str) -> str:
+def note_for(tier: str, usd: str, quality_tiered: bool) -> str:
+    """档位备注。quality_tiered 指这个模型是否有质量维度，决定空档该怎么解释。"""
     if tier == "":
-        return f"{TIER_NOTE[tier]}·上游 ${usd}/张 ×{MULTIPLIER}"
+        prefix = "未指定质量（上游按 auto 计费）" if quality_tiered else "不区分档位"
+        return f"{prefix}·上游 ${usd}/张 ×{MULTIPLIER}"
     return f"{TIER_NOTE[tier]} ${usd}/张 ×{MULTIPLIER}"
 
 
 def desired_rows() -> list[dict]:
     rows: list[dict] = []
-    for tier in TIER_ORDER:
-        usd = UPSTREAM_USD_PER_IMAGE[tier]
-        rows.append(
-            {
-                "modelKey": MODEL_KEY,
-                "capability": CAPABILITY,
-                "priceTier": tier,
-                "unit": UNIT,
-                "vendorCode": VENDOR_CODE,
-                # 售价 = null + 倍率：售价由服务端按 MULTIPLIER 算出，
-                # 上游调价只改上游价一个数。
-                "upstreamUnitPrice": upstream_fen(usd),
-                "sellUnitPrice": None,
-                "multiplier": MULTIPLIER,
-                "enabled": True,
-                "note": note_for(tier, usd),
-            }
-        )
+    for model_key, tiers in UPSTREAM_USD_PER_IMAGE.items():
+        # 有质量档的模型一定有 LOW：用它区分"空档是 auto 落点"与"这个模型根本不分档"。
+        quality_tiered = "LOW" in tiers
+        for tier, usd in tiers.items():
+            rows.append(
+                {
+                    "modelKey": model_key,
+                    "capability": CAPABILITY,
+                    "priceTier": tier,
+                    "unit": UNIT,
+                    "vendorCode": VENDOR_CODE,
+                    # 售价 = null + 倍率：售价由服务端按 MULTIPLIER 算出，
+                    # 上游调价只改上游价一个数。
+                    "upstreamUnitPrice": upstream_fen(usd),
+                    "sellUnitPrice": None,
+                    "multiplier": MULTIPLIER,
+                    "enabled": True,
+                    "note": note_for(tier, usd, quality_tiered),
+                }
+            )
     return rows
 
 
@@ -166,7 +202,7 @@ def same_as_existing(row: dict, existing: dict) -> bool:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="写入图片模型质量三档价（默认只预览）")
+    parser = argparse.ArgumentParser(description="写入在售图片模型的价目（默认只预览）")
     parser.add_argument("--apply", action="store_true", help="真正写入；不加则只打印将要做的变更")
     parser.add_argument("--base-url", default=os.environ.get("KINO_BASE_URL", "http://127.0.0.1:8080/api"))
     parser.add_argument("--cookie", default=os.environ.get("KINO_ADMIN_COOKIE", ""))
@@ -195,14 +231,15 @@ def main() -> int:
         return 0
 
     for action, row, existing in plan:
-        tier_label = row["priceTier"] or "不区分"
-        target = f"{row['modelKey']} · {tier_label}（{TIER_NOTE[row['priceTier']]}）"
+        # 档位名只在有档位时前置；不分档的模型由 note 说明，避免出现"不区分档位（不区分档位…）"。
+        tier_label = f" · {row['priceTier']}" if row["priceTier"] else ""
+        target = f"{row['modelKey']}{tier_label}（{row['note']}）"
         if action == "create":
-            print(f"新建 {target}：上游 {row['upstreamUnitPrice']} 分/张，倍率 ×{MULTIPLIER}")
+            print(f"新建 {target}：上游 {row['upstreamUnitPrice']} 分/张")
         else:
             print(
-                f"更新 {target}：上游 {existing.get('upstreamUnitPrice')} → {row['upstreamUnitPrice']} 分/张，"
-                f"倍率 ×{MULTIPLIER}（原有独立售价会被清掉，改由倍率计算）"
+                f"更新 {target}：上游 {existing.get('upstreamUnitPrice')} → {row['upstreamUnitPrice']} 分/张"
+                f"（原有独立售价会被清掉，改由倍率计算）"
             )
 
     if not args.apply:

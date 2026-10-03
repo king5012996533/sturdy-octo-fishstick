@@ -291,6 +291,9 @@ func applyReplicateImageCapability(image *ImageCapabilityConfig, modelName strin
 	case owner == "openai" && strings.HasPrefix(base, "gpt-image"):
 		// gpt-image：比例只走 aspect_ratio，档位直通上游 quality（low/medium/high，默认 low 最便宜），
 		// 参考图走 input_images 编辑，单次最多 10 张输出，没有分辨率与透明底参数。
+		// 2.5 系（sunburst/flare）共用这份合同：上游 quality 另有两档 xhigh/max，输出数量也走
+		// number_of_images（同为 1-10，插件已映射）；但价目只承认 LOW/MEDIUM/HIGH，
+		// 多出来的两档既算不出价也不该在面板露出，故不写进能力合同。
 		apply(replicateGPTImageRatios, []string{"low", "medium", "high"}, 10, 4, "low")
 	case strings.HasPrefix(base, "flux-2-"):
 		// flux-2 klein：参考图数组 + match_input_image，单张输出。

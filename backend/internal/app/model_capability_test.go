@@ -785,12 +785,37 @@ func TestDefaultImageCapabilityConfigForReplicateFamilies(t *testing.T) {
 		t.Fatalf("gpt-image-2 capability rejected: %v", err)
 	}
 
+	// 2.5 系（sunburst/flare）与 2.0 共用同一份合同：同样只能出 1-10 张、最多 4 张参考图。
+	// 上游 2.5 的 quality 还多出 xhigh/max 两档，但价目只承认 LOW/MEDIUM/HIGH 三档，
+	// 露出算不出价的档位只会让用户在提交时报错，所以合同里必须只有三档。
+	for _, name := range []string{"openai/gpt-image-2.5-sunburst", "openai/gpt-image-2.5-flare"} {
+		gptImage25 := DefaultImageCapabilityConfig("replicate-prediction-image", name)
+		if gptImage25.MaxOutputs != 10 || gptImage25.References.MaxImages != 4 || gptImage25.Quality.Default != "low" {
+			t.Fatalf("%s outputs=%d refs=%d quality=%#v", name, gptImage25.MaxOutputs, gptImage25.References.MaxImages, gptImage25.Quality)
+		}
+		if len(gptImage25.Quality.Values) != 3 || containsCapabilityString(gptImage25.Quality.Values, "xhigh") || containsCapabilityString(gptImage25.Quality.Values, "max") {
+			t.Fatalf("%s quality = %#v, 只应放开 low/medium/high", name, gptImage25.Quality.Values)
+		}
+		if err := validateImageCapabilityConfig(gptImage25); err != nil {
+			t.Fatalf("%s capability rejected: %v", name, err)
+		}
+	}
+
 	imagen := DefaultImageCapabilityConfig("replicate-prediction-image", "google/imagen-4")
 	if imagen.MaxOutputs != 1 || len(imagen.Quality.Values) != 2 || imagen.Quality.Default != "1k" {
 		t.Fatalf("imagen4 tiers = %#v maxOutputs=%d", imagen.Quality, imagen.MaxOutputs)
 	}
 	if err := validateImageCapabilityConfig(imagen); err != nil {
 		t.Fatalf("imagen capability rejected: %v", err)
+	}
+
+	// imagen-4-fast 没有 image_size 参数：档位只剩 1k，界面因此不渲染分辨率切换。
+	imagenFast := DefaultImageCapabilityConfig("replicate-prediction-image", "google/imagen-4-fast")
+	if imagenFast.MaxOutputs != 1 || len(imagenFast.Quality.Values) != 1 || imagenFast.Quality.Default != "1k" {
+		t.Fatalf("imagen4-fast tiers = %#v maxOutputs=%d", imagenFast.Quality, imagenFast.MaxOutputs)
+	}
+	if err := validateImageCapabilityConfig(imagenFast); err != nil {
+		t.Fatalf("imagen4-fast capability rejected: %v", err)
 	}
 
 	seedream := DefaultImageCapabilityConfig("replicate-prediction-image", "bytedance/seedream-4")

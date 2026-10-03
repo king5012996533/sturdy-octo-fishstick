@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test immutable publication and activation
         run: python3 -m unittest discover -s scripts -p 'test_publish_desktop_r2.py'
+      - name: Test platform shelf convergence
+        run: python3 -m unittest discover -s scripts -p 'test_pin_model_catalog.py'
 
   backend:
     name: Backend checks

@@ -379,6 +379,7 @@ const replicateImageRatioTiers = ["1k"];
 
 // Replicate 图片模型的比例枚举直接取自上游 schema；每个模型的取值并不相同。
 const replicateFluxRatios = ["1:1", "16:9", "9:16", "3:2", "2:3", "4:3", "3:4", "4:5", "5:4", "21:9"];
+const replicateGPTImageRatios = ["1:1", "16:9", "9:16", "3:2", "2:3", "4:3", "3:4"];
 const replicateKontextRatios = ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "21:9", "2:1", "1:2"];
 const replicateKleinRatios = ["1:1", "16:9", "9:16", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5", "21:9"];
 const replicateNanoBananaRatios = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
@@ -541,6 +542,10 @@ function applyReplicateImageCapability(image: ImageCapabilityConfig, model = "")
         image.maxOutputs = maxOutputs;
         image.references.maxImages = maxImages;
     };
+    // gpt-image 族（含 2.5 的 sunburst/flare）：档位直通上游 quality，参考图走 input_images，
+    // 输出数量走 number_of_images（1-10）。上游 2.5 还有 xhigh/max 两档，但价目只认三档，
+    // 所以与 Go 侧一样只放开 low/medium/high——两边必须逐字一致。
+    if (owner === "openai" && base.startsWith("gpt-image")) return apply(replicateGPTImageRatios, ["low", "medium", "high"], 10, 4, "low");
     if (base.startsWith("flux-2-")) return apply(replicateKleinRatios, replicateImageRatioTiers, 1, 4, "1k");
     if (base.startsWith("flux-kontext-")) return apply(replicateKontextRatios, replicateImageRatioTiers, 1, 1, "1k");
     if (base === "flux-schnell") return apply(replicateFluxRatios, replicateImageRatioTiers, 4, 0, "1k");
