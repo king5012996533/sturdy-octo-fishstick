@@ -58,3 +58,23 @@ describe("后台用户管理积分入口", () => {
         expect(drawer).toContain("isInsufficientCreditsError");
     });
 });
+
+/**
+ * 浮层令牌：抽屉与弹窗被 antd 挂到 body 下，脱离 .admin-console 的变量作用域。
+ * 令牌丢了不会报错，只会让卡片描边、次要文字颜色静默退回 antd 默认值——
+ * 界面上看不出"坏了"，只是层次感没了，所以用一条测试钉住这个挂载标记。
+ */
+describe("后台浮层设计令牌", () => {
+    test("令牌同时挂在后台根节点与浮层宿主上", () => {
+        const css = read("src/features/admin-console/admin-console.css");
+        expect(css).toContain("body.admin-overlay-host {");
+        expect(css).toContain("--admin-hairline-soft:");
+        expect(css).toContain("body.admin-overlay-host .ant-table-wrapper .ant-table");
+    });
+
+    test("后台挂载期间才给 body 打标记，卸载即摘掉", () => {
+        const console_ = read("src/features/admin-console/admin-console.tsx");
+        expect(console_).toContain('document.body.classList.add("admin-overlay-host")');
+        expect(console_).toContain('document.body.classList.remove("admin-overlay-host")');
+    });
+});

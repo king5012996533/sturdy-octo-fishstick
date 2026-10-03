@@ -6,7 +6,16 @@
  * 换肤时后台与登录页保持同一套底色，不会各自漂移。
  */
 
-.admin-console {
+/*
+ * 设计令牌挂两处：后台根节点，以及托管浮层用的 body 标记。
+ *
+ * antd 的 Drawer / Modal 会被挂到 body 下，脱离 .admin-console 的变量作用域。少了
+ * 令牌，卡片描边、次要文字颜色、表格底色都会静默退回 antd 默认值——界面看起来
+ * 「只是有点不一样」，没人会当成 bug 报上来，但后台的层次感就没了。
+ * AdminConsole 挂载期间给 body 打上 admin-overlay-host，浮层因此拿到同一套令牌。
+ */
+.admin-console,
+body.admin-overlay-host {
     --admin-hairline: rgba(255, 255, 255, 0.1);
     --admin-hairline-soft: rgba(255, 255, 255, 0.06);
     --admin-ink: rgba(255, 255, 255, 0.88);
@@ -14,6 +23,9 @@
     --admin-ink-faint: rgba(255, 255, 255, 0.34);
     --admin-field: rgba(255, 255, 255, 0.04);
     --admin-field-hover: rgba(255, 255, 255, 0.07);
+}
+
+.admin-console {
     display: flex;
     height: 100dvh;
     min-height: 0;
@@ -423,11 +435,13 @@
 }
 
 /* 表格与表单在暗色舞台上要压得住：AntD 默认描边在深底上偏亮。 */
-.admin-console .ant-table-wrapper .ant-table {
+.admin-console .ant-table-wrapper .ant-table,
+body.admin-overlay-host .ant-table-wrapper .ant-table {
     background: transparent;
 }
 
-.admin-console .admin-form-narrow {
+.admin-console .admin-form-narrow,
+body.admin-overlay-host .admin-form-narrow {
     max-width: 720px;
 }
 

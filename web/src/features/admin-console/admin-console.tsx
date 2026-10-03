@@ -1,6 +1,6 @@
 import { App, ConfigProvider, theme as antdTheme } from "antd";
 import { ArrowLeft, BadgePercent, Boxes, Clapperboard, Coins, FileSignature, Gauge, Images, KeyRound, LayoutDashboard, LayoutTemplate, LifeBuoy, Package, RadioTower, Receipt, ScrollText, Send, Settings, ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, TicketPercent, Upload, Users, type LucideIcon } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { useAppearanceStore } from "@/stores/use-appearance-store";
@@ -84,6 +84,13 @@ export function AdminConsolePage() {
     const requested = searchParams.get("section");
     const activeSection = isConsoleSectionKey(requested) ? requested : "dashboard";
     const activePane = useMemo(() => consoleSections.find((section) => section.key === activeSection)?.pane(), [activeSection]);
+
+    // antd 的 Drawer / Modal 挂在 body 下，拿不到 .admin-console 上的设计令牌。
+    // 挂载期间给 body 打一个标记，让浮层共用同一套配色（见 admin-console.css）。
+    useEffect(() => {
+        document.body.classList.add("admin-overlay-host");
+        return () => document.body.classList.remove("admin-overlay-host");
+    }, []);
 
     const selectSection = (key: ConsoleSectionKey) => {
         const next = new URLSearchParams(searchParams);
