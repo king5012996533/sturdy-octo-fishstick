@@ -1,11 +1,12 @@
 import { Button, DatePicker, Input, Select, Switch, Table, Tag, Tooltip, type TableProps } from "antd";
 import type { Dayjs } from "dayjs";
-import { RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, RefreshCw, Search } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { formatBytes, formatCount, formatDateTime } from "@/lib/format-usage";
 
-import { listAdminResources, type AdminResource, type AdminResourceTotals } from "./api-resources";
+import { listAdminResources, type AdminResource, type AdminResourceReconciliation, type AdminResourceTotals } from "./api-resources";
+import { chargeStateColor, chargeStateLabel, ResourcesReconciliation } from "./resources-reconciliation";
 
 const kindOptions = [
     { value: "", label: "全部类型" },
@@ -21,7 +22,7 @@ function kindLabel(kind: string) {
     return kindLabels[kind] ?? (kind || "—");
 }
 
-const emptyTotals: AdminResourceTotals = { total: 0, unreferenced: 0, totalBytes: 0, users: 0 };
+const emptyTotals: AdminResourceTotals = { total: 0, unreferenced: 0, untracked: 0, totalBytes: 0, users: 0 };
 
 /** 时长读成秒，比毫秒更贴近运营对视频、音频的直觉。 */
 function formatDuration(durationMs: number) {
@@ -62,6 +63,7 @@ export function ResourcesPane() {
     const [keyword, setKeyword] = useState("");
     const [kind, setKind] = useState("");
     const [unreferencedOnly, setUnreferencedOnly] = useState(false);
+    const [untrackedOnly, setUntrackedOnly] = useState(false);
     const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(20);
@@ -70,12 +72,15 @@ export function ResourcesPane() {
     const [totals, setTotals] = useState<AdminResourceTotals>(emptyTotals);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [reconciliation, setReconciliation] = useState<AdminResourceReconciliation | null>(null);
+    const [reconciliationOpen, setReconciliationOpen] = useState(false);
 
     const load = useCallback(
         async (options: {
             keyword: string;
             kind: string;
             unreferenced: boolean;
+            untracked: boolean;
             range: [Dayjs | null, Dayjs | null] | null;
             page: number;
             pageSize: number;
@@ -87,6 +92,7 @@ export function ResourcesPane() {
                     keyword: options.keyword,
                     kind: options.kind,
                     unreferenced: options.unreferenced,
+                    untracked: options.untracked,
                     since: options.range?.[0]?.startOf("day").toISOString(),
                     until: options.range?.[1]?.endOf("day").toISOString(),
                     page: options.page,
@@ -95,6 +101,7 @@ export function ResourcesPane() {
                 setResources(payload.resources ?? []);
                 setTotal(payload.total ?? 0);
                 setTotals(payload.totals ?? emptyTotals);
+                setReconciliation(payload.reconciliation ?? null);
             } catch (loadError) {
                 setError(loadError instanceof Error ? loadError.message : "加载生成产物失败");
             } finally {
@@ -105,8 +112,8 @@ export function ResourcesPane() {
     );
 
     useEffect(() => {
-        void load({ keyword, kind, unreferenced: unreferencedOnly, range, page, pageSize });
-    }, [load, keyword, kind, unreferencedOnly, range, page, pageSize]);
+        void load({ keyword, kind, unreferenced: unreferencedOnly, untracked: untrackedOnly, range, page, pageSize });
+    }, [load, keyword, kind, unreferencedOnly, untrackedOnly, range, page, pageSize]);
 
     // 输入即查询会把每一次按键都变成一次列表请求，这里做 300ms 防抖。
     useEffect(() => {
@@ -166,6 +173,31 @@ export function ResourcesPane() {
                 ),
         },
         {
+            title: "关联任务",
+            key: "task",
+            width: 220,
+            render: (_, resource) => (
+                <div className="flex min-w-0 flex-col gap-1">
+                    <span className="admin-user-sub admin-canvas-id">{resource.taskId || "—（未关联）"}</span>
+                    <span className="admin-user-sub">
+                        {resource.taskType || resource.source || "—"}
+                        {resource.providerRequestId ? ` · ${resource.providerRequestId}` : ""}
+                    </span>
+                </div>
+            ),
+        },
+        {
+            title: "扣费",
+            key: "charge",
+            width: 150,
+            render: (_, resource) => (
+                <span className="flex min-w-0 flex-col gap-1">
+                    <Tag color={chargeStateColor(resource.chargeState)}>{chargeStateLabel(resource.chargeState)}</Tag>
+                    {resource.chargedCredits ? <span className="admin-user-sub">{formatCount(resource.chargedCredits)} 积分</span> : null}
+                </span>
+            ),
+        },
+        {
             title: "状态",
             key: "status",
             width: 130,
@@ -192,9 +224,18 @@ export function ResourcesPane() {
                         读的是产物表全量，不是客户端回写的素材库。凡是「上游已产出、用户端却没拿到」的产物都会在这里亮出来，用来对账；预览地址现场签发，12 小时后失效。
                     </p>
                 </div>
-                <Button icon={<RefreshCw className="size-3.5" />} loading={loading} onClick={() => void load({ keyword, kind, unreferenced: unreferencedOnly, range, page, pageSize })}>
-                    刷新
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button
+                        icon={<AlertTriangle className="size-3.5" />}
+                        danger={(reconciliation?.uncharged ?? 0) > 0 || (reconciliation?.chargedWithoutResource ?? 0) > 0}
+                        onClick={() => setReconciliationOpen(true)}
+                    >
+                        对账异常
+                    </Button>
+                    <Button icon={<RefreshCw className="size-3.5" />} loading={loading} onClick={() => void load({ keyword, kind, unreferenced: unreferencedOnly, untracked: untrackedOnly, range, page, pageSize })}>
+                        刷新
+                    </Button>
+                </div>
             </div>
 
             <div className="admin-metric-grid">
@@ -207,6 +248,21 @@ export function ResourcesPane() {
                     <span className="admin-metric-label">用户没拿到</span>
                     <span className="admin-metric-value">{formatCount(totals.unreferenced)}</span>
                     <span className="admin-metric-note">不在素材库也不在任何画布</span>
+                </div>
+                <div className="admin-metric">
+                    <span className="admin-metric-label">未关联任务</span>
+                    <span className="admin-metric-value">{formatCount(totals.untracked)}</span>
+                    <span className="admin-metric-note">上传素材与回填后仍对不上的历史数据</span>
+                </div>
+                <div className="admin-metric">
+                    <span className="admin-metric-label">漏扣费</span>
+                    <span className="admin-metric-value">{formatCount(reconciliation?.uncharged ?? 0)}</span>
+                    <span className="admin-metric-note">计费上线后产出却没有任何扣费</span>
+                </div>
+                <div className="admin-metric">
+                    <span className="admin-metric-label">扣费无产物</span>
+                    <span className="admin-metric-value">{formatCount(reconciliation?.chargedWithoutResource ?? 0)}</span>
+                    <span className="admin-metric-note">扣了费的媒体任务没有任何产物</span>
                 </div>
                 <div className="admin-metric">
                     <span className="admin-metric-label">占用空间</span>
@@ -258,13 +314,24 @@ export function ResourcesPane() {
                     />
                     <span style={{ fontSize: "var(--fs-label)", color: "var(--admin-ink-faint)" }}>只看用户没拿到的</span>
                 </span>
+                <span className="flex items-center gap-2">
+                    <Switch
+                        size="small"
+                        checked={untrackedOnly}
+                        onChange={(checked) => {
+                            setPage(1);
+                            setUntrackedOnly(checked);
+                        }}
+                    />
+                    <span style={{ fontSize: "var(--fs-label)", color: "var(--admin-ink-faint)" }}>只看未关联任务</span>
+                </span>
                 <span style={{ fontSize: "var(--fs-label)", color: "var(--admin-ink-faint)" }}>共 {formatCount(total)} 条产物</span>
             </div>
 
             {error ? (
                 <div className="admin-notice is-error">
                     <span>{error}</span>
-                    <Button size="small" type="text" onClick={() => void load({ keyword, kind, unreferenced: unreferencedOnly, range, page, pageSize })}>
+                    <Button size="small" type="text" onClick={() => void load({ keyword, kind, unreferenced: unreferencedOnly, untracked: untrackedOnly, range, page, pageSize })}>
                         重试
                     </Button>
                 </div>
@@ -279,7 +346,7 @@ export function ResourcesPane() {
                     loading={loading}
                     dataSource={resources}
                     columns={columns}
-                    scroll={{ x: 1280 }}
+                    scroll={{ x: 1500 }}
                     pagination={{
                         current: page,
                         pageSize,
@@ -294,6 +361,13 @@ export function ResourcesPane() {
                     }}
                 />
             </div>
+
+            <ResourcesReconciliation
+                open={reconciliationOpen}
+                reconciliation={reconciliation}
+                onClose={() => setReconciliationOpen(false)}
+                onBackfilled={() => void load({ keyword, kind, unreferenced: unreferencedOnly, untracked: untrackedOnly, range, page, pageSize })}
+            />
         </div>
     );
 }

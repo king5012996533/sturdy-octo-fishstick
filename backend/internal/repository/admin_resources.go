@@ -19,8 +19,11 @@ type AdminResourceFilter struct {
 	// UnreferencedOnly 只看「用户没拿到」的产物：既没进素材库、也不在任何画布上。
 	// 这正是对账要捞的那批——上游出了结果，客户端却没把它存下来。
 	UnreferencedOnly bool
-	Page             int
-	PageSize         int
+	// UntrackedOnly 只看没有关联任务的产物：用户上传的素材，以及回填后仍然对不上
+	// 任何任务的历史数据。上传本来就没有任务，所以它也是排除上传、聚焦生成产物的开关。
+	UntrackedOnly bool
+	Page          int
+	PageSize      int
 }
 
 // AdminResourceRow 是管理端产物列表的一行。
@@ -38,8 +41,10 @@ type AdminResourceRow struct {
 type AdminResourceTotals struct {
 	Total        int64
 	Unreferenced int64
-	TotalBytes   int64
-	Users        int64
+	// Untracked 是没有 task_id 的产物数，口径同样恒为全量。
+	Untracked  int64
+	TotalBytes int64
+	Users      int64
 }
 
 // adminResourceReferencedExpr 判定一条产物有没有被用户侧引用。
@@ -52,6 +57,12 @@ const adminResourceReferencedExpr = `(EXISTS (SELECT 1 FROM assets WHERE assets.
 	` OR EXISTS (SELECT 1 FROM canvas_projects WHERE canvas_projects.payload_json LIKE '%' || resources.id || '%'))`
 
 func (r *Repository) adminResourceBaseQuery(filter AdminResourceFilter) *gorm.DB {
+	// 时间列由本进程写入，带的是本地时区偏移；SQLite 按字符串比较时间，绑定值必须落在
+	// 同一个偏移里，否则「2026-10-03 17:52:30+08:00」与「2026-10-03T09:52:30Z」会按字符
+	// 逐位比出错误结果。前端传的是 UTC ISO 串，所以在仓储层统一归一，而不是要求每个
+	// 调用方自己记得。
+	filter.Since = filter.Since.In(time.Local)
+	filter.Until = filter.Until.In(time.Local)
 	query := r.db.Model(&model.Resource{}).
 		Joins("LEFT JOIN workspaces ON workspaces.id = resources.user_id")
 	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
@@ -75,6 +86,9 @@ func (r *Repository) adminResourceBaseQuery(filter AdminResourceFilter) *gorm.DB
 	}
 	if filter.UnreferencedOnly {
 		query = query.Where("NOT " + adminResourceReferencedExpr)
+	}
+	if filter.UntrackedOnly {
+		query = query.Where("(resources.task_id IS NULL OR resources.task_id = '')")
 	}
 	return query
 }
@@ -148,6 +162,11 @@ func (r *Repository) AdminResourceTotals() (AdminResourceTotals, error) {
 	if err := r.db.Model(&model.Resource{}).
 		Where("NOT " + adminResourceReferencedExpr).
 		Count(&totals.Unreferenced).Error; err != nil {
+		return totals, err
+	}
+	if err := r.db.Model(&model.Resource{}).
+		Where("task_id IS NULL OR task_id = ''").
+		Count(&totals.Untracked).Error; err != nil {
 		return totals, err
 	}
 	if err := r.db.Model(&model.Resource{}).

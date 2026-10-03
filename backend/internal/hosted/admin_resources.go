@@ -20,6 +20,26 @@ import (
 // registerAdminResourceRoutes 挂载产物对账路由，group 已带管理员守卫。
 func (e *Extension) registerAdminResourceRoutes(group *gin.RouterGroup) {
 	group.GET("/resources", e.handleAdminResourceList)
+	// 历史回填是一次性维护动作，但可以重复执行（只补空的 task_id），因此做成
+	// 幂等接口而不是启动任务：运维要能自己决定什么时候跑、跑完立刻看到结果。
+	group.POST("/resources/backfill", e.handleAdminResourceBackfill)
+}
+
+// handleAdminResourceBackfill 把历史产物关联回生成它们的任务。
+//
+// dryRun=true 先演练：回填会改数据，先看一眼"能对上多少、还剩多少"，比直接写库再
+// 发现口径不对要便宜得多。
+func (e *Extension) handleAdminResourceBackfill(c *gin.Context) {
+	dryRun := adminBoolQuery(c, "dryRun")
+	result, err := e.canvas.BackfillResourceProvenance(dryRun)
+	if err != nil {
+		respondServiceError(c, err)
+		return
+	}
+	e.recordAudit(c, "resource.backfill", "resource", "", "回填产物溯源", gin.H{
+		"dryRun": dryRun, "linked": result.Linked, "unmatched": result.Unmatched,
+	})
+	respondOK(c, gin.H{"result": result})
 }
 
 func (e *Extension) handleAdminResourceList(c *gin.Context) {
@@ -40,7 +60,8 @@ func (e *Extension) handleAdminResourceList(c *gin.Context) {
 		UserID:           c.Query("userId"),
 		Since:            since,
 		Until:            until,
-		UnreferencedOnly: strings.EqualFold(strings.TrimSpace(c.Query("unreferenced")), "true") || c.Query("unreferenced") == "1",
+		UnreferencedOnly: adminBoolQuery(c, "unreferenced"),
+		UntrackedOnly:    adminBoolQuery(c, "untracked"),
 		Page:             page,
 		PageSize:         pageSize,
 	})
@@ -49,7 +70,17 @@ func (e *Extension) handleAdminResourceList(c *gin.Context) {
 		return
 	}
 	e.mergeResourceOwnerNames(view.Resources)
+	e.enrichResourceReconciliation(view)
 	respondOK(c, view)
+}
+
+// adminBoolQuery 解析查询串里的布尔开关。
+//
+// 前端发 true/1 都认，写错成别的值按"没开"处理：筛选开关写错时返回全量数据，
+// 好过直接 400 让管理员连页面都打不开。
+func adminBoolQuery(c *gin.Context, name string) bool {
+	raw := strings.TrimSpace(c.Query(name))
+	return strings.EqualFold(raw, "true") || raw == "1"
 }
 
 // adminTimeQuery 解析筛选时间。

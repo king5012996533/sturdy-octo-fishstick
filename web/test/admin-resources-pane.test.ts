@@ -23,13 +23,44 @@ describe("后台生成产物面板", () => {
         expect(read(apiPath)).toContain("export function listAdminResources(");
     });
 
-    test("接口路径与「未被引用」筛选不能被改掉", () => {
+    test("接口路径与两个筛选口径不能被改掉", () => {
         const api = read(apiPath);
         expect(api).toContain('"/admin/resources"');
         expect(api).toContain("unreferenced");
+        expect(api).toContain("untracked");
         const pane = read(panePath);
         expect(pane).toContain("unreferenced: unreferencedOnly");
+        expect(pane).toContain("untracked: untrackedOnly");
         expect(pane).toContain("只看用户没拿到的");
+        expect(pane).toContain("只看未关联任务");
+    });
+
+    test("对账异常与历史回填是独立面板，回填先演练再写库", () => {
+        const api = read(apiPath);
+        expect(api).toContain("/admin/resources/backfill");
+        expect(api).toContain("dryRun");
+        const panelPath = "src/features/admin-console/resources-reconciliation.tsx";
+        expect(existsSync(resolve(root, panelPath))).toBe(true);
+        const panel = read(panelPath);
+        expect(panel).toContain("export function ResourcesReconciliation(");
+        expect(panel).toContain("产物无扣费");
+        expect(panel).toContain("扣费无产物");
+        expect(panel).toContain("确认写入");
+        // 两个方向的异常读数都要在面板里给出来，缺一个就成了半张账。
+        expect(panel).toContain("unchargedResources");
+        expect(panel).toContain("chargedTasks");
+    });
+
+    test("产物行带扣费状态：未关联 / 计费前 / 已扣费 / 未扣费", () => {
+        const pane = read(panePath);
+        expect(pane).toContain("chargeStateLabel(resource.chargeState)");
+        expect(pane).toContain("resource.taskId");
+        expect(pane).toContain("漏扣费");
+        expect(pane).toContain("扣费无产物");
+        const panel = read("src/features/admin-console/resources-reconciliation.tsx");
+        for (const state of ["untracked", "prebilling", "charged", "uncharged"]) {
+            expect(panel).toContain(`${state}:`);
+        }
     });
 
     test("全局 antd message 在项目里是关闭的，反馈必须落在页面上", () => {
