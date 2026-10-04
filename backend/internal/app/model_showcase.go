@@ -18,6 +18,11 @@ func (s *Service) ModelShowcaseEntries() ([]model.ModelShowcaseEntry, error) {
 	return s.repo.ModelShowcaseEntries()
 }
 
+// ModelShowcaseEntryByModelKey 取单个模型的文案，供详情页读取自述文件正文。
+func (s *Service) ModelShowcaseEntryByModelKey(modelKey string) (*model.ModelShowcaseEntry, error) {
+	return s.repo.ModelShowcaseEntryByModelKey(modelKey)
+}
+
 // SaveModelShowcaseEntry 按模型标识幂等写入一条广场文案。
 func (s *Service) SaveModelShowcaseEntry(entry *model.ModelShowcaseEntry) error {
 	return s.repo.SaveModelShowcaseEntry(entry)

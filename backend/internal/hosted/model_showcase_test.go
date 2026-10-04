@@ -3,6 +3,7 @@ package hosted
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -96,18 +97,19 @@ func seedShowcasePrices(t *testing.T, router *gin.Engine, adminCookie *http.Cook
 	}
 }
 
-// TestPublicModelShowcase 覆盖未登录可读、按价目收敛、价格不带上游成本。
+// TestPublicModelShowcase 覆盖模型介绍页的公开读取：未登录可读、按价目收敛、
+// 价格不带上游成本、列表不携带自述文件正文而详情携带。
 func TestPublicModelShowcase(t *testing.T) {
 	extension, router, authDB, _ := newShowcaseRouter(t)
 	defer extension.Close()
 
-	// 未登录也应该拿到 200：这条路径就是给访客看的，401 会让广场变成登录墙。
+	// 未登录也应该拿到 200：模型介绍页就是给访客看的，401 会让它变成登录墙。
 	recorder := perform(router, http.MethodGet, "/api/public/models", "", nil)
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("未登录读取广场应返回 200，实际 %d：%s", recorder.Code, recorder.Body.String())
+		t.Fatalf("未登录读取模型目录应返回 200，实际 %d：%s", recorder.Code, recorder.Body.String())
 	}
 	if cache := recorder.Header().Get("Cache-Control"); !strings.Contains(cache, "public") {
-		t.Fatalf("广场响应应可被公共缓存：%q", cache)
+		t.Fatalf("公开页响应应可被公共缓存：%q", cache)
 	}
 	var empty struct {
 		Data struct {
@@ -115,10 +117,10 @@ func TestPublicModelShowcase(t *testing.T) {
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &empty); err != nil {
-		t.Fatalf("解析广场响应失败: %v %s", err, recorder.Body.String())
+		t.Fatalf("解析目录响应失败: %v %s", err, recorder.Body.String())
 	}
 	if len(empty.Data.Models) != 0 {
-		t.Fatalf("还没有价目时广场应为空，实际 %s", recorder.Body.String())
+		t.Fatalf("还没有价目时目录应为空，实际 %s", recorder.Body.String())
 	}
 
 	adminCookie, adminID := registerAccount(t, router, authDB, "showcase-admin@example.com")
@@ -132,14 +134,14 @@ func TestPublicModelShowcase(t *testing.T) {
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &listed); err != nil {
-		t.Fatalf("解析广场响应失败: %v %s", err, recorder.Body.String())
+		t.Fatalf("解析目录响应失败: %v %s", err, recorder.Body.String())
 	}
 	if len(listed.Data.Models) != 1 {
-		t.Fatalf("没有价目的模型不该出现在广场，实际 %d 条：%s", len(listed.Data.Models), recorder.Body.String())
+		t.Fatalf("没有价目的模型不该出现在目录，实际 %d 条：%s", len(listed.Data.Models), recorder.Body.String())
 	}
 	item := listed.Data.Models[0]
 	if item.Slug != showcaseModelKey || item.DisplayName != "GPT Image 2.5 Sunburst" || item.Capability != "image" {
-		t.Fatalf("广场条目缺少模型标识或展示名：%+v", item)
+		t.Fatalf("条目缺少模型标识或展示名：%+v", item)
 	}
 	// 参数表只翻译能力合同：五档质量与比例必须出现，否则用户看不到自己买到了什么。
 	if len(item.Spec.QualityTiers) != 5 || item.Spec.MaxOutputs != 10 || len(item.Spec.Ratios) != 2 {
@@ -148,9 +150,9 @@ func TestPublicModelShowcase(t *testing.T) {
 	if len(item.Prices) != 1 || item.Prices[0].PriceTier != "XHIGH" || item.Prices[0].SellUnitPrice == nil || *item.Prices[0].SellUnitPrice != 900 {
 		t.Fatalf("售价应为 180 × 5 = 900：%+v", item.Prices)
 	}
-	// 上游进价属于经营信息，一个字段都不能漏到公开响应里。
+	// 上游进价属于经营信息，一个字段都不能漏到响应里。
 	if strings.Contains(recorder.Body.String(), "upstreamUnitPrice") || strings.Contains(recorder.Body.String(), "multiplierBp") {
-		t.Fatalf("公开响应里出现了上游成本或倍率：%s", recorder.Body.String())
+		t.Fatalf("响应里出现了上游成本或倍率：%s", recorder.Body.String())
 	}
 
 	// 详情：模型标识自带斜杠，路径必须原样保留。
@@ -160,6 +162,34 @@ func TestPublicModelShowcase(t *testing.T) {
 	}
 	if missing := perform(router, http.MethodGet, "/api/public/models/someone/unknown", "", nil); missing.Code != http.StatusNotFound {
 		t.Fatalf("未知模型应返回 404，实际 %d：%s", missing.Code, missing.Body.String())
+	}
+}
+
+// TestShowcaseReadmeOnlyInDetail 锁定自述文件的传输口径：列表不带正文、详情带正文。
+//
+// 列表页一次要给十几个模型，正文是长文；带上它会让首屏多传几十 KB 而一个字都不显示。
+func TestShowcaseReadmeOnlyInDetail(t *testing.T) {
+	extension, router, authDB, _ := newShowcaseRouter(t)
+	defer extension.Close()
+
+	adminCookie, adminID := registerAccount(t, router, authDB, "showcase-readme-admin@example.com")
+	promoteToAdmin(t, authDB, adminID)
+	seedShowcasePrices(t, router, adminCookie)
+
+	readme := "## 它的作用\n\n它会跟随指令，同时保留你不想改的部分。"
+	body := `{"modelKey":"` + showcaseModelKey + `","tagline":"定位","readme":` + strconv.Quote(readme) + `}`
+	if recorder := perform(router, http.MethodPut, "/api/admin/model-showcase", body, adminCookie); recorder.Code != http.StatusOK {
+		t.Fatalf("写入自述文件失败：%d %s", recorder.Code, recorder.Body.String())
+	}
+
+	list := perform(router, http.MethodGet, "/api/public/models", "", nil)
+	if strings.Contains(list.Body.String(), "保留你不想改的部分") {
+		t.Fatalf("列表响应不该携带自述文件正文：%s", list.Body.String())
+	}
+
+	detail := perform(router, http.MethodGet, "/api/public/models/"+showcaseModelKey, "", nil)
+	if detail.Code != http.StatusOK || !strings.Contains(detail.Body.String(), "保留你不想改的部分") {
+		t.Fatalf("详情响应应携带自述文件正文：%d %s", detail.Code, detail.Body.String())
 	}
 }
 

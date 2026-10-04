@@ -18,6 +18,23 @@ func (r *Repository) ModelShowcaseEntries() ([]model.ModelShowcaseEntry, error) 
 	return records, nil
 }
 
+// ModelShowcaseEntryByModelKey 取单个模型的文案。
+//
+// 详情页要正文长文，而列表页面刻意不携带它；为此让详情页把整表拉回来再过滤，
+// 等于每打开一个模型就多读一次全表。
+func (r *Repository) ModelShowcaseEntryByModelKey(modelKey string) (*model.ModelShowcaseEntry, error) {
+	trimmed := strings.TrimSpace(modelKey)
+	if trimmed == "" {
+		return nil, nil
+	}
+	var record model.ModelShowcaseEntry
+	err := r.db.First(&record, "model_key = ?", trimmed).Error
+	if err != nil {
+		return nil, err
+	}
+	return &record, nil
+}
+
 // SaveModelShowcaseEntry 按模型标识写入一条广场文案，存在即覆盖。
 //
 // 用模型标识做幂等键而不是主键：发布脚本每次都是"按上游现状重放"，它手里只有模型标识，

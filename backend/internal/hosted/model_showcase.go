@@ -77,6 +77,9 @@ type showcaseModel struct {
 	SourceURL   string          `json:"sourceUrl"`
 	Spec        showcaseSpec    `json:"spec"`
 	Prices      []showcasePrice `json:"prices"`
+	// Readme 只在详情响应里出现：列表页一次要给十几个模型，带上正文会让首屏
+	// 多传几十 KB 而一个字都不显示。
+	Readme string `json:"readme,omitempty"`
 }
 
 func (e *Extension) registerModelShowcaseRoutes(api *gin.RouterGroup) {
@@ -240,7 +243,7 @@ func (e *Extension) handlePublicModelShowcase(c *gin.Context) {
 		respondServiceError(c, err)
 		return
 	}
-	// 广场是纯公共只读页，缓存 60 秒省掉每个访客一次全表读；价格与货架的变更
+	// 模型介绍页是纯公共只读页，缓存 60 秒省掉每个访客一次全表读；价格与货架的变更
 	// 在一分钟内传播到访客，不需要为"秒级一致"牺牲可用性。
 	c.Header("Cache-Control", "public, max-age=60")
 	respondOK(c, gin.H{"models": models})
@@ -259,12 +262,27 @@ func (e *Extension) handlePublicModelShowcaseDetail(c *gin.Context) {
 	}
 	for _, item := range models {
 		if item.Slug == slug {
+			item.Readme = e.showcaseReadme(slug)
 			c.Header("Cache-Control", "public, max-age=60")
 			respondOK(c, gin.H{"model": item})
 			return
 		}
 	}
 	respondFailure(c, http.StatusNotFound, "模型不存在")
+}
+
+// showcaseReadme 取单个模型的自述文件正文。
+//
+// 读不到就回空串：正文缺失只该让详情页少一段展开内容，不该让整个模型页打不开。
+func (e *Extension) showcaseReadme(modelKey string) string {
+	if e.canvas == nil {
+		return ""
+	}
+	entry, err := e.canvas.ModelShowcaseEntryByModelKey(modelKey)
+	if err != nil || entry == nil {
+		return ""
+	}
+	return entry.Readme
 }
 
 // showcaseEntryInput 是后台写入一条广场文案的请求体。
@@ -276,6 +294,7 @@ type showcaseEntryInput struct {
 	SourceURL  string   `json:"sourceUrl"`
 	SourceNote string   `json:"sourceNote"`
 	Examples   []string `json:"examples"`
+	Readme     string   `json:"readme"`
 }
 
 func (e *Extension) handleAdminModelShowcase(c *gin.Context) {
@@ -310,6 +329,7 @@ func (e *Extension) handleAdminModelShowcaseSave(c *gin.Context) {
 		SourceURL:  strings.TrimSpace(input.SourceURL),
 		SourceNote: strings.TrimSpace(input.SourceNote),
 		Examples:   encodeShowcaseList(input.Examples),
+		Readme:     strings.TrimSpace(input.Readme),
 	}
 	if err := e.canvas.SaveModelShowcaseEntry(&entry); err != nil {
 		respondServiceError(c, err)
@@ -327,6 +347,7 @@ func showcaseEntryPayload(entry model.ModelShowcaseEntry) gin.H {
 		"sourceUrl":  entry.SourceURL,
 		"sourceNote": entry.SourceNote,
 		"examples":   decodeShowcaseList(entry.Examples),
+		"readme":     entry.Readme,
 	}
 }
 

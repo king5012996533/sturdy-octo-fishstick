@@ -24,6 +24,11 @@ type ModelShowcaseEntry struct {
 	// SourceURL / SourceNote 保留上游页面与原文描述，用于溯源，也避免改文案时找不到出处。
 	SourceURL  string `gorm:"size:512"`
 	SourceNote string `gorm:"type:text"`
+	// Readme 是"自述文件"正文（Markdown 文本），详情页的主要篇幅。
+	//
+	// 与 Summary 分开：Summary 是列表与首屏用的一句话，Readme 是展开后的长文，两者
+	// 长度差一个数量级，塞进同一个字段会让列表页被迫加载几十 KB 的正文。
+	Readme string `gorm:"type:text"`
 	// Examples 存平台自己的示例资源地址（JSON 数组），刻意不接受上游外链：
 	// 外链会在对方改路径或限流那天变成一片破图，而广场是给人看门面的地方。
 	Examples  string `gorm:"type:text"`
