@@ -56,7 +56,14 @@ CATALOG: dict[str, set[str]] = {
         # 腾讯 TokenHub 混元生图 3.5：中文人物质感到位，补齐国内直连的一条生图线路。
         "hy-image-v3.5-preview",
     },
-    "video": {"seedance-2.0", "seedance-2.5"},
+    "video": {
+        "seedance-2.0",
+        "seedance-2.5",
+        # 秘塔 MiniMax-H3：同一模型的两个分辨率档各占一条货架记录，
+        # 漏一个就会被这个脚本当成"超纲"下架，前台少一档。
+        "MiniMax-H3",
+        "MiniMax-H3-2K",
+    },
 }
 MANAGED_CAPABILITIES = tuple(CATALOG)
 
