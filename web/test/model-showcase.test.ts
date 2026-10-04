@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { ShowcaseModel } from "@/features/model-showcase/api";
-import { capabilityKey, capabilityLabel, cardSubtitle, detailLead, filterShowcaseModels, priceLabel, specRows, tierLabel, unitLabel } from "@/features/model-showcase/presentation";
+import { capabilityKey, capabilityLabel, priceLabel, specRows, tierLabel, unitLabel } from "@/features/model-showcase/presentation";
 import { creditUnitRateLabel } from "@/lib/credit-price-label";
 import { isPublicRoutePath } from "@/lib/public-routes";
 
@@ -28,16 +28,15 @@ function buildModel(overrides: Partial<ShowcaseModel> = {}): ShowcaseModel {
 }
 
 describe("公开路径白名单", () => {
-    test("只放行模型广场，其余路径一律不放行", () => {
+    test("只放行模型介绍页，其余路径一律不放行", () => {
         expect(isPublicRoutePath("/models")).toBe(true);
         expect(isPublicRoutePath("/models/")).toBe(true);
-        expect(isPublicRoutePath("/models/openai/gpt-image-2.5-sunburst")).toBe(true);
+        expect(isPublicRoutePath("/models/openai/gpt-image-2")).toBe(true);
         expect(isPublicRoutePath("/models?capability=image")).toBe(true);
     });
 
     test("同前缀路径与目录穿越都不会被误判成公开页", () => {
         expect(isPublicRoutePath("/models-archive")).toBe(false);
-        expect(isPublicRoutePath("/models/settings")).toBe(true);
         expect(isPublicRoutePath("/models/../admin")).toBe(false);
         expect(isPublicRoutePath("/settings")).toBe(false);
         expect(isPublicRoutePath("/")).toBe(false);
@@ -53,14 +52,21 @@ describe("公开路径白名单", () => {
         expect(providers).toContain("__BEEFTV_HOSTED_AUTH__ && isPublicRoutePath(pathname)");
     });
 
-    test("广场路由挂在登录门之外，且只在托管构建里注册", () => {
+    test("模型介绍页挂在登录门之外，且只在托管构建里注册", () => {
         const router = read("src/router.tsx");
-        expect(router).toContain("function modelShowcaseRoutes()");
-        expect(router).toContain('if (!__BEEFTV_HOSTED_AUTH__) return [];');
+        expect(router).toContain("function modelDocRoutes()");
+        expect(router).toContain("if (!__BEEFTV_HOSTED_AUTH__) return [];");
         // 详情必须是通配：模型标识自带斜杠，路径参数在不同代理上解不出同一个值。
         expect(router).toContain('path: "/models/*"');
-        // 必须挂在工作区路由组之前，不能继承需要账号的外壳。
-        expect(router.indexOf("...modelShowcaseRoutes(),")).toBeLessThan(router.indexOf("<WorkspaceLayout />"));
+        expect(router.indexOf("...modelDocRoutes(),")).toBeLessThan(router.indexOf("<WorkspaceLayout />"));
+    });
+
+    test("侧栏入口只在托管构建出现，并且新开标签进公开页", () => {
+        const sidebar = read("src/components/layout/workspace-sidebar-nav.tsx");
+        // 公开页在工作区之外渲染：同标签跳过去，用户手里的画布与未保存状态会被顶掉。
+        expect(sidebar).toContain('__BEEFTV_HOSTED_AUTH__ ? [{ id: "models", title: "模型", icon: Boxes, to: "/models", newTab: true }] : []');
+        // newTab 必须在渲染处生效，否则只是写了一个没人读的字段。
+        expect(sidebar).toContain('target={item.newTab ? "_blank" : undefined}');
     });
 });
 
@@ -88,14 +94,6 @@ describe("模型广场读模型", () => {
         expect(capabilityKey("")).toBe("other");
         expect(capabilityLabel("audio")).toBe("音频");
         expect(capabilityLabel("embedding")).toBe("其他");
-    });
-
-    test("筛选：能力分组与关键词同时生效，关键词也搜摘要与亮点", () => {
-        const models = [buildModel(), buildModel({ slug: "minimax/music-2.5", displayName: "Music 2.5", capability: "audio", tagline: "配乐生成", highlights: ["最长三分钟"] })];
-        expect(filterShowcaseModels(models, { capability: "all", keyword: "" })).toHaveLength(2);
-        expect(filterShowcaseModels(models, { capability: "audio", keyword: "" }).map((item) => item.slug)).toEqual(["minimax/music-2.5"]);
-        expect(filterShowcaseModels(models, { capability: "all", keyword: "三分钟" }).map((item) => item.slug)).toEqual(["minimax/music-2.5"]);
-        expect(filterShowcaseModels(models, { capability: "image", keyword: "music" })).toHaveLength(0);
     });
 
     test("未定价显示成暂不可用，绝不显示成 0", () => {
@@ -128,13 +126,5 @@ describe("模型广场读模型", () => {
         ]);
         const ranged = buildModel({ capability: "video", spec: { ...buildModel().spec, range: { min: 1, max: 15, step: 1, value: 5 } } });
         expect(specRows(ranged.spec, ranged.capability)).toEqual([{ label: "时长范围", value: "1–15 秒，1 秒步进" }]);
-    });
-
-    test("文案缺失时卡片不占那一行，详情页给一句诚实说明", () => {
-        // 卡片不用统一兜底句：几十张卡写着同一句话，页面立刻显出模板味。
-        expect(cardSubtitle(buildModel())).toBe("");
-        expect(cardSubtitle(buildModel({ summary: "摘要" }))).toBe("摘要");
-        expect(cardSubtitle(buildModel({ tagline: "定位语", summary: "摘要" }))).toBe("定位语");
-        expect(detailLead(buildModel())).toBe("该模型已在平台开放使用，价格与创作台一致。");
     });
 });

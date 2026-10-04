@@ -46,6 +46,13 @@ export type ShowcaseModel = {
     sourceUrl: string;
     spec: ShowcaseSpec;
     prices: ShowcasePrice[];
+    /**
+     * 自述文件正文（Markdown），只有详情响应带它。
+     *
+     * 列表页一次要给十几个模型，正文是长文，带上会让首屏多传几十 KB 而一个字都不显示，
+     * 所以后端在列表里省略，这里跟着可选。
+     */
+    readme?: string;
 };
 
 /** 列表页：一次取回全部在售模型，筛选与搜索在本地完成。 */

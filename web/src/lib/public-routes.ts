@@ -5,13 +5,14 @@
  * 都必须在这里显式登记。判定按完整路径段比对，不做包含匹配——否则以后出现
  * `/models-archive` 这类同前缀路径，会被静默判成公开页。
  *
- * 当前只有模型广场：它是获客页，要把未登录访客和搜索引擎放进来。其余路径的鉴权行为不变。
+ * 当前是模型介绍页：它是获客页，要把未登录访客和搜索引擎放进来——模型介绍正是搜索
+ * 流量会落在的地方，锁在登录门后面等于白写。
  */
-export const MODEL_SHOWCASE_PATH = "/models";
+const PUBLIC_ROUTE_PATHS: string[] = ["/models"];
 
 export function isPublicRoutePath(pathname: string): boolean {
     const normalized = normalizePathname(pathname);
-    return normalized === MODEL_SHOWCASE_PATH || normalized.startsWith(`${MODEL_SHOWCASE_PATH}/`);
+    return PUBLIC_ROUTE_PATHS.some((path) => normalized === path || normalized.startsWith(`${path}/`));
 }
 
 /**

@@ -1,123 +1,89 @@
 import { Link, useParams } from "react-router";
-import { ArrowLeft, Check } from "lucide-react";
 
-import { capabilityLabel, detailLead } from "./presentation";
-import { ShowcaseModelLogo } from "./showcase-model-logo";
+import { capabilityLabel } from "./presentation";
+import { ModelReadme } from "./model-readme";
 import { ShowcasePriceTable } from "./price-table";
 import { ShowcaseSpecTable } from "./spec-table";
-import { ShowcaseEmptyState, ShowcaseErrorState, ShowcaseSkeletonGrid } from "./showcase-states";
 import { ShowcaseShell } from "./showcase-shell";
 import { useShowcaseModel } from "./use-showcase-models";
 import { useShowcaseTitle } from "./use-showcase-title";
 
 /**
- * 模型广场详情页（公开）。
+ * 模型介绍页（公开，单个模型）。
  *
- * 顺序按用户的心智排：这是什么（名称 / 定位 / 摘要）→ 我能用它做什么（参数）→ 多少钱（价格）
- * → 去用（唯一主按钮）。模型不存在与加载失败分开呈现：前者要引导回列表，后者要能重试。
+ * 这一页回答的是"这个模型是干什么的"，所以自述文件是主体、占最大篇幅，定价与参数
+ * 是它下面的补充。刻意不做卡片墙、不做筛选、不做能力分组：模型页要给的是能读完的
+ * 一段介绍，不是一堆需要点进去才知道内容的缩略卡。
+ *
+ * 也不用标签页切换内容：标签页会把"自述文件"藏在一个默认不选中的页签后面，而访客
+ * 从搜索引擎进来时，命中的正是自述文件里的文字。
  */
 export function ModelShowcaseDetailPage() {
     const slug = normalizeSlug(useParams()["*"]);
     const { model, loading, error, reload } = useShowcaseModel(slug);
 
-    useShowcaseTitle(model ? `${model.displayName} · 模型广场` : "模型广场");
+    useShowcaseTitle(model ? `${model.displayName} · 模型介绍` : "模型介绍");
 
     return (
         <ShowcaseShell>
-            <Link to="/models" className="showcase-back">
-                <ArrowLeft className="size-4" aria-hidden />
-                返回模型广场
-            </Link>
+            {loading && !model ? <p className="doc-status">正在加载模型介绍…</p> : null}
 
-            {loading && !model ? <ShowcaseSkeletonGrid count={3} /> : null}
-
-            {!loading && error ? <ShowcaseErrorState message={error} onRetry={reload} /> : null}
+            {!loading && error ? (
+                <div className="doc-status" role="alert">
+                    <strong>没能加载出来</strong>
+                    <p>{error}</p>
+                    <button type="button" className="doc-button" onClick={reload}>
+                        重试
+                    </button>
+                </div>
+            ) : null}
 
             {!loading && !error && !model ? (
-                <ShowcaseEmptyState
-                    title="模型不存在"
-                    description="这个模型可能已经下架，或者链接里的标识不完整。回列表看看当前在售的全部模型。"
-                    action={
-                        <Link to="/models" className="showcase-retry">
-                            回到模型广场
-                        </Link>
-                    }
-                />
+                <div className="doc-status">
+                    <strong>模型不存在</strong>
+                    <p>这个模型可能已经下架，或者链接里的标识不完整。</p>
+                    <Link to="/models" className="doc-button">
+                        看看全部模型
+                    </Link>
+                </div>
             ) : null}
 
             {model ? (
-                <>
-                    <section className="showcase-detail-head">
-                        <div className="showcase-detail-title">
-                            <span className="showcase-detail-mark">
-                                <ShowcaseModelLogo icon={model.icon} name={model.displayName} slug={model.slug} size={30} />
-                            </span>
-                            <div>
-                                <h1>{model.displayName}</h1>
-                                <p>{model.slug}</p>
-                            </div>
+                <article className="doc">
+                    <header className="doc-head">
+                        <p className="doc-breadcrumb">
+                            <Link to="/models">模型</Link>
+                            <span aria-hidden> / </span>
+                            <span className="doc-breadcrumb-slug">{model.slug}</span>
+                        </p>
+                        <h1 className="doc-title">{model.displayName}</h1>
+                        <p className="doc-lead">{model.summary || model.tagline}</p>
+                        <div className="doc-head-meta">
+                            <span className="doc-chip">{capabilityLabel(model.capability)}</span>
                         </div>
-                        <p className="showcase-lead">{detailLead(model)}</p>
-                        <div className="showcase-actions">
-                            <Link to="/" className="showcase-primary">
-                                去创作台使用
-                            </Link>
-                            <span className="showcase-tag">{capabilityLabel(model.capability)}</span>
-                            {/* 刻意不放"查看上游"外链：广场是站内的获客页，把用户送去 Replicate
-                                等于替上游做导流。上游地址仍旧存在 sourceUrl 里，那是后台的溯源字段，
-                                不进前台。 */}
-                        </div>
+                    </header>
+
+                    <section className="doc-section">
+                        <h2 className="doc-section-title">自述文件</h2>
+                        {model.readme ? <ModelReadme markdown={model.readme} /> : <p className="doc-muted">这个模型的介绍正在整理，暂时只有上面的简介。</p>}
                     </section>
 
-                    <div className="showcase-detail-body">
-                        <div>
-                            {model.summary && model.summary !== model.tagline ? (
-                                <section className="showcase-panel">
-                                    <h2 className="showcase-panel-title">模型简介</h2>
-                                    <p className="showcase-lead">{model.summary}</p>
-                                </section>
-                            ) : null}
+                    <section className="doc-section">
+                        <h2 className="doc-section-title">定价</h2>
+                        <ShowcasePriceTable prices={model.prices} />
+                    </section>
 
-                            {model.highlights.length ? (
-                                <section className="showcase-panel">
-                                    <h2 className="showcase-panel-title">能力亮点</h2>
-                                    <ul className="showcase-highlights">
-                                        {model.highlights.map((item) => (
-                                            <li key={item}>
-                                                <Check className="size-4" aria-hidden />
-                                                <span>{item}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </section>
-                            ) : null}
-
-                            <section className="showcase-panel">
-                                <h2 className="showcase-panel-title">可选参数</h2>
-                                <ShowcaseSpecTable model={model} />
-                            </section>
-                        </div>
-
-                        <div className="showcase-side">
-                            <section className="showcase-panel">
-                                <h2 className="showcase-panel-title">价格</h2>
-                                <ShowcasePriceTable prices={model.prices} />
-                            </section>
-                        </div>
-                    </div>
-                </>
+                    <section className="doc-section">
+                        <h2 className="doc-section-title">参数</h2>
+                        <ShowcaseSpecTable model={model} />
+                    </section>
+                </article>
             ) : null}
         </ShowcaseShell>
     );
 }
 
-/** 通配参数可能带着百分号编码而来（不同代理的透传习惯不一致），解不开就按原样查。 */
+/** 详情路由用通配匹配，拿到的是一段可能带前导斜杠的剩余路径。 */
 function normalizeSlug(raw: string | undefined): string {
-    const value = (raw || "").replace(/^\/+/, "").trim();
-    if (!value) return "";
-    try {
-        return decodeURIComponent(value);
-    } catch {
-        return value;
-    }
+    return (raw || "").replace(/^\/+/, "").trim();
 }

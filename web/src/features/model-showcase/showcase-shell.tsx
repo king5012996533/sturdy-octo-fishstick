@@ -22,12 +22,12 @@ export function ShowcaseShell({ children }: { children: ReactNode }) {
         <div className="showcase-scene">
             <header className="showcase-topbar">
                 <div className="showcase-topbar-inner">
-                    <Link to="/models" className="showcase-brand" aria-label={`${brandName} 模型广场`}>
+                    <Link to="/models" className="showcase-brand" aria-label={`${brandName} 模型介绍`}>
                         <BrandLogoFrame className="grid size-8 place-items-center" logoClassName="size-5 object-contain" alt="" fallback={<span aria-hidden>K</span>} />
                         <span className="showcase-brand-wordmark">{brandName}</span>
                     </Link>
                     <span className="showcase-topbar-divider" aria-hidden />
-                    <span className="showcase-topbar-section">模型广场</span>
+                    <span className="showcase-topbar-section">模型介绍</span>
                     <Link to="/" className="showcase-enter">
                         进入创作台
                         <ArrowRight className="size-3.5" aria-hidden />

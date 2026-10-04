@@ -2,7 +2,7 @@ import { creditUnitRateLabel } from "@/lib/credit-price-label";
 
 import type { ShowcaseModel, ShowcasePrice, ShowcaseSpec } from "./api";
 
-/** 广场上的能力分组：未知能力归到"其他"，不会从列表里消失。 */
+/** 能力分组：未知能力归到"其他"，不会从列表里消失。 */
 export type ShowcaseCapability = "all" | "image" | "video" | "audio" | "text" | "other";
 
 const CAPABILITY_LABELS: Record<Exclude<ShowcaseCapability, "all">, string> = {
@@ -13,16 +13,6 @@ const CAPABILITY_LABELS: Record<Exclude<ShowcaseCapability, "all">, string> = {
     other: "其他",
 };
 
-/** 列表筛选栏的顺序：图片是当前主力，放最前。 */
-export const SHOWCASE_CAPABILITY_FILTERS: Array<{ key: ShowcaseCapability; label: string }> = [
-    { key: "all", label: "全部" },
-    { key: "image", label: "图片" },
-    { key: "video", label: "视频" },
-    { key: "audio", label: "音频" },
-    { key: "text", label: "文本" },
-    { key: "other", label: "其他" },
-];
-
 export function capabilityKey(capability: string): Exclude<ShowcaseCapability, "all"> {
     const value = (capability || "").trim().toLowerCase();
     return value === "image" || value === "video" || value === "audio" || value === "text" ? value : "other";
@@ -30,21 +20,6 @@ export function capabilityKey(capability: string): Exclude<ShowcaseCapability, "
 
 export function capabilityLabel(capability: string): string {
     return CAPABILITY_LABELS[capabilityKey(capability)];
-}
-
-export type ShowcaseFilter = {
-    capability: ShowcaseCapability;
-    keyword: string;
-};
-
-/** 搜索覆盖展示名、模型标识与文案：用户记得住名字，记不住 slug。 */
-export function filterShowcaseModels(models: ShowcaseModel[], filter: ShowcaseFilter): ShowcaseModel[] {
-    const keyword = filter.keyword.trim().toLowerCase();
-    return models.filter((model) => {
-        if (filter.capability !== "all" && capabilityKey(model.capability) !== filter.capability) return false;
-        if (!keyword) return true;
-        return [model.displayName, model.slug, model.tagline, model.summary, ...model.highlights].join(" ").toLowerCase().includes(keyword);
-    });
 }
 
 export function priceLabel(price: ShowcasePrice): string {
@@ -106,11 +81,3 @@ export function specRows(spec: ShowcaseSpec, capability: string): SpecRow[] {
  * 不用统一兜底句：几十张卡都写着同一句话，页面立刻显出模板味，而且那句话没告诉用户
  * 任何事。宁可让卡片短一行，也不批量生产废话。
  */
-export function cardSubtitle(model: ShowcaseModel): string {
-    return model.tagline.trim() || model.summary.trim();
-}
-
-/** 详情页的导语：与卡片同源，兜底句说明"点得进去、用得上"，不提任何未发布的能力。 */
-export function detailLead(model: ShowcaseModel): string {
-    return model.tagline.trim() || model.summary.trim() || "该模型已在平台开放使用，价格与创作台一致。";
-}
