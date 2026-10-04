@@ -114,13 +114,15 @@ type creditLedgerAdapter struct {
 // 是这类系统里最难追溯的一种损失。想让某个模型免费，就把它的售价显式配成 0。
 func (a creditLedgerAdapter) ChargeTask(request app.TaskChargeRequest) (app.TaskChargeOutcome, error) {
 	quote, _, _, err := a.service.ChargeTask(auth.TaskChargeInput{
-		UserID:     request.UserID,
-		TaskID:     request.TaskID,
-		ModelKey:   request.ModelKey,
-		Capability: request.Capability,
-		Tier:       request.Tier,
-		Quantity:   request.Quantity,
-		Note:       request.Note,
+		UserID:           request.UserID,
+		TaskID:           request.TaskID,
+		ModelKey:         request.ModelKey,
+		Capability:       request.Capability,
+		Tier:             request.Tier,
+		Quantity:         request.Quantity,
+		SurchargeCredits: request.SurchargeCredits,
+		SurchargeNote:    request.SurchargeNote,
+		Note:             request.Note,
 	})
 	if err != nil {
 		return app.TaskChargeOutcome{}, creditLedgerError(err)
@@ -133,13 +135,15 @@ func (a creditLedgerAdapter) ChargeTask(request app.TaskChargeRequest) (app.Task
 // 与 ChargeTask 共用账号域的取价函数：两个方法唯一的差别是"要不要真的动余额"。
 func (a creditLedgerAdapter) QuoteTask(request app.TaskChargeRequest) (app.TaskChargeOutcome, error) {
 	quote, err := a.service.QuoteTask(auth.TaskChargeInput{
-		UserID:     request.UserID,
-		TaskID:     request.TaskID,
-		ModelKey:   request.ModelKey,
-		Capability: request.Capability,
-		Tier:       request.Tier,
-		Quantity:   request.Quantity,
-		Note:       request.Note,
+		UserID:           request.UserID,
+		TaskID:           request.TaskID,
+		ModelKey:         request.ModelKey,
+		Capability:       request.Capability,
+		Tier:             request.Tier,
+		Quantity:         request.Quantity,
+		SurchargeCredits: request.SurchargeCredits,
+		SurchargeNote:    request.SurchargeNote,
+		Note:             request.Note,
 	})
 	if err != nil {
 		return app.TaskChargeOutcome{}, creditLedgerError(err)
@@ -156,6 +160,7 @@ func taskChargeOutcome(quote *auth.TaskChargeQuote) app.TaskChargeOutcome {
 		Credits:          quote.Credits,
 		Unit:             quote.Unit,
 		Quantity:         quote.Quantity,
+		SurchargeCredits: quote.SurchargeCredits,
 		SellUnitPrice:    quote.SellUnitPrice,
 		MultiplierBp:     quote.MultiplierBp,
 		MultiplierSource: quote.MultiplierSource,

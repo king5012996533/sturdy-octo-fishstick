@@ -118,6 +118,9 @@ func validateVideoReferenceMedia(profile *VideoCapabilityConfig, input canvasGen
 	if len(input.ReferenceVideos) > refs.MaxVideos {
 		return BadAuthRequest(fmt.Sprintf("当前视频模型最多支持 %d 个参考视频", refs.MaxVideos))
 	}
+	if err := requirePlatformReferenceVideos(input.Config, input.ReferenceVideos); err != nil {
+		return err
+	}
 	if len(input.ReferenceAudios) > refs.MaxAudios {
 		return BadAuthRequest(fmt.Sprintf("当前视频模型最多支持 %d 段参考音频", refs.MaxAudios))
 	}

@@ -30,7 +30,13 @@ type TaskChargeInput struct {
 	Capability string
 	Tier       string
 	Quantity   int64
-	Note       string
+	// SurchargeCredits 是与用量无关的附加费（积分），加在"单价 × 用量"之外结算。
+	// 目前唯一的来源是参考图超出免费额度后的按张加收：模型按秒计价，张数没法表达成秒，
+	// 硬折算会让同一件事在不同档位上算出不同的价。
+	SurchargeCredits int64
+	// SurchargeNote 说明这笔附加费是什么，会拼进流水备注。
+	SurchargeNote string
+	Note          string
 }
 
 // TaskChargeQuote 是一次任务计费的试算结果。
@@ -44,7 +50,9 @@ type TaskChargeQuote struct {
 	MultiplierSource string `json:"multiplierSource"`
 	Unit             string `json:"unit"`
 	Quantity         int64  `json:"quantity"`
-	Priced           bool   `json:"priced"`
+	// SurchargeCredits 是总额里"单价 × 用量"之外的那部分，前端据此说明差额。
+	SurchargeCredits int64 `json:"surchargeCredits"`
+	Priced           bool  `json:"priced"`
 }
 
 // pricingMissing 是模型还没定价时的对外错误。
@@ -117,11 +125,16 @@ func (s *Service) QuoteTaskCharge(input TaskChargeInput) (*TaskChargeQuote, erro
 	}, price, rules)
 
 	unit := unitOf(price, capability)
+	surcharge := input.SurchargeCredits
+	if surcharge < 0 {
+		surcharge = 0
+	}
 	quote := &TaskChargeQuote{
 		MultiplierBp:     resolution.MultiplierBp,
 		MultiplierSource: resolution.Source,
 		Unit:             unit,
 		Quantity:         quantity,
+		SurchargeCredits: surcharge,
 		Priced:           resolution.Priced,
 	}
 	if !resolution.Priced || resolution.SellUnitPrice == nil {
@@ -134,7 +147,12 @@ func (s *Service) QuoteTaskCharge(input TaskChargeInput) (*TaskChargeQuote, erro
 	if unitPrice > 0 && quantity > math.MaxInt64/unitPrice {
 		return nil, invalidArgument("本次调用金额过大，请降低时长或数量后重试")
 	}
-	quote.Credits = unitPrice * quantity
+	credits := unitPrice * quantity
+	// 附加费同样要在相加前挡溢出：负数在积分域里的含义是"给用户打钱"。
+	if credits > math.MaxInt64-surcharge {
+		return nil, invalidArgument("本次调用金额过大，请降低时长或数量后重试")
+	}
+	quote.Credits = credits + surcharge
 	return quote, nil
 }
 
@@ -261,6 +279,13 @@ func taskChargeNote(input TaskChargeInput, quote *TaskChargeQuote) string {
 	parts := []string{strings.TrimSpace(input.ModelKey)}
 	if quote != nil && quote.SellUnitPrice != nil {
 		parts = append(parts, chargeFormula(*quote.SellUnitPrice, quote.Unit, quote.Quantity))
+	}
+	if quote != nil && quote.SurchargeCredits > 0 {
+		label := strings.TrimSpace(input.SurchargeNote)
+		if label == "" {
+			label = "附加费"
+		}
+		parts = append(parts, label)
 	}
 	if note := strings.TrimSpace(input.Note); note != "" {
 		parts = append(parts, note)
