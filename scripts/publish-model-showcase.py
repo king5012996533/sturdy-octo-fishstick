@@ -11,7 +11,7 @@ seed-image-model-prices.py、pin-model-catalog.py 一样是可重放的产品决
 
 | 字段 | 来源 | 维护方式 |
 | --- | --- | --- |
-| tagline / summary / highlights | 人工中文编写 | 改 json |
+| tagline / summary / highlights / readme | 人工中文编写 | 改 json |
 | sourceUrl / sourceNote | 上游 Replicate 页面 | `--refresh-upstream` 抓 |
 
 中文文案不抓上游：Replicate 的 model.description 是英文营销语，直接摆到中文页面上
@@ -134,14 +134,21 @@ def save_copy(path: Path, document: dict) -> None:
 
 
 def entry_source_note(entry: dict) -> str:
-    """sourceNote 是给运营看的溯源备注，不是展示内容：写清原文是哪来的，再附原文。"""
+    """sourceNote 是给运营看的溯源备注，不是展示内容：写清原文是哪来的，再附原文。
+
+    自述文件的英文原文更长，放在内容文件的 upstream.readme 里留档，不重复塞进备注；
+    这里只标一句它的存在与出处，方便改中文时回去对。
+    """
     upstream = entry.get("upstream") or {}
     description = str(upstream.get("description") or "").strip()
     if not description:
         return str(entry.get("sourceNote") or "")
     fetched_at = str(upstream.get("fetchedAt") or "").strip()
     stamp = f"（{fetched_at} 抓取）" if fetched_at else ""
-    return f"上游 Replicate 简介原文{stamp}：{description}"
+    note = f"上游 Replicate 简介原文{stamp}：{description}"
+    if str(upstream.get("readme") or "").strip():
+        note += "；自述文件英文原文留档在 upstream.readme"
+    return note
 
 
 def payload_for(entry: dict) -> dict:
@@ -154,6 +161,7 @@ def payload_for(entry: dict) -> dict:
         "sourceUrl": str(upstream.get("url") or entry.get("sourceUrl") or ""),
         "sourceNote": entry_source_note(entry),
         "examples": entry.get("examples", []),
+        "readme": entry.get("readme", ""),
     }
 
 
@@ -186,6 +194,7 @@ def same_as_existing(payload: dict, existing: dict) -> bool:
         and list(existing.get("highlights") or []) == list(payload["highlights"])
         and (existing.get("sourceUrl") or "") == payload["sourceUrl"]
         and (existing.get("sourceNote") or "") == payload["sourceNote"]
+        and (existing.get("readme") or "") == payload["readme"]
     )
 
 
