@@ -366,3 +366,11 @@
     line-height: 1.6;
     color: #fca5a5;
 }
+
+/* 移动端表单页的备案声明：宽屏那一份在左侧品牌栏里，这一份只在窄屏出现，
+   两者是同一段文案的两个位置，别把宽屏那份也一起隐藏了。 */
+.auth-compliance-mobile {
+    width: 100%;
+    max-width: 460px;
+    margin-top: 18px;
+}

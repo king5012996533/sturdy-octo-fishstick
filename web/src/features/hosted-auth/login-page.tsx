@@ -639,6 +639,10 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                             </p>
                         ) : null}
                     </div>
+
+                    {/* 移动端左栏整块不渲染，备案声明要在表单页再出现一次：
+                        备案号是对外声明，不该只存在于宽屏那一栏。 */}
+                    <SiteComplianceFooter variant="auth" className="auth-compliance-mobile lg:hidden" />
                 </div>
             </div>
             <HostedAuthAgreementDialog open={agreementView !== null} agreements={agreements} initialType={agreementView} onClose={() => setAgreementView(null)} />
