@@ -30,6 +30,16 @@ describe("taskChargeQuoteInput", () => {
         expect(providerConfig.videoGenerateAudio).toBe("false");
     });
 
+    test("参考图张数要带进报价，超量加收才报得出来", () => {
+        const config = configWith({ model: "minimax/minimax-h3" });
+        const quote = taskChargeQuoteInput({ mode: "video", prompt: "一条片子", config, inputSummary: { imageCount: 8 } });
+        // 张数是报价的一部分：不带它，面板就会显示一个低于实扣的数。
+        expect((quote.input as { referenceImageCount?: number }).referenceImageCount).toBe(8);
+        // 没有参考图时不发这个字段，避免给后端留一个恒为 0 的噪声入参。
+        const plain = taskChargeQuoteInput({ mode: "video", prompt: "一条片子", config });
+        expect((plain.input as { referenceImageCount?: number }).referenceImageCount).toBeUndefined();
+    });
+
     test("提示词为空时也要能报出价", () => {
         const config = configWith({ model: "openai/gpt-image-2" });
         const quote = taskChargeQuoteInput({ mode: "image", prompt: "   ", config });

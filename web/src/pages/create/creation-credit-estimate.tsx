@@ -41,28 +41,31 @@ export function CreationCreditEstimate({ estimate, className, compact = false }:
             </span>
         );
     }
+    const surcharge = quote.surchargeCredits ?? 0;
     return (
-        <span className={cn("creation-credit-estimate", estimate.sufficient ? undefined : "is-error", className)} role="status" title={chargeHint(quote.unit, quote.sellUnitPrice, quote.quantity)}>
+        <span className={cn("creation-credit-estimate", estimate.sufficient ? undefined : "is-error", className)} role="status" title={chargeHint(quote.unit, quote.sellUnitPrice, quote.quantity, surcharge)}>
             <span className="creation-credit-estimate-label">{estimate.sufficient ? "预计预扣" : "余额不足"}</span>
             <strong>{quote.credits.toLocaleString("zh-CN")}</strong>
             <span className="creation-credit-estimate-unit">积分</span>
+            {surcharge > 0 ? <em className="creation-credit-estimate-balance">含素材加收 {surcharge.toLocaleString("zh-CN")}</em> : null}
             {!compact && estimate.balance !== null ? <em className="creation-credit-estimate-balance">余额 {estimate.balance.toLocaleString("zh-CN")}</em> : null}
         </span>
     );
 }
 
 /** chargeHint 把"单价 × 用量"渲染成悬停可看的算式；单价文案与模型广场共用一份。 */
-function chargeHint(unit: string, sellUnitPrice: number | null, quantity: number) {
+function chargeHint(unit: string, sellUnitPrice: number | null, quantity: number, surchargeCredits = 0) {
     if (sellUnitPrice === null) return "";
     const rate = creditUnitRateLabel(unit, sellUnitPrice);
+    const extra = surchargeCredits > 0 ? ` + 素材加收 ${surchargeCredits} 积分` : "";
     switch (unit) {
         case "IMAGE":
-            return `${rate} × ${quantity} 张`;
+            return `${rate} × ${quantity} 张${extra}`;
         case "SECOND":
-            return `${rate} × ${quantity} 秒`;
+            return `${rate} × ${quantity} 秒${extra}`;
         case "TOKEN_1M":
-            return `${rate}（起步价，不足一次调用按一次计）`;
+            return `${rate}（起步价，不足一次调用按一次计）${extra}`;
         default:
-            return rate;
+            return `${rate}${extra}`;
     }
 }

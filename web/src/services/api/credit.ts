@@ -72,6 +72,8 @@ export type TaskChargeQuote = {
     credits: number;
     unit: string;
     quantity: number;
+    /** 总额里"单价 × 用量"之外的部分（如参考图超量加收），没有时为 0。 */
+    surchargeCredits: number;
     sellUnitPrice: number | null;
     multiplierBp: number;
     multiplierSource: string;

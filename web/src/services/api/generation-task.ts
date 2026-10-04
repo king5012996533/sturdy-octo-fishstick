@@ -352,6 +352,9 @@ export function taskChargeQuoteInput(options: { mode: BackendGenerationMode; pro
             : mode;
     // 提示词只用于通过提交侧的非空校验，不参与定价，也不该被写进任何地方。
     const normalizedPrompt = prompt.trim() || "生成前试算";
+    // 参考图超出免费额度是按张加收的，报价必须知道张数，否则面板上的价低于实扣。
+    // 提交时服务端以 referenceImages 数组为准，这个摘要只在报价里生效。
+    const referenceImageCount = options.inputSummary?.imageCount ?? 0;
     return {
         type: `canvas_${mode}`,
         operation,
@@ -363,6 +366,7 @@ export function taskChargeQuoteInput(options: { mode: BackendGenerationMode; pro
             mode,
             prompt: normalizedPrompt,
             config: backendProviderConfig(config, mode),
+            ...(referenceImageCount > 0 ? { referenceImageCount } : {}),
             capabilityOptions: logicalModelId ? logicalCapabilityOptions(config, mode) : undefined,
         },
     };
