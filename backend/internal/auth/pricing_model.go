@@ -85,6 +85,8 @@ func DefaultUnitFor(capability ModelCapability) PriceUnit {
 //   - 文本按 token 性质分三档，必须齐备；
 //   - 图片按上游的 quality 参数分档（low / medium / high / xhigh / max 五档，不是每个
 //     模型都五档齐备，比如 gpt-image-2.0 只到 high），另允许留空表示"这个模型不区分质量"；
+//     没有质量维度的图片模型还可以按输出尺寸分档（SIZE_1K / SIZE_2K / SIZE_4K），
+//     两条轴不同时用，取价口按请求落在哪条轴上取行；
 //   - 音频按输出时长分三档（能按秒指定时长的音乐模型），另允许留空表示"这个音频模型
 //     不看时长"——配音与整首歌这类时长由上游决定的模型就落在这一档；
 //   - 视频目前只有一个价，档位留空。
@@ -116,6 +118,15 @@ const (
 	// 运营口径，与"档位叫什么"分开放在两处，改边界不必动定价域。
 	PriceTierShort PriceTier = "SHORT"
 	PriceTierLong  PriceTier = "LONG"
+
+	// 图片尺寸档：上游按面积付成本，我们按输出的尺寸档收钱。边界同样在 app 层的
+	// imageSizePriceTier——上游的 1K 与 2K 其实同价，分成两档是运营口径而不是成本差。
+	//
+	// 与质量档并列而不是互斥：有质量维度的模型按质量取价，没有质量维度的模型落到这里。
+	// 一个模型不会两条轴同时用，取价口也只认"哪一行的档位对得上"。
+	PriceTierSize1K PriceTier = "SIZE_1K"
+	PriceTierSize2K PriceTier = "SIZE_2K"
+	PriceTierSize4K PriceTier = "SIZE_4K"
 )
 
 // TextPriceTiers 是文本能力必须齐备的三个档位，顺序固定，供后台与校验共用。
@@ -129,6 +140,21 @@ var TextPriceTiers = []PriceTier{PriceTierCache, PriceTierInput, PriceTierOutput
 // 五档是当前上游 quality 的完整取值集合。具体某个模型支持哪几档由能力合同
 // （ImageQualityConfig.Values）决定，定价域只负责"这几档都合法、且顺序可复核"。
 var ImagePriceTiers = []PriceTier{PriceTierLow, PriceTierMedium, PriceTierHigh, PriceTierXHigh, PriceTierMax}
+
+// ImageSizePriceTiers 是图片按输出尺寸划分的档位，顺序为"由小到大"。
+//
+// 与 ImagePriceTiers 是两条并行的轴：前者对应上游 quality，这里对应我们自己的尺寸分档。
+// 具体某个模型用哪条轴由它的能力合同与价目行决定，定价域只负责"这些档位合法、顺序可复核"。
+var ImageSizePriceTiers = []PriceTier{PriceTierSize1K, PriceTierSize2K, PriceTierSize4K}
+
+// IsSizePriceTier 报告一个档位是不是尺寸档。
+//
+// 取价口用它决定"取不到价时能不能回落到不区分档位那一行"：尺寸是我们自己加的轴，模型没配
+// 就是没有这条轴，回落是对的；质量档取不到价则说明配置漏了，必须报错而不是拿别的价顶上。
+func IsSizePriceTier(raw string) bool {
+	tier := PriceTier(raw)
+	return tier == PriceTierSize1K || tier == PriceTierSize2K || tier == PriceTierSize4K
+}
 
 // AudioPriceTiers 是音频按输出时长划分的三个档位，顺序为"由短到长"。
 //
@@ -148,7 +174,8 @@ func validPriceTier(capability string, raw string) bool {
 	case CapabilityImage:
 		// 图片允许留空：上游不是每个图片模型都有 quality 维度，没有维度时一档价就是全部。
 		return tier == PriceTierNone || tier == PriceTierLow || tier == PriceTierMedium || tier == PriceTierHigh ||
-			tier == PriceTierXHigh || tier == PriceTierMax
+			tier == PriceTierXHigh || tier == PriceTierMax || tier == PriceTierSize1K ||
+			tier == PriceTierSize2K || tier == PriceTierSize4K
 	case CapabilityAudio:
 		// 音频允许留空：配音与整首歌的时长由上游决定，给它们分档只会逼运营配一堆用不上的价。
 		return tier == PriceTierNone || tier == PriceTierShort || tier == PriceTierMedium || tier == PriceTierLong

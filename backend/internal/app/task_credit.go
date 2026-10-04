@@ -324,23 +324,39 @@ const (
 	tierMax    = "MAX"
 	tierShort  = "SHORT"
 	tierLong   = "LONG"
+	// 图片尺寸档，与音频那三档同源：档位名写在这里，边界写在各档的映射文件里。
+	tierSize1K = "SIZE_1K"
+	tierSize2K = "SIZE_2K"
+	tierSize4K = "SIZE_4K"
 )
 
 func taskChargeTier(intent ModelRequestIntent) string {
 	switch normalizeCapability(intent.Capability) {
 	case "image":
-		raw, ok := intent.Options["quality"]
-		if !ok || raw == nil {
-			return ""
+		// 质量优先：有 quality 参数的模型（openai 系）按上游质量档取价，与上游的
+		// 价目一一对应。没有质量维度的模型（imagen、混元生图这类）落到尺寸档上，
+		// 两条轴不会同时命中——能力合同不会让同一个模型既有质量档又走尺寸档。
+		if raw, ok := intent.Options["quality"]; ok && raw != nil {
+			if tier := imageQualityPriceTier(raw); tier != "" {
+				return tier
+			}
 		}
-		switch tier := strings.ToUpper(strings.TrimSpace(fmt.Sprint(raw))); tier {
-		case tierLow, tierMedium, tierHigh, tierXHigh, tierMax:
-			return tier
-		default:
-			return ""
-		}
+		return imageSizePriceTier(intent.Options["size"])
 	case "audio":
 		return audioPriceTier(intent.Options["audioDuration"])
+	default:
+		return ""
+	}
+}
+
+// imageQualityPriceTier 认上游真实存在的质量档，认不出来返回空档。
+//
+// 绝不回落到某个具体档位——那等于用一个自己没验过的成本出货，正是"按最低价卖 4K"
+// 这类资损的来源。认不出的取值说明渠道配置本身有问题，宁可要一个"未定价"的可见错误。
+func imageQualityPriceTier(value any) string {
+	switch tier := strings.ToUpper(strings.TrimSpace(fmt.Sprint(value))); tier {
+	case tierLow, tierMedium, tierHigh, tierXHigh, tierMax:
+		return tier
 	default:
 		return ""
 	}

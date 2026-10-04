@@ -110,6 +110,14 @@ func (s *Service) QuoteTaskCharge(input TaskChargeInput) (*TaskChargeQuote, erro
 	if err == nil {
 		price = found
 	}
+	if price == nil && IsSizePriceTier(tier) {
+		// 尺寸档是我们自己加的轴，不是上游的必填维度：模型没给尺寸配价，说明它不按尺寸分档，
+		// 按"不区分档位"那一行结算即可。没有这条回落，给某个模型加尺寸档就会把其余图片模型
+		// 在"没选质量"时打成未定价——那是一次全量报价失败，而不是一个可以慢慢补的配置缺口。
+		if fallback, fallbackErr := s.store.ModelPriceByTier(modelKey, capability, string(PriceTierNone)); fallbackErr == nil {
+			price = fallback
+		}
+	}
 	rules, err := s.store.MarkupRules()
 	if err != nil {
 		return nil, internalFailure(err)

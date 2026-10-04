@@ -39,13 +39,22 @@ TC3 签名、SecretId/SecretKey）。本模型走的是 TokenHub（MaaS）：Bea
 | 1K / 2K | 15,000 | ¥0.15/张 |
 | 4K | 20,000 | ¥0.20/张 |
 
-所以档位差价只有 5 分，而图片线的计费档位是按上游 quality 划分的（见 auth.ImagePriceTiers），
-这个模型没有 quality 维度，一张卡填不出两个价。取整策略：**统一按 1K/2K 上游成本 ×5 定价
-（75 分/张）**，4K 时不涨价——4K 那单毛利率从 80% 降到 73%，仍高于"按秒折算"和"按 4K
-成本定价（100 分）"两种做法的副作用（前者会让同一张卡在 2K/4K 出现两个价，后者会让
-绝大多数 1K/2K 用户多付 33%）。上游若把 4K 价格拉开，再按分辨率拆卡重定价。
+这个模型没有 quality 维度，所以按**输出尺寸分档**取价（档位词表见 auth.ImageSizePriceTiers，
+尺寸到档位的边界见 app 层的 imageSizePriceTier），与音频按分钟分档同一套做法：
 
-倍率 5 与图片线其它模型同源（见 seed-image-model-prices.py），改价改这里的常量重跑脚本。
+| 档位 | 售价 | 上游成本 | 毛利 |
+| --- | --- | --- | --- |
+| SIZE_1K | 65 分 | ¥0.15 | 77% |
+| SIZE_2K | 70 分 | ¥0.15 | 79% |
+| SIZE_4K | 75 分 | ¥0.20 | 73% |
+
+分档的理由与音频一致：一刀切等于鼓励所有人选最大尺寸——同样收 75 分，没人会挑 1K。
+
+空档（不区分档位）单独留一行，价 75 分：`auto`、自定义尺寸与比例串的最终面积由模型自己
+决定，按面积分档的前提不成立，所以按最贵的一档兜底，宁可高收也不把 4K 的成本卖成 1K 的价。
+
+改价改下面的 PRICE_TIERS 常量再重跑脚本；倍率 5 与图片线其它模型同源，
+见 seed-image-model-prices.py。
 """
 
 from __future__ import annotations
@@ -90,12 +99,19 @@ CAPABILITY = "IMAGE"
 UNIT = "IMAGE"
 VENDOR_CODE = "tencent"
 
-# 售价：分/张。上游 1K/2K ¥0.15、4K ¥0.20，统一按 ¥0.15 的 5 倍卖（见文件头定价说明）。
-SELL_FEN_PER_IMAGE = 75
-UPSTREAM_FEN_1K = 15
-UPSTREAM_FEN_4K = 20
-MULTIPLIER = "5"
-MULTIPLIER_BP = int(Decimal(MULTIPLIER) * 10000)
+# 价目行：档位 → （上游成本分/张，售价分/张）。顺序即写入与预览顺序。
+#
+# 售价是显式定价（sellUnitPrice），不写成倍率：三档的上游成本只有两种（15 / 20 分），
+# 而售价是三档，折算成倍率会得到 4.33 / 4.67 / 3.75 三个数——把"产品定价"表达成
+# "成本乘一个零碎倍率"，改价时谁也说不清哪一个才是决策本身。
+#
+# 空档必须留：auto / 自定义尺寸 / 比例串算不出面积，没有这一行会直接变成"未定价"。
+PRICE_TIERS: list[tuple[str, int, int]] = [
+    ("SIZE_1K", 15, 65),
+    ("SIZE_2K", 15, 70),
+    ("SIZE_4K", 20, 75),
+    ("", 15, 75),
+]
 
 
 def capability_config() -> dict:
@@ -154,21 +170,24 @@ def price_key(model_key: str, channel_id: str) -> str:
     return f"{channel_id}::{model_key}"
 
 
-def note_text() -> str:
-    return (
-        f"上游 TokenHub 混元生图 3.5 ¥{UPSTREAM_FEN_1K / 100:.2f}/张（1K/2K）、"
-        f"¥{UPSTREAM_FEN_4K / 100:.2f}/张（4K）×{MULTIPLIER}"
-    )
+TIER_LABEL = {"SIZE_1K": "1K", "SIZE_2K": "2K", "SIZE_4K": "4K", "": "未指定尺寸"}
+
+
+def note_text(tier: str, upstream_fen: int, sell_fen: int) -> str:
+    """每一行都要能独立回答"这笔钱是怎么来的"：档位、上游成本、我们的售价。"""
+    if tier == "":
+        return f"未指定尺寸（auto/自定义/比例）按 4K 档兜底：上游 ¥{upstream_fen / 100:.2f}/张，售价 {sell_fen} 分/张"
+    return f"上游 TokenHub 混元生图 3.5 {TIER_LABEL[tier]} 档 ¥{upstream_fen / 100:.2f}/张，售价 {sell_fen} 分/张"
 
 
 def print_economics() -> None:
-    sell = Decimal(SELL_FEN_PER_IMAGE) / 100
     print(f"渠道「{CHANNEL_NAME}」{CHANNEL_BASE_URL}（协议 {PROTOCOL}，最大并发 {CONCURRENCY_LIMIT}）")
     print(f"  模型 {DISPLAY_NAME}（{MODEL_KEY}）")
-    for label, upstream_fen in (("1K/2K", UPSTREAM_FEN_1K), ("4K", UPSTREAM_FEN_4K)):
+    for tier, upstream_fen, sell_fen in PRICE_TIERS:
         upstream = Decimal(upstream_fen) / 100
+        sell = Decimal(sell_fen) / 100
         margin = 1 - upstream / sell
-        print(f"  {label:<5} 售价 {sell:.2f} 元/张 · 上游 {upstream:.2f} 元/张 · 毛利 {margin * 100:.0f}%")
+        print(f"  {TIER_LABEL[tier]:<6} 售价 {sell:.2f} 元/张 · 上游 {upstream:.2f} 元/张 · 毛利 {margin * 100:.0f}%")
     print(f"  尺寸 {len(SIZES)} 个精确像素（1K/2K/4K 各 10 个比例）；参考图上限 {MAX_IMAGES} 张")
 
 
@@ -194,14 +213,27 @@ def model_drift(existing: dict, payload: dict) -> bool:
     return existing.get("capabilityConfig") != payload["capabilityConfig"]
 
 
-def price_drift(existing: dict) -> bool:
-    return (
-        existing.get("unit") != UNIT
-        or existing.get("upstreamUnitPrice") != UPSTREAM_FEN_1K
-        or existing.get("sellUnitPrice") is not None
-        or existing.get("multiplierBp") != MULTIPLIER_BP
-        or existing.get("enabled") is not True
-    )
+def price_payload(tier: str, upstream_fen: int, sell_fen: int, channel_id: str) -> dict:
+    return {
+        "modelKey": price_key(MODEL_KEY, channel_id),
+        "capability": CAPABILITY,
+        "priceTier": tier,
+        "unit": UNIT,
+        "vendorCode": VENDOR_CODE,
+        "upstreamUnitPrice": upstream_fen,
+        "sellUnitPrice": sell_fen,
+        "multiplier": None,
+        "enabled": True,
+        "note": note_text(tier, upstream_fen, sell_fen),
+    }
+
+
+def price_drift(existing: dict, payload: dict) -> bool:
+    """逐字段比，且只比这份脚本负责的字段：后台另填的备注不算漂移。"""
+    for field in ("unit", "upstreamUnitPrice", "sellUnitPrice", "enabled"):
+        if existing.get(field) != payload[field]:
+            return True
+    return str(existing.get("note") or "") != payload["note"]
 
 
 def find_channel(base_url: str, cookie: str) -> dict | None:
@@ -247,16 +279,18 @@ def main() -> int:
 
     key = price_key(MODEL_KEY, channel_id)
     existing_model = existing_models.get(MODEL_KEY)
-    existing_price = price_index.get((key, CAPABILITY, "")) if channel_id else None
     if channel_id:
         if existing_model is None:
             plan.append(f"上架渠道模型 {DISPLAY_NAME}（{CAPABILITY}）")
         elif model_drift(existing_model, payload):
             plan.append(f"更新渠道模型 {DISPLAY_NAME}（能力配置或上游标识有变化）")
-        if existing_price is None:
-            plan.append(f"新增价目 {key}：{SELL_FEN_PER_IMAGE} 分/张")
-        elif price_drift(existing_price):
-            plan.append(f"更新价目 {key}：{SELL_FEN_PER_IMAGE} 分/张（上游 {UPSTREAM_FEN_1K} 分/张 ×{MULTIPLIER}）")
+        for tier, upstream_fen, sell_fen in PRICE_TIERS:
+            label = TIER_LABEL[tier] or "未指定尺寸"
+            current = price_index.get((key, CAPABILITY, tier))
+            if current is None:
+                plan.append(f"新增价目 {key} [{label}]：{sell_fen} 分/张（上游 {upstream_fen} 分/张）")
+            elif price_drift(current, price_payload(tier, upstream_fen, sell_fen, channel_id)):
+                plan.append(f"更新价目 {key} [{label}]：{sell_fen} 分/张（上游 {upstream_fen} 分/张）")
 
     if not plan:
         print("\n渠道、模型与价目已经是目标状态，无需变更。")
@@ -321,23 +355,13 @@ def main() -> int:
 
     prices = request("GET", args.base_url, "/admin/billing/model-prices", cookie).get("prices") or []
     price_index = {(row.get("modelKey"), row.get("capability"), row.get("priceTier") or ""): row for row in prices}
-    row = {
-        "modelKey": price_key(MODEL_KEY, channel_id),
-        "capability": CAPABILITY,
-        "priceTier": "",
-        "unit": UNIT,
-        "vendorCode": VENDOR_CODE,
-        "upstreamUnitPrice": UPSTREAM_FEN_1K,
-        "sellUnitPrice": None,
-        "multiplier": MULTIPLIER,
-        "enabled": True,
-        "note": note_text(),
-    }
-    current = price_index.get((row["modelKey"], CAPABILITY, ""))
-    if current is None:
-        request("POST", args.base_url, "/admin/billing/model-prices", cookie, row)
-    elif price_drift(current):
-        request("PUT", args.base_url, "/admin/billing/model-prices/" + urllib.parse.quote(str(current.get("id"))), cookie, row)
+    for tier, upstream_fen, sell_fen in PRICE_TIERS:
+        row = price_payload(tier, upstream_fen, sell_fen, channel_id)
+        current = price_index.get((row["modelKey"], CAPABILITY, tier))
+        if current is None:
+            request("POST", args.base_url, "/admin/billing/model-prices", cookie, row)
+        elif price_drift(current, row):
+            request("PUT", args.base_url, "/admin/billing/model-prices/" + urllib.parse.quote(str(current.get("id"))), cookie, row)
 
     print(f"\n已写入。渠道 ID：{channel_id}")
     return 0
