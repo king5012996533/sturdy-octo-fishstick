@@ -53,6 +53,8 @@ CATALOG: dict[str, set[str]] = {
         "openai/gpt-image-2.5-flare",
         "google/imagen-4",
         "google/imagen-4-fast",
+        # 腾讯 TokenHub 混元生图 3.5：中文人物质感到位，补齐国内直连的一条生图线路。
+        "hy-image-v3.5-preview",
     },
     "video": {"seedance-2.0", "seedance-2.5"},
 }

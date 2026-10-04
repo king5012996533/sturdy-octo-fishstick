@@ -1,0 +1,432 @@
+# 腾讯混元生图 3.5 接口字段
+
+## 协议身份
+
+- 插件 ID：`tencent-hunyuan-image-35`。
+- Provider ID：`tencent-hunyuan-image-35`。
+- 能力：`image`。
+- 默认 Base URL：`https://tokenhub.tencentmaas.com`。
+- 鉴权驱动：`bearer`。
+- 创建：`POST /v1/wand/hunyuan-image/v35-generation`。
+- 生命周期：同步响应，一次请求直接返回图片，没有任务提交与轮询。
+
+## 为什么必须另起一个插件
+
+仓库里已有的 `tencent-hunyuan-image` 打的是腾讯云 CAPI：`hunyuan.tencentcloudapi.com`、TC3 签名、SecretId/SecretKey、`X-TC-Action` 头。本插件打的是腾讯云 TokenHub（MaaS）：Bearer API Key、`/v1/wand/...` 路径、OpenAI Chat 风格的 `messages` 请求体。两者除了厂商同名，鉴权、路径与报文结构没有一处相同，因此必须是两个协议插件，不能合并。
+
+## 配置字段
+
+| 字段 | 类型 | 必填 | 含义 |
+| --- | --- | --- | --- |
+| `apiKey` | secret | 是 | TokenHub 控制台签发的 API Key |
+
+## 统一字段映射
+
+| 统一字段 | 类型 | 必填 | 上游映射 | 说明 |
+| --- | --- | --- | --- | --- |
+| `model` | string | 是 | `model` | 上游模型 ID，当前取值 `hy-image-v3.5-preview`。 |
+| `prompt` | string | 是 | `messages[0].content[0].text` | 本轮生图指令。 |
+| `images` | media[] | 否 | `messages[0].content[].image_url.url` | 参考图/编辑源图，按 `order` 顺序拼进同一条 user 消息。 |
+| `aspectRatio` | string | 否 | `size` | 形如 `1824x1024` 的精确像素直接透传；其它取值（如 `auto`、`1:1`）省略该字段，由模型自行决定宽高。 |
+| `providerOptions` | object | 否 | `session/seed/footnote/generate_max_pixels/resize_max_pixels` | 插件命名空间内的扩展字段。 |
+
+## 请求组装的三点约定
+
+1. **单条 user 消息**。上游把 `messages` 里最后一条 `role=user` 当作本轮指令，其余对象作为多轮上下文。插件只发一条 user 消息：文本片段在前，参考图片段按 `order` 在后。
+2. **参考图优先用 data URL**。`media.dataUrl` 存在时用它，否则回退 `media.url`。上游两种都接受（`http(s)` 公网 URL 或 `data:image/...;base64,...`），data URL 不要求本平台有公网出口，自部署环境下更可靠。单图 ≤ 20MB。
+3. **不给尺寸就不给**。`size` 只在拿到 `宽x高` 形态时下发；`1:1` 这类比例字符串不是上游的合法取值，硬塞会被上游按格式错误拒绝。
+
+## Provider 扩展键
+
+- `providerOptions.tencent-hunyuan-image-35.session`：会话 ID，用于推理实例一致性哈希，多轮编辑建议整条会话保持同一个值。
+- `providerOptions.tencent-hunyuan-image-35.seed`：int64 随机种子，0 或不传时由上游随机。
+- `providerOptions.tencent-hunyuan-image-35.footnote`：右下角水印文案，最长 16 个字符。
+- `providerOptions.tencent-hunyuan-image-35.generate_max_pixels`：未传 `size` 时的目标面积档，`1048576`(1K) / `2359296`(1.5K，默认) / `4194304`(2K)。
+- `providerOptions.tencent-hunyuan-image-35.resize_max_pixels`：参考图面积上限，超出时上游等比缩小后再送模型，默认 `1048576`。
+
+## 响应解析与安全
+
+成功响应是 `choices[0].delta.image.url`：一张带签名的临时地址（默认 12 小时），宿主会立即下载转存，插件把结果标为 `ephemeral`。上游同时回传 `assembled_history`（思维链与中间产物地址），插件只用最终图，不落库思维链。
+
+失败有两种形态，插件都映射成失败而不是空结果：
+
+- HTTP 4xx/5xx 且响应体带 `error`，例如 `{"error":{"code":"400004","message":"The model or service ID ... does not exist"}}`；
+- HTTP 200 但终态帧带 `error` 且 `finish_reason: "error"`，例如内容安全拦截 `code: "content_filter"`。
+
+`error.code` 是插件的失败判定路径，`error.message` 透出为错误文案，`request_id` 由上游错误体自带，便于向腾讯云提交工单。
+
+## 上游计费口径
+
+TokenHub 按 token 计费，混元生图 3.5 单张 token 用量与画幅无关，只与面积档位有关：1K/2K 为 15,000 tokens/张，4K 为 20,000 tokens/张，单价 10 元/百万 tokens——即 1K/2K 上游成本 ¥0.15/张、4K ¥0.20/张。参考图不单独计价。
+
+本插件不做计价，只回传 `usage`；售价由平台价目表决定，口径见 `scripts/seed-tencent-hunyuan-image-35.py` 的文件头说明。
+
+## 官方资料
+
+- [Hy 生图调用指南](https://cloud.tencent.com/document/product/1823/135745)
+- [TokenHub 模型价格说明](https://cloud.tencent.com/document/product/1823/130055)
+
+<!-- BEEFTV_PLUGIN_MANIFEST_START -->
+## Manifest 完整接口定义
+
+以下 JSON 与插件包内实际 `manifest.json` 逐字段一致，覆盖插件身份、权限、配置、鉴权、参数、校验、创建、Agent、查询、取消、结果下载、响应和 Agent 响应映射。`documentation` 字段的值就是当前完整文档；为避免文档在自身内部无限递归，JSON 中仅用等义占位文本表示正文。
+
+```json
+{
+  "apiVersion": "beeftv.plugin/v2",
+  "id": "tencent-hunyuan-image-35",
+  "name": "腾讯混元生图 3.5",
+  "version": "1.0.0",
+  "author": "BeefTV Contributors",
+  "description": "腾讯云 TokenHub 混元生图 3.5 请求协议插件。",
+  "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
+  "permissions": [
+    "generation.run",
+    "media.read"
+  ],
+  "configuration": {
+    "fields": [
+      {
+        "name": "apiKey",
+        "type": "secret",
+        "label": "API Key",
+        "required": true
+      }
+    ]
+  },
+  "contributes": {
+    "providers": [
+      {
+        "id": "tencent-hunyuan-image-35",
+        "label": "腾讯混元生图 3.5",
+        "capabilities": [
+          "image"
+        ],
+        "scopes": [
+          "admin.system-channel",
+          "user.custom-channel",
+          "canvas",
+          "creation",
+          "agent"
+        ],
+        "baseUrl": "https://tokenhub.tencentmaas.com",
+        "requiresPublicMediaUrls": false,
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "parameters": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "mapping": "model",
+            "description": "图片模型 ID。"
+          },
+          {
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "mapping": "prompt",
+            "description": "图片提示词。"
+          },
+          {
+            "name": "images",
+            "type": "media[]",
+            "required": false,
+            "mapping": "provider image/reference fields",
+            "description": "参考图或编辑源图，role 由业务层确定。"
+          },
+          {
+            "name": "aspectRatio",
+            "type": "string",
+            "required": false,
+            "mapping": "size/aspect_ratio",
+            "description": "比例或尺寸，语义按协议说明。"
+          },
+          {
+            "name": "providerOptions",
+            "type": "object",
+            "required": false,
+            "mapping": "provider-specific fields",
+            "description": "插件命名空间内的厂商扩展字段。"
+          }
+        ],
+        "create": {
+          "method": "POST",
+          "path": "/v1/wand/hunyuan-image/v35-generation",
+          "contentType": "application/json",
+          "body": {
+            "model": {
+              "$ref": "request.model"
+            },
+            "messages": [
+              {
+                "role": "user",
+                "content": {
+                  "$concatArrays": [
+                    [
+                      {
+                        "type": "text",
+                        "text": {
+                          "$ref": "request.prompt"
+                        }
+                      }
+                    ],
+                    {
+                      "$map": {
+                        "from": {
+                          "$sortByOrder": {
+                            "$ref": "request.images"
+                          }
+                        },
+                        "as": "media",
+                        "in": {
+                          "type": "image_url",
+                          "image_url": {
+                            "url": {
+                              "$coalesce": [
+                                {
+                                  "$ref": "media.dataUrl"
+                                },
+                                {
+                                  "$ref": "media.url"
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "size": {
+              "$omitEmpty": {
+                "$switch": {
+                  "cases": [
+                    {
+                      "when": {
+                        "$eq": [
+                          {
+                            "$len": {
+                              "$split": [
+                                {
+                                  "$trim": {
+                                    "$ref": "request.aspectRatio"
+                                  }
+                                },
+                                "x"
+                              ]
+                            }
+                          },
+                          2
+                        ]
+                      },
+                      "then": {
+                        "$trim": {
+                          "$ref": "request.aspectRatio"
+                        }
+                      }
+                    }
+                  ],
+                  "default": {
+                    "$switch": {
+                      "cases": [
+                        {
+                          "when": {
+                            "$eq": [
+                              {
+                                "$trim": {
+                                  "$ref": "request.aspectRatio"
+                                }
+                              },
+                              "1:1"
+                            ]
+                          },
+                          "then": "1024x1024"
+                        },
+                        {
+                          "when": {
+                            "$eq": [
+                              {
+                                "$trim": {
+                                  "$ref": "request.aspectRatio"
+                                }
+                              },
+                              "3:2"
+                            ]
+                          },
+                          "then": "1536x1024"
+                        },
+                        {
+                          "when": {
+                            "$eq": [
+                              {
+                                "$trim": {
+                                  "$ref": "request.aspectRatio"
+                                }
+                              },
+                              "2:3"
+                            ]
+                          },
+                          "then": "1024x1536"
+                        },
+                        {
+                          "when": {
+                            "$eq": [
+                              {
+                                "$trim": {
+                                  "$ref": "request.aspectRatio"
+                                }
+                              },
+                              "4:3"
+                            ]
+                          },
+                          "then": "1360x1024"
+                        },
+                        {
+                          "when": {
+                            "$eq": [
+                              {
+                                "$trim": {
+                                  "$ref": "request.aspectRatio"
+                                }
+                              },
+                              "3:4"
+                            ]
+                          },
+                          "then": "1024x1360"
+                        },
+                        {
+                          "when": {
+                            "$eq": [
+                              {
+                                "$trim": {
+                                  "$ref": "request.aspectRatio"
+                                }
+                              },
+                              "16:9"
+                            ]
+                          },
+                          "then": "1824x1024"
+                        },
+                        {
+                          "when": {
+                            "$eq": [
+                              {
+                                "$trim": {
+                                  "$ref": "request.aspectRatio"
+                                }
+                              },
+                              "9:16"
+                            ]
+                          },
+                          "then": "1024x1824"
+                        },
+                        {
+                          "when": {
+                            "$eq": [
+                              {
+                                "$trim": {
+                                  "$ref": "request.aspectRatio"
+                                }
+                              },
+                              "21:9"
+                            ]
+                          },
+                          "then": "2048x878"
+                        }
+                      ],
+                      "default": null
+                    }
+                  }
+                }
+              }
+            },
+            "session": {
+              "$omitEmpty": {
+                "$ref": "request.providerOptions.tencent-hunyuan-image-35.session"
+              }
+            },
+            "seed": {
+              "$omitEmpty": {
+                "$ref": "request.providerOptions.tencent-hunyuan-image-35.seed"
+              }
+            },
+            "footnote": {
+              "$omitEmpty": {
+                "$ref": "request.providerOptions.tencent-hunyuan-image-35.footnote"
+              }
+            },
+            "generate_max_pixels": {
+              "$omitEmpty": {
+                "$ref": "request.providerOptions.tencent-hunyuan-image-35.generate_max_pixels"
+              }
+            },
+            "resize_max_pixels": {
+              "$omitEmpty": {
+                "$ref": "request.providerOptions.tencent-hunyuan-image-35.resize_max_pixels"
+              }
+            }
+          }
+        },
+        "response": {
+          "taskId": {
+            "$coalesce": [
+              {
+                "$ref": "response.id"
+              }
+            ]
+          },
+          "status": "succeeded",
+          "message": {
+            "$coalesce": [
+              {
+                "$ref": "response.error.message"
+              },
+              {
+                "$ref": "response.message"
+              }
+            ]
+          },
+          "images": {
+            "$map": {
+              "from": {
+                "$ref": "response.choices"
+              },
+              "as": "choice",
+              "in": {
+                "url": {
+                  "$omitEmpty": {
+                    "$ref": "choice.delta.image.url"
+                  }
+                }
+              }
+            }
+          },
+          "usage": {
+            "$coalesce": [
+              {
+                "$ref": "response.usage"
+              },
+              {
+                "$ref": "response.tokenhub_usage"
+              }
+            ]
+          },
+          "errorPaths": [
+            "error.code"
+          ],
+          "messagePaths": [
+            "error.message"
+          ],
+          "resultEphemeral": true
+        }
+      }
+    ]
+  }
+}
+```
+<!-- BEEFTV_PLUGIN_MANIFEST_END -->
