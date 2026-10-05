@@ -536,6 +536,15 @@ func DefaultModelCapabilityConfigForModel(protocol string, modelName string) *Mo
 		video.Ratios = []string{"16:9", "9:16", "1:1"}
 		video.Resolutions = []string{"1080p"}
 		video.DefaultResolution = "1080p"
+	case model.ChannelInterfaceZonghengVideo:
+		// 规格来自上游能力中枢（公开接口 /api/models）：时长 6–15 秒连续可选，清晰度只有
+		// 480p / 720p，参考图最多 7 张，音视频参考为 0。不要照抄平台默认的 9 张参考图与
+		// 1440p/2160p 档位——那些组合上游会直接拒收，用户只会拿到一次失败任务。
+		video.Duration = VideoDurationConfig{Selection: "range", Min: 6, Max: 15, Step: 1, Default: 6}
+		video.Ratios = []string{"16:9", "9:16", "1:1"}
+		video.Resolutions = []string{"480p", "720p"}
+		video.DefaultResolution = "720p"
+		video.References.MaxImages = 7
 	case model.ChannelInterfaceMiniMaxVideo:
 		video.Operations = append(video.Operations, "reference_to_video")
 		video.References.MaxImages = 9

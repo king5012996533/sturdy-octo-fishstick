@@ -710,6 +710,33 @@ add({
   poll: { method: "GET", path: "/v1/videos/{{taskId}}" }, response: asyncResponse("video")
 });
 
+// 纵横科技多能力 API 的「生视频」profile。
+//
+// 平台对下游只暴露公开模型名（/v1/models 返回的 id），参考素材要么走平台 /v1/media
+// 上传，要么给公网 HTTPS 直链；创建与查询固定为 /v1/videos + /v1/tasks/{task_id}。
+// 参考视频、参考音频在这个 profile 下不支持，由 validations 在发请求前拦掉。
+add({
+  id: "zongheng-video", providerId: "zongheng-video", name: "Zongheng Multi-capability Video", vendor: "Zongheng", capability: "video",
+  baseUrl: "https://cnd-coo-new.pages.dev", auth: bearer, params: videoParams, requiresPublicMediaUrls: true,
+  notes: "该 profile 只覆盖纵横科技 /v1/videos 与 /v1/tasks/{task_id} 这一套。同一个 Key 下的生图、GPT 分组是独立 profile，必须另建插件，不能靠模型名猜测；平台会隐藏上游真实模型名与成本，渠道里配置的 model 必须是 /v1/models 返回的公开 id。",
+  validations: [
+    { assert: eq(len(ref("request.videos")), 0), message: "该视频模型不支持参考视频" },
+    { assert: eq(len(ref("request.audios")), 0), message: "该视频模型不支持参考音频" }
+  ],
+  create: jsonCreate("/v1/videos", {
+    model: ref("request.model"),
+    prompt: ref("request.prompt"),
+    duration: conditional(gt(ref("request.duration"), 0), ref("request.duration"), 6),
+    ratio: coalesce(ref("request.aspectRatio"), "16:9"),
+    resolution: coalesce(ref("request.resolution"), "720p"),
+    images: omit(map(filter(sorted(ref("request.images")), "media", { $in: [ref("media.role"), ["", "reference_image", "subject_reference", "style_reference"]] }), "media", ref("media.value"))),
+    start_frame: omit(firstMediaFieldWithRoles("request.images", ["first_frame"], "value")),
+    end_frame: omit(firstMediaFieldWithRoles("request.images", ["last_frame"], "value"))
+  }),
+  poll: { method: "GET", path: "/v1/tasks/{{taskId}}" },
+  response: asyncResponse("video", { errorPaths: ["code"], messagePaths: ["message", "error"] })
+});
+
 add({
   id: "google-gemini-veo", providerId: "gemini-veo", name: "Google Gemini Veo", vendor: "Google", capability: "video",
   baseUrl: "https://generativelanguage.googleapis.com", auth: { type: "google-api-key", field: "apiKey" }, params: videoParams,

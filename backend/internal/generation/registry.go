@@ -58,6 +58,8 @@ func OfficialDeclarativeVideoInterface(interfaceType string) (string, bool) {
 	switch strings.TrimSpace(interfaceType) {
 	case string(model.ChannelInterfaceAgnesVideo):
 		return "Agnes", true
+	case string(model.ChannelInterfaceZonghengVideo):
+		return "纵横科技视频", true
 	case string(model.ChannelInterfaceMiniMaxVideo):
 		return "MiniMax", true
 	case string(model.ChannelInterfaceGeminiVeo):
