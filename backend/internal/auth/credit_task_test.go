@@ -55,6 +55,37 @@ func TestQuoteTaskChargeAppliesMultiplierAndQuantity(t *testing.T) {
 	}
 }
 
+// TestQuoteTaskChargeBillsPerItemVideoOnce 覆盖"按条计费的视频不乘秒数"。
+//
+// 上游有一类模型一条一个价、与时长无关，用户选 6 秒还是 15 秒成本都一样。价目配成
+// "次"之后，用量必须归 1；否则 180 分/条的报价会按用户选的秒数放大 6–15 倍。
+func TestQuoteTaskChargeBillsPerItemVideoOnce(t *testing.T) {
+	env := newCreditTaskEnv(t)
+	price := int64(180)
+	if err := env.store.SaveModelPrice(&ModelPrice{
+		ModelKey:      "grok-imagine-video/v1.5",
+		Capability:    string(CapabilityVideo),
+		Unit:          string(UnitPerRequest),
+		SellUnitPrice: &price,
+		Enabled:       true,
+	}); err != nil {
+		t.Fatalf("写入单价失败: %v", err)
+	}
+
+	for _, seconds := range []int64{6, 15} {
+		quote, err := env.service.QuoteTaskCharge(TaskChargeInput{ModelKey: "grok-imagine-video/v1.5", Capability: "VIDEO", Quantity: seconds})
+		if err != nil {
+			t.Fatalf("%d 秒试算失败: %v", seconds, err)
+		}
+		if quote.Credits != price {
+			t.Fatalf("%d 秒应按条扣 %d 分，实际 %d", seconds, price, quote.Credits)
+		}
+		if quote.Unit != string(UnitPerRequest) || quote.Quantity != 1 {
+			t.Fatalf("按条计费的用量应为 1，实际 %s × %d", quote.Unit, quote.Quantity)
+		}
+	}
+}
+
 // TestQuoteTaskRejectsUnpricedModelLikeCharge 覆盖"试算与提交对未定价给同一个结论"。
 //
 // 试算是用户在按下生成之前看到的唯一价格来源。它要是把未定价回成 0，用户会以为这次免费，

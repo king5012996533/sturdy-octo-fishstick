@@ -127,7 +127,18 @@ const (
 	PriceTierSize1K PriceTier = "SIZE_1K"
 	PriceTierSize2K PriceTier = "SIZE_2K"
 	PriceTierSize4K PriceTier = "SIZE_4K"
+
+	// 视频分辨率档不用常量，档位名就是分辨率本身（480P / 720P / 768P / 1080P / 2160P）。
+	//
+	// 同一个模型的上游常按分辨率分别定价，而分辨率是用户在面板上选出来的，两个档位之间
+	// 的差价真实存在。挤进一行只能填一个折中值，等于一档卖贵一档卖亏。
 )
+
+// VideoResolutionPriceTiers 是后台档位下拉里的常用分辨率档，顺序为由小到大。
+//
+// 它不是白名单：校验按形状走（见 IsVideoResolutionPriceTier），768P、960P 这类非标准
+// 档也要能配。这里只决定"运营不用手打就能选到哪几个"。
+var VideoResolutionPriceTiers = []PriceTier{"480P", "720P", "768P", "1080P", "1440P", "2160P"}
 
 // TextPriceTiers 是文本能力必须齐备的三个档位，顺序固定，供后台与校验共用。
 //
@@ -156,6 +167,44 @@ func IsSizePriceTier(raw string) bool {
 	return tier == PriceTierSize1K || tier == PriceTierSize2K || tier == PriceTierSize4K
 }
 
+// IsVideoResolutionPriceTier 报告一个档位是不是视频分辨率档。
+//
+// 认形状（数字 + P/K，如 480P、768P、2K）而不是认固定清单：视频分辨率从 360p 到 2160p，
+// 还有 768p、960p 这类非标准写法，写死清单会在接入新模型时静默漏档——而漏档的后果是
+// 按"不区分"那一行出货，那一行多半是别的档的价。
+func IsVideoResolutionPriceTier(raw string) bool {
+	tier := strings.ToUpper(strings.TrimSpace(raw))
+	if len(tier) < 2 || len(tier) > 5 {
+		return false
+	}
+	switch tier[len(tier)-1] {
+	case 'P', 'K':
+	default:
+		return false
+	}
+	for _, char := range tier[:len(tier)-1] {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// tierFallsBackToUntiered 报告"这一档取不到价时能不能回落到不区分档位那一行"。
+//
+// 尺寸档（图片）与分辨率档（视频）都是我们自己加的轴，模型没配就说明它不走这条轴，
+// 回落是对的。质量档、音频时长档取不到价则说明配置漏了，必须报错而不是拿别的价顶上。
+func tierFallsBackToUntiered(capability string, raw string) bool {
+	tier := normalizePriceTier(raw)
+	if tier == string(PriceTierNone) {
+		return false
+	}
+	if ModelCapability(capability) == CapabilityVideo {
+		return IsVideoResolutionPriceTier(tier)
+	}
+	return IsSizePriceTier(tier)
+}
+
 // AudioPriceTiers 是音频按输出时长划分的三个档位，顺序为"由短到长"。
 //
 // 时长本身是连续值，不能直接当档位键，所以定成短 / 中 / 长三档；同一档内的时长共用
@@ -180,7 +229,9 @@ func validPriceTier(capability string, raw string) bool {
 		// 音频允许留空：配音与整首歌的时长由上游决定，给它们分档只会逼运营配一堆用不上的价。
 		return tier == PriceTierNone || tier == PriceTierShort || tier == PriceTierMedium || tier == PriceTierLong
 	case CapabilityVideo:
-		return tier == PriceTierNone
+		// 视频按分辨率分档：同一模型的两个分辨率档在库里是两行，取哪一行由用户选的
+		// 分辨率决定。留空表示这个模型不按分辨率分价，一行价卖全部档位。
+		return tier == PriceTierNone || IsVideoResolutionPriceTier(string(tier))
 	default:
 		return false
 	}
@@ -348,7 +399,7 @@ func priceTierRequirementMessage(capability string) string {
 	case CapabilityAudio:
 		return "音频单价档位只能是 SHORT / MEDIUM / LONG，或留空表示不按时长分档"
 	case CapabilityVideo:
-		return "视频目前只有一档价，档位必须留空"
+		return "视频单价档位填分辨率（480P / 720P / 1080P / 2160P 这类），或留空表示不按分辨率分价"
 	default:
 		return "模型能力只能是 TEXT / IMAGE / VIDEO / AUDIO"
 	}

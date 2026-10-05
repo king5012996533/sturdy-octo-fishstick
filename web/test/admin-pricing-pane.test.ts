@@ -149,13 +149,15 @@ describe("后台模型定价面板", () => {
         expect(pane).toContain("preview.source");
     });
 
-    test("档位随能力收敛：文本三档 / 图片五档质量 + 空档 / 音频三档时长 + 兜底 / 视频只有空档", () => {
+    test("档位随能力收敛：文本三档 / 图片五档质量 + 空档 / 音频三档时长 + 兜底 / 视频按分辨率", () => {
         const pane = read(panePath);
         // 选项按能力取，不是一份全局写死的列表。
         expect(pane).toContain("tierOptionsByCapability");
         expect(pane).toContain('TEXT: (["CACHE", "INPUT", "OUTPUT"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] }))');
         expect(pane).toContain('IMAGE: (["", "LOW", "MEDIUM", "HIGH", "XHIGH", "MAX"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] }))');
-        expect(pane).toContain('VIDEO: [{ value: "", label: tierLabels[""] }]');
+        // 视频档位是分辨率本身，给候选但不限定取值（768P、960P 这类非标准档写不进固定列表）。
+        expect(pane).toContain("VIDEO: videoTierOptions");
+        expect(pane).toContain('const videoTierOptions = (["", "480P", "720P", "768P", "1080P", "1440P", "2160P"] as ModelPricePriceTier[])');
         expect(pane).toContain('AUDIO: (["", "SHORT", "MEDIUM", "LONG"] as ModelPricePriceTier[]).map((value) => ({ value, label: audioTierLabels[value] }))');
         // 图片五档质量与文案都要在，否则运营选不到 low / medium / high / xhigh / max。
         expect(pane).toContain('LOW: "低（low）"');
@@ -177,14 +179,15 @@ describe("后台模型定价面板", () => {
         expect(pane).toContain("tierExtraOf");
     });
 
-    test("提交时档位不会被清空：只有视频塌成空串，文本/图片/音频都保留", () => {
+    test("提交时档位不会被清空：四个能力都按运营选的档位提交", () => {
         const pane = read(panePath);
         // 曾经的写法 `capability === "TEXT" ? priceTier : ""` 会把图片选的质量档清空，
         // 三档质量价于是塌成同一条记录——校验只认能力，看不出这种"合法的静默降级"。
         expect(pane).not.toContain('capability === "TEXT" ? values.priceTier : ""');
-        // 现在按"哪些能力不区分档位"来反向判断，音频加入分档后只剩余视频落空串。
-        expect(pane).toContain('values.capability === "VIDEO" ? "" : values.priceTier');
-        expect(pane).not.toContain('values.capability !== "VIDEO" ? "" : values.priceTier');
+        // 视频加入分辨率分档后，四个能力都不再清空档位——留着"视频塌成空串"的写法会让
+        // 运营配的 480P / 720P 两行塌成同一条记录。
+        expect(pane).not.toContain('values.capability === "VIDEO" ? "" : values.priceTier');
+        expect(pane).toContain("return values.priceTier;");
         // 保存与试算两处都必须走同一个口径。
         expect(pane).toContain("priceTier: tierForSubmit(values),");
         expect(pane.match(/priceTier: tierForSubmit\(values\),/g)?.length).toBe(2);
@@ -208,8 +211,10 @@ describe("后台模型定价面板", () => {
         expect(api).toContain('export type ModelPriceUnit = "TOKEN_1M" | "TOKEN_1K" | "IMAGE" | "SECOND" | "REQUEST";');
         // 分档的价格必须能表达：文本的三行靠 priceTier 区分，图片的五档质量价同理。
         expect(api).toContain(
-            'export type ModelPricePriceTier = "" | "CACHE" | "INPUT" | "OUTPUT" | "LOW" | "MEDIUM" | "HIGH" | "XHIGH" | "MAX" | "SHORT" | "LONG";',
+            'export type ModelPricePriceTier = "" | "CACHE" | "INPUT" | "OUTPUT" | "LOW" | "MEDIUM" | "HIGH" | "XHIGH" | "MAX" | "SHORT" | "LONG" | ModelPriceVideoTier;',
         );
+        // 视频档位是分辨率（480P / 768P / 2K），用模板字面量收口形状，写错进不了请求体。
+        expect(api).toContain('export type ModelPriceVideoTier = `${number}${"P" | "K"}`;');
         expect(api).toContain("priceTier: ModelPricePriceTier;");
         // 旧字段名残留会让请求体与服务端契约对不上（服务端读 priceTier）。
         expect(api).not.toContain("tokenTier");

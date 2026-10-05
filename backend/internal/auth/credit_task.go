@@ -110,10 +110,11 @@ func (s *Service) QuoteTaskCharge(input TaskChargeInput) (*TaskChargeQuote, erro
 	if err == nil {
 		price = found
 	}
-	if price == nil && IsSizePriceTier(tier) {
-		// 尺寸档是我们自己加的轴，不是上游的必填维度：模型没给尺寸配价，说明它不按尺寸分档，
-		// 按"不区分档位"那一行结算即可。没有这条回落，给某个模型加尺寸档就会把其余图片模型
-		// 在"没选质量"时打成未定价——那是一次全量报价失败，而不是一个可以慢慢补的配置缺口。
+	if price == nil && tierFallsBackToUntiered(capability, tier) {
+		// 尺寸档（图片）与分辨率档（视频）都是我们自己加的轴，不是上游的必填维度：模型没给
+		// 这一档配价，说明它不按这条轴分档，按"不区分档位"那一行结算即可。没有这条回落，
+		// 给某个模型加一档分辨率就会把其余档位打成未定价——那是一次全量报价失败，而不是
+		// 一个可以慢慢补的配置缺口。
 		if fallback, fallbackErr := s.store.ModelPriceByTier(modelKey, capability, string(PriceTierNone)); fallbackErr == nil {
 			price = fallback
 		}
@@ -133,6 +134,13 @@ func (s *Service) QuoteTaskCharge(input TaskChargeInput) (*TaskChargeQuote, erro
 	}, price, rules)
 
 	unit := unitOf(price, capability)
+	// 按条计费的视频用量恒为 1。上游有一类模型是"一条一个价"、与时长无关（纵横科技的
+	// TTP-grok 就是：6 秒与 15 秒同价），这类价目在后台配成"次"。用量本身由能力决定，
+	// 视频取的是 videoSeconds，不在这里归位的话，一条 180 分的视频会被算成 180 × 15 分——
+	// 账单上写着"180分/条"，扣的却是按秒的钱，用户按算式复核必然对不上。
+	if PriceUnit(unit) == UnitPerRequest && capability == string(CapabilityVideo) {
+		quantity = 1
+	}
 	surcharge := input.SurchargeCredits
 	if surcharge < 0 {
 		surcharge = 0

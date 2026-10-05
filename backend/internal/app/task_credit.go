@@ -309,8 +309,10 @@ func taskChargeQuantity(intent ModelRequestIntent) int64 {
 //   - 认不出的取值同样回空档。模型能力白名单会在更前面挡住这类参数，走到这里说明
 //     渠道配置本身有问题，宁可要一个"未定价"的可见错误，也不要猜一个档位。
 //
+// 视频按分辨率分档：480p 与 720p 在上游是两个价，用户在面板上选哪一档就按哪一档取价。
+//
 // 文本的 token 档位（缓存命中 / 未命中 / 输出）在提交时还不知道，要等用量回执才能结算，
-// 因此这里不返回档位；视频与音频目前只有一个价。
+// 因此这里不返回档位；音频只有一个价。
 // 价格档位名，与 auth.PriceTier 的取值一一对应。
 //
 // app 不 import auth——两者只在计费端口（TaskCreditLedger）上相接，档位名是这条边界上
@@ -344,9 +346,53 @@ func taskChargeTier(intent ModelRequestIntent) string {
 		return imageSizePriceTier(intent.Options["size"])
 	case "audio":
 		return audioPriceTier(intent.Options["audioDuration"])
+	case "video":
+		return videoResolutionPriceTier(intent.Options["vquality"])
 	default:
 		return ""
 	}
+}
+
+// videoResolutionPriceTier 把用户选的分辨率折成价格档位名（480p → 480P）。
+//
+// 认形状而不是查固定清单：视频分辨率有 360p…2160p，还有 768p、960p 这类非标准写法，
+// 写死清单会在接入新模型时漏档。面板没选（auto / 空）或取值不像分辨率时回空档，由
+// 「不区分」那一行兜底——回落到某个具体档位等于用一个自己没验过的成本出货。
+func videoResolutionPriceTier(value any) string {
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	resolution := strings.TrimSpace(text)
+	if isAutomaticVideoResolution(resolution) {
+		return ""
+	}
+	tier := strings.ToUpper(resolution)
+	if !isVideoResolutionTierShape(tier) {
+		return ""
+	}
+	return tier
+}
+
+// isVideoResolutionTierShape 与 auth.IsVideoResolutionPriceTier 是同一条形状规则。
+//
+// app 不 import auth，两份写法是刻意的，一致性由 TestVideoResolutionTierMatchesPricingDomain
+// 兜底：两边跑偏时取价会静默落到"未定价"，表现为"用户点生成被拒"，不会有编译错误。
+func isVideoResolutionTierShape(tier string) bool {
+	if len(tier) < 2 || len(tier) > 5 {
+		return false
+	}
+	switch tier[len(tier)-1] {
+	case 'P', 'K':
+	default:
+		return false
+	}
+	for _, char := range tier[:len(tier)-1] {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // imageQualityPriceTier 认上游真实存在的质量档，认不出来返回空档。

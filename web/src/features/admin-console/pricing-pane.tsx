@@ -1,4 +1,4 @@
-import { Button, Form, Input, InputNumber, Modal, Select, Switch, Table, Tag, type TableProps } from "antd";
+import { AutoComplete, Button, Form, Input, InputNumber, Modal, Select, Switch, Table, Tag, type TableProps } from "antd";
 import { BadgePercent, Calculator, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -72,10 +72,18 @@ const audioTierLabels: Record<ModelPricePriceTier, string> = { ...tierLabels, ME
  * 图片的「不区分」不是任何一档的别名——它代表面板没有指定质量时的价（上游按 auto 计费），
  * 所以虽然标签同为「不区分」，含义与视频/音频那一档并不相同。
  */
+/**
+ * 视频档位就是分辨率本身，所以给候选而不是限定取值。
+ *
+ * 分辨率从 360p 到 2160p，还有 768P、960P 这类非标准档，写死成下拉会让运营在接新模型时
+ * 卡在"配不了"。服务端按形状校验（数字 + P/K），拼错的档位会被拒，不会静默生效。
+ */
+const videoTierOptions = (["", "480P", "720P", "768P", "1080P", "1440P", "2160P"] as ModelPricePriceTier[]).map((value) => ({ value, label: value ? value : "不区分" }));
+
 const tierOptionsByCapability: Record<ModelPriceCapability, { value: ModelPricePriceTier; label: string }[]> = {
     TEXT: (["CACHE", "INPUT", "OUTPUT"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] })),
     IMAGE: (["", "LOW", "MEDIUM", "HIGH", "XHIGH", "MAX"] as ModelPricePriceTier[]).map((value) => ({ value, label: tierLabels[value] })),
-    VIDEO: [{ value: "", label: tierLabels[""] }],
+    VIDEO: videoTierOptions,
     AUDIO: (["", "SHORT", "MEDIUM", "LONG"] as ModelPricePriceTier[]).map((value) => ({ value, label: audioTierLabels[value] })),
 };
 
@@ -112,7 +120,7 @@ export function priceDefaultsFor(capability: ModelPriceCapability): {
 const tierExtraByCapability: Record<ModelPriceCapability, string> = {
     TEXT: "文本三档必填：缓存命中 / 缓存未命中 / 输出各配一行，缺一档这条模型就用不了。",
     IMAGE: "图片可按质量档配价（low / medium / high / xhigh / max，不是每个模型都五档齐备）；留空表示不区分，上游按 auto 计费。",
-    VIDEO: "视频只有一档：选「不区分」。",
+    VIDEO: "视频按分辨率配价：一个分辨率一行（480P / 720P / 1080P / 2160P），每一行只对选了这个分辨率的调用生效；留空表示不按分辨率分价，一行价卖全部档位。",
     // 音频的空档不是任何一档的别名，它是"取不到时长"时的兜底价（旧前端不带时长参数，
     // 上游会按缺省产出 60 秒），所以要跟三档一起配，不能只配三档。
     AUDIO: "能按时长定价的音频模型配四行：短 ≤30 秒 / 中 ≤90 秒 / 长 >90 秒，再配一行「不区分」兜底——客户端没带时长时上游按 60 秒产出，兜底价按中档填。配音与整首歌只需配「不区分」。",
@@ -137,11 +145,13 @@ function tierLabelFor(capability: string, value: string) {
 }
 
 /**
- * 提交时的档位口径：TEXT / IMAGE / AUDIO 都保留用户选的档位（图片靠它区分质量价，
- * 音频靠它区分时长价），视频服务端只接受空串。把档位清空会让多档价塌成同一条记录。
+ * 提交时的档位口径：四个能力都保留运营选的档位。
+ *
+ * 图片靠它区分质量价，音频靠它区分时长价，视频靠它区分分辨率价（480P / 720P）。把档位
+ * 清空会让多档价塌成同一条记录——校验只看能力，看不出这种"合法的静默降级"。
  */
 function tierForSubmit(values: { capability: ModelPriceCapability; priceTier: ModelPricePriceTier }) {
-    return values.capability === "VIDEO" ? "" : values.priceTier;
+    return values.priceTier;
 }
 
 const capabilityOptions = (Object.keys(capabilityLabels) as ModelPriceCapability[]).map((value) => ({ value, label: capabilityLabels[value] }));
@@ -954,7 +964,7 @@ export function PricingPane() {
                                 <Select options={capabilityOptions} />
                             </Form.Item>
                             <Form.Item label="价格档位" name="priceTier" extra={tierExtraOf(priceFormCapability)}>
-                                <Select options={tierOptionsOf(priceFormCapability)} />
+                                {priceFormCapability === "VIDEO" ? <AutoComplete options={tierOptionsOf(priceFormCapability)} placeholder="不区分" /> : <Select options={tierOptionsOf(priceFormCapability)} />}
                             </Form.Item>
                             <Form.Item label="计价单位" name="unit" extra="决定这个单价代表多少量。">
                                 <Select options={unitOptions} />

@@ -74,6 +74,6 @@ func TestTaskChargeTierPicksAudioDuration(t *testing.T) {
 		t.Fatalf("图片高质档应取 %q，实际 %q", tierHigh, image)
 	}
 	if got := taskChargeTier(ModelRequestIntent{Capability: "video", Options: map[string]any{"videoSeconds": 30}}); got != "" {
-		t.Fatalf("视频不应有价格档位，实际 %q", got)
+		t.Fatalf("视频没带清晰度时应取空档（档位只由清晰度决定），实际 %q", got)
 	}
 }

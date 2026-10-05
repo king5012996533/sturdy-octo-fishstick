@@ -31,14 +31,16 @@ export type ModelPriceUnit = "TOKEN_1M" | "TOKEN_1K" | "IMAGE" | "SECOND" | "REQ
  * - IMAGE 按上游 quality 分低 / 中 / 高三档，另允许留空表示"这个模型不区分质量"；
  * - AUDIO 按输出时长分短 / 中 / 长三档，另允许留空表示"这个音频模型不看时长"
  *   （配音与整首歌由上游定长，只有能按秒指定时长的音乐模型才需要配三行）；
- * - VIDEO 只有一个价，档位留空。
+ * - VIDEO 按分辨率分档，档位就是分辨率本身（480P / 720P / 768P / 1080P / 2160P），
+ *   另允许留空表示"这个模型不按分辨率分价"，一行价卖全部档位。
  *
  * 图片的空档不是任何一档的别名：它代表"面板没有指定质量"时的价（上游按 auto 计费）。
  * 音频的空档同样是兜底价——旧前端不带时长时上游会按缺省产出 60 秒，那一行要按中档配。
  *
  * MEDIUM 是图片与音频共用的词，含义随能力变化：图片是中质量，音频是中等时长。
  */
-export type ModelPricePriceTier = "" | "CACHE" | "INPUT" | "OUTPUT" | "LOW" | "MEDIUM" | "HIGH" | "XHIGH" | "MAX" | "SHORT" | "LONG";
+export type ModelPriceVideoTier = `${number}${"P" | "K"}`;
+export type ModelPricePriceTier = "" | "CACHE" | "INPUT" | "OUTPUT" | "LOW" | "MEDIUM" | "HIGH" | "XHIGH" | "MAX" | "SHORT" | "LONG" | ModelPriceVideoTier;
 
 export type ModelPrice = {
     id: string;
