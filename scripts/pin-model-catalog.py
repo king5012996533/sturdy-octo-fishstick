@@ -14,6 +14,10 @@
 只改第 1 处会出现"后台看着已上架、前台一个都看不到"的假象——这也是这个脚本必须
 一起收敛两处的原因。
 
+还有第三种缺口：渠道只建在库里、平台配置的 `channels` 里根本没有这一条。这时第 2 处
+连"改"的机会都没有，模型同样进不了前台。脚本因此会先把缺失的系统渠道补进配置，
+再收敛模型清单——新建渠道后的第一次 pin 就能把这条路走完。
+
 用法（默认预览，不加 --apply 不写任何东西）：
 
     KINO_ADMIN_COOKIE='<浏览器里的会话 Cookie>' \\
@@ -164,6 +168,46 @@ def managed_profile(model: dict) -> dict:
     }
 
 
+def register_missing_channels(config: dict, shelf: dict[str, list[dict]], meta: dict[str, dict]) -> list[str]:
+    """把后台已有、平台配置里却缺的系统渠道补一条。
+
+    渠道只在库里建好是不够的：前台读的是平台配置里的 `channels`，少一条就等于
+    "后台看着已上架、定价也能查到，创作端却选不到这个模型"。这条缺陷不报错，
+    只会让运营以为模型没生效，所以由这个脚本补齐，而不是靠谁记得手工同步。
+    """
+    channels = config.get("channels")
+    if not isinstance(channels, list):
+        return []
+    known = {str(item.get("id") or "") for item in channels if isinstance(item, dict)}
+    added: list[str] = []
+    for channel_id, profiles in shelf.items():
+        if not channel_id or channel_id in known or not profiles:
+            continue
+        channel_meta = meta.get(channel_id) or {}
+        channels.append(
+            {
+                "id": channel_id,
+                "name": str(channel_meta.get("name") or channel_id),
+                "scope": "system",
+                "enabled": True,
+                "pinned": False,
+                "sortOrder": int(channel_meta.get("sortOrder") or 0),
+                "apiFormat": str(channel_meta.get("apiFormat") or "openai"),
+                # 系统渠道在浏览器侧只持有 /api/ai/system/<id> 这条相对地址：
+                # 上游地址与平台密钥都留在服务端，前端拿不到也改不了。
+                "baseUrl": f"/api/ai/system/{channel_id}",
+                "apiKey": "system",
+                "secretKey": "",
+                "headers": [],
+                "hasApiKey": True,
+                "models": [profile["model"] for profile in profiles],
+                "modelProfiles": profiles,
+            }
+        )
+        added.append(f"{channel_id} 补进平台模型配置（{len(profiles)} 个模型）")
+    return added
+
+
 def shelf_plan(config: dict, shelf: dict[str, list[dict]]) -> tuple[dict, list[str]]:
     """算出平台模型配置的目标状态。
 
@@ -252,11 +296,13 @@ def main() -> int:
         print("缺少管理员会话：请设置 KINO_ADMIN_COOKIE（浏览器里任意 /api/admin/* 请求的 Cookie 头）", file=sys.stderr)
         return 2
 
-    channels = request("GET", args.base_url, "/admin/channels", cookie).get("channels") or []
+    channels = request("GET", args.base_url, "/admin/channels?pageSize=200", cookie).get("channels") or []
     seen = {capability: set() for capability in MANAGED_CAPABILITIES}
     changes: list[tuple[str, dict, bool]] = []
     # 渠道 id → 目标货架模型（按后台顺序）。未启用的模型不进这份清单，对应"下架"。
     shelf: dict[str, list[dict]] = {}
+    # 建渠道时写得进库、写不进平台配置的字段就靠这里取，补配置时要用。
+    channel_meta: dict[str, dict] = {}
 
     for channel in channels:
         channel_id = channel.get("id") or ""
@@ -280,6 +326,11 @@ def main() -> int:
             if wanted:
                 on_shelf.append(managed_profile(model))
         shelf[channel_id] = on_shelf
+        channel_meta[channel_id] = {
+            "name": channel.get("name") or "",
+            "apiFormat": channel.get("apiFormat") or "",
+            "sortOrder": channel.get("sortOrder") or 0,
+        }
 
     exit_code = 0
     for capability, wanted in CATALOG.items():
@@ -296,7 +347,10 @@ def main() -> int:
     revision = payload.get("revision")
     shelf_changes: list[str] = []
     if isinstance(config, dict):
-        config, shelf_changes = shelf_plan(json.loads(json.dumps(config)), shelf)
+        config = json.loads(json.dumps(config))
+        shelf_changes.extend(register_missing_channels(config, shelf, channel_meta))
+        config, converged = shelf_plan(config, shelf)
+        shelf_changes.extend(converged)
     else:
         print("警告：读不到平台模型配置，本次只改渠道开关，前台清单不会变化。", file=sys.stderr)
         exit_code = 1

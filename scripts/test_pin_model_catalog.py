@@ -131,6 +131,37 @@ class ShelfPlanTest(unittest.TestCase):
         self.assertEqual(changes, [])
 
 
+
+class RegisterMissingChannelsTest(unittest.TestCase):
+    def test_appends_channel_absent_from_config(self):
+        config = json.loads(json.dumps(base_config()))
+        shelf = {"C1": [pin.managed_profile(channel_model("m-old", "image"))], "C9": [pin.managed_profile(channel_model("v-new", "video"))]}
+        added = pin.register_missing_channels(config, shelf, {"C9": {"name": "新渠道", "apiFormat": "openai", "sortOrder": 3}})
+        self.assertEqual(len(added), 1)
+        channel = config["channels"][-1]
+        self.assertEqual(channel["id"], "C9")
+        self.assertEqual(channel["name"], "新渠道")
+        self.assertEqual(channel["models"], ["v-new"])
+        self.assertEqual([profile["model"] for profile in channel["modelProfiles"]], ["v-new"])
+        # 系统渠道在浏览器侧只拿相对地址，上游地址与平台密钥不下发。
+        self.assertEqual(channel["baseUrl"], "/api/ai/system/C9")
+        self.assertEqual(channel["apiKey"], "system")
+
+    def test_existing_channel_is_left_alone(self):
+        config = json.loads(json.dumps(base_config()))
+        shelf = {"C1": [pin.managed_profile(channel_model("m-old", "image"))]}
+        self.assertEqual(pin.register_missing_channels(config, shelf, {}), [])
+        self.assertEqual(len(config["channels"]), 2)
+
+    def test_empty_shelf_channel_is_skipped(self):
+        # 一个模型都没上架的渠道补进配置只会让前台多一条空渠道。
+        config = json.loads(json.dumps(base_config()))
+        self.assertEqual(pin.register_missing_channels(config, {"C9": []}, {}), [])
+        self.assertEqual(len(config["channels"]), 2)
+
+    def test_missing_channels_block_is_tolerated(self):
+        self.assertEqual(pin.register_missing_channels({"models": []}, {"C9": [{"model": "x"}]}, {}), [])
+
 class CliTest(unittest.TestCase):
     def test_requires_admin_cookie(self):
         import os
