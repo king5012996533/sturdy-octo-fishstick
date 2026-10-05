@@ -103,17 +103,17 @@ guard_case() {
     code=$?
     set -e
     if [ "$code" -eq 0 ]; then
-        fail "$label：进程正常启动并退出了，守卫没拦住"
+        fail "${label}：进程正常启动并退出了，守卫没拦住"
         return
     fi
     if [ "$code" -eq 124 ]; then
-        fail "$label：进程一直在跑，守卫没拦住（已在 25 秒后终止）"
+        fail "${label}：进程一直在跑，守卫没拦住（已在 25 秒后终止）"
         return
     fi
     if grep -q "$expect_token" "$out"; then
-        pass "$label：已拒绝启动（退出码 ${code}，提示 ${expect_token}）"
+        pass "${label}：已拒绝启动（退出码 ${code}，提示 ${expect_token}）"
     else
-        fail "$label：拒绝了，但提示里没有 ${expect_token}"
+        fail "${label}：拒绝了，但提示里没有 ${expect_token}"
         sed 's/^/        /' "$out" | tail -5
     fi
 }
