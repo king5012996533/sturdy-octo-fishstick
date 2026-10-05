@@ -12,6 +12,7 @@ import { createBillingOrder, formatMoneyFen, payBillingOrder, type BillingPaymen
 import { getCreditTopUpPlans, type CreditTopUpPlan } from "@/services/api/credit";
 
 import { WalletPanel, WalletSectionHead, errorMessage, errorNotice, useDelayedLoading } from "./wallet-kit";
+import { TopUpPaymentQR } from "./wallet-pay-qr";
 
 /**
  * Zone B —— 充值区。
@@ -150,6 +151,9 @@ export function CreditTopUpSection({ revision, onNotice, onSettled }: { revision
                 title="充值积分"
                 note={unitRate > 0 ? `充值后积分立即到账，按当前档位约 1 元 = ${formatCount(unitRate)} 积分（含赠送）。` : "充值后积分立即到账，可直接用于平台模型生成。"}
             />
+
+            {/* 收款码与货架无关：支付渠道没接通时它才是主路径，所以放在档位之前，不用先下单才看得到。 */}
+            <TopUpPaymentQR />
 
             {showSkeleton && !plans.length ? (
                 <CollectionGrid>

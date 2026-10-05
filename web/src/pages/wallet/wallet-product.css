@@ -403,6 +403,52 @@
 }
 .wallet-checkout-summary { min-width: 0; color: color-mix(in srgb, var(--foreground) 62%, transparent); font-size: var(--fs-caption); line-height: 1.8; }
 .wallet-checkout-summary strong { color: var(--foreground); font-weight: 600; }
+
+/* 收款二维码：支付渠道接通前的兜底。图与三步说明并排，窄屏落成一列。 */
+.wallet-pay-qr {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-top: 16px;
+}
+.wallet-pay-qr-image {
+    width: 168px;
+    height: 168px;
+    flex: 0 0 168px;
+    padding: 8px;
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--r-xl);
+    background: #fff;
+    object-fit: contain;
+}
+.wallet-pay-qr-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+.wallet-pay-qr-copy h3 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-heading);
+    font-weight: 600;
+    color: var(--foreground);
+}
+.wallet-pay-qr-copy ol {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding-left: 18px;
+    /* Tailwind preflight 把列表标记清掉了，三步必须带序号才看得出是"按顺序做"。 */
+    list-style: decimal;
+    color: color-mix(in srgb, var(--foreground) 58%, transparent);
+    font-size: var(--fs-caption);
+    line-height: 1.7;
+}
+@media (max-width: 640px) {
+    .wallet-pay-qr { flex-direction: column; align-items: flex-start; }
+}
 .wallet-checkout-summary .wallet-checkout-amount {
     font-family: var(--font-display);
     font-size: var(--fs-heading);

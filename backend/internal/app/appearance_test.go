@@ -357,6 +357,44 @@ func TestUploadAppearanceLogoAlwaysUsesServerLocalStorage(t *testing.T) {
 	}
 }
 
+// TestAppearancePaymentQRIsOptionalAndProjected 覆盖充值收款二维码：
+// 没配置时前台拿不到任何地址（充值页据此整块隐藏），上传并保存后才投影出来。
+func TestAppearancePaymentQRIsOptionalAndProjected(t *testing.T) {
+	svc, _, _, admin := newAppearanceTestService(t)
+
+	appearance, err := svc.Appearance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if appearance.PaymentQRConfigured || appearance.PaymentQRURL != "" {
+		t.Fatalf("默认收款码 = %#v", appearance)
+	}
+
+	pngBytes := append([]byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}, bytes.Repeat([]byte{0}, 32)...)
+	resource, err := svc.UploadAppearanceAsset(admin, AppearanceAssetPaymentQR, multipartFileHeader(t, "pay.png", "image/png", pngBytes))
+	if err != nil {
+		t.Fatalf("上传收款码失败: %v", err)
+	}
+	// 收款码与 Logo 同属"装完就不会动"的站点资产，必须留在服务器本地而不是对象存储。
+	if resource.Provider != "local" {
+		t.Fatalf("收款码存储 = %#v", resource)
+	}
+
+	value := defaultAppearanceSetting()
+	value.PaymentQRResourceID = resource.ID
+	if _, err := svc.UpdateAppearance(admin, value); err != nil {
+		t.Fatalf("保存收款码失败: %v", err)
+	}
+
+	appearance, err = svc.Appearance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !appearance.PaymentQRConfigured || !strings.HasPrefix(appearance.PaymentQRURL, "/api/public/appearance/assets/"+AppearanceAssetPaymentQR) {
+		t.Fatalf("收款码投影 = %#v", appearance)
+	}
+}
+
 func TestUpdateAppearanceValidatesLoginCopy(t *testing.T) {
 	svc, _, _, admin := newAppearanceTestService(t)
 

@@ -28,13 +28,17 @@ const (
 	AppearanceAssetDarkLogo = "logo-dark"
 	AppearanceAssetVideo    = "video"
 	AppearanceAssetPoster   = "poster"
+	// AppearanceAssetPaymentQR 是充值页展示的收款二维码。它和 Logo 一样属于站点级
+	// 资源：支付渠道还没接通时，用户扫码付款、运营在后台手工补单，先让流量能落地。
+	AppearanceAssetPaymentQR = "payment-qr"
 )
 
 const (
-	appearanceSchemaVersion        = 7
-	appearanceLogoMaxBytes   int64 = 5 << 20
-	appearancePosterMaxBytes int64 = 10 << 20
-	appearanceVideoMaxBytes  int64 = 256 << 20
+	appearanceSchemaVersion           = 8
+	appearanceLogoMaxBytes      int64 = 5 << 20
+	appearancePosterMaxBytes    int64 = 10 << 20
+	appearanceVideoMaxBytes     int64 = 256 << 20
+	appearancePaymentQRMaxBytes int64 = 5 << 20
 )
 
 const (
@@ -59,6 +63,7 @@ type AppearanceSetting struct {
 	AuthVideoResourceID       string                `json:"authVideoResourceId"`
 	AuthVideoPosterResourceID string                `json:"authVideoPosterResourceId"`
 	AuthVideoAutoplay         bool                  `json:"authVideoAutoplay"`
+	PaymentQRResourceID       string                `json:"paymentQrResourceId"`
 	SkinID                    string                `json:"skinId"`
 	SkinThemes                []AppearanceSkinTheme `json:"skinThemes"`
 	SEOTitle                  string                `json:"seoTitle"`
@@ -81,6 +86,7 @@ type PublicAppearanceSetting struct {
 	AuthVideoURL              string              `json:"authVideoUrl"`
 	AuthVideoPosterURL        string              `json:"authVideoPosterUrl"`
 	AuthVideoAutoplay         bool                `json:"authVideoAutoplay"`
+	PaymentQRURL              string              `json:"paymentQrUrl"`
 	SkinID                    string              `json:"skinId"`
 	ActiveSkin                AppearanceSkinTheme `json:"activeSkin"`
 	SEOTitle                  string              `json:"seoTitle"`
@@ -93,6 +99,7 @@ type PublicAppearanceSetting struct {
 	DarkLogoConfigured        bool                `json:"darkLogoConfigured"`
 	AuthVideoConfigured       bool                `json:"authVideoConfigured"`
 	AuthVideoPosterConfigured bool                `json:"authVideoPosterConfigured"`
+	PaymentQRConfigured       bool                `json:"paymentQrConfigured"`
 	Configured                bool                `json:"configured"`
 	Revision                  string              `json:"revision"`
 	UpdatedAt                 time.Time           `json:"updatedAt,omitempty"`
@@ -128,6 +135,8 @@ func AppearanceAssetMaxBytes(slot string) (int64, error) {
 		return appearancePosterMaxBytes, nil
 	case AppearanceAssetVideo:
 		return appearanceVideoMaxBytes, nil
+	case AppearanceAssetPaymentQR:
+		return appearancePaymentQRMaxBytes, nil
 	default:
 		return 0, BadAuthRequest("外观资源类型无效")
 	}
@@ -177,6 +186,7 @@ func (s *Service) UpdateAppearance(actor *model.User, value AppearanceSetting) (
 	value.DarkLogoResourceID = strings.TrimSpace(value.DarkLogoResourceID)
 	value.AuthVideoResourceID = strings.TrimSpace(value.AuthVideoResourceID)
 	value.AuthVideoPosterResourceID = strings.TrimSpace(value.AuthVideoPosterResourceID)
+	value.PaymentQRResourceID = strings.TrimSpace(value.PaymentQRResourceID)
 	value.SkinID = strings.TrimSpace(value.SkinID)
 	if len(value.SkinThemes) == 0 {
 		value.SkinThemes = defaultAppearanceSkinThemes()
@@ -206,6 +216,7 @@ func (s *Service) UpdateAppearance(actor *model.User, value AppearanceSetting) (
 		{slot: AppearanceAssetDarkLogo, resourceID: value.DarkLogoResourceID, currentID: before.DarkLogoResourceID},
 		{slot: AppearanceAssetVideo, resourceID: value.AuthVideoResourceID, currentID: before.AuthVideoResourceID},
 		{slot: AppearanceAssetPoster, resourceID: value.AuthVideoPosterResourceID, currentID: before.AuthVideoPosterResourceID},
+		{slot: AppearanceAssetPaymentQR, resourceID: value.PaymentQRResourceID, currentID: before.PaymentQRResourceID},
 	} {
 		if err := s.validateAppearanceResource(actor, candidate.slot, candidate.resourceID, candidate.currentID); err != nil {
 			return nil, err
@@ -265,10 +276,10 @@ func (s *Service) UploadAppearanceAsset(actor *model.User, slot string, header *
 		kind = "video"
 	}
 	var resource *model.Resource
-	// Logos are tiny, installation-owned assets. Keep them in the server's
-	// persistent resource directory so their availability and cost do not
+	// Logos and the payment QR are tiny, installation-owned assets. Keep them in the
+	// server's persistent resource directory so their availability and cost do not
 	// depend on the administrator's currently selected object storage.
-	if slot == AppearanceAssetLogo || slot == AppearanceAssetDarkLogo {
+	if slot == AppearanceAssetLogo || slot == AppearanceAssetDarkLogo || slot == AppearanceAssetPaymentQR {
 		resource, err = s.uploadLocalResource(actor.ID, header, kind, 0, 0, 0)
 	} else {
 		resource, err = s.UploadResource(actor.ID, header, kind, 0, 0, 0)
@@ -317,6 +328,7 @@ func (s *Service) appearanceReferencedResourceIDs(resourceIDs []string) map[stri
 		value.DarkLogoResourceID,
 		value.AuthVideoResourceID,
 		value.AuthVideoPosterResourceID,
+		value.PaymentQRResourceID,
 	}
 	wanted := make(map[string]struct{}, len(resourceIDs))
 	for _, resourceID := range resourceIDs {
@@ -380,7 +392,7 @@ func (s *Service) readAppearance() (*model.SystemSetting, AppearanceSetting, err
 // Remote objects are not probed on every appearance request; the frontend has
 // its own load-error fallback for objects that disappear outside the system.
 func (s *Service) resolveAvailableAppearanceAssets(value AppearanceSetting) AppearanceSetting {
-	for _, slot := range []string{AppearanceAssetLogo, AppearanceAssetDarkLogo, AppearanceAssetVideo, AppearanceAssetPoster} {
+	for _, slot := range []string{AppearanceAssetLogo, AppearanceAssetDarkLogo, AppearanceAssetVideo, AppearanceAssetPoster, AppearanceAssetPaymentQR} {
 		resourceID := appearanceResourceID(value, slot)
 		if resourceID == "" || s.appearanceAssetAvailable(slot, resourceID) {
 			continue
@@ -394,6 +406,8 @@ func (s *Service) resolveAvailableAppearanceAssets(value AppearanceSetting) Appe
 			value.AuthVideoResourceID = ""
 		case AppearanceAssetPoster:
 			value.AuthVideoPosterResourceID = ""
+		case AppearanceAssetPaymentQR:
+			value.PaymentQRResourceID = ""
 		}
 	}
 	return value
@@ -450,7 +464,7 @@ func validateAppearanceSetting(value AppearanceSetting) error {
 	if value.ICPFilingEnabled && value.ICPFilingNumber == "" {
 		return BadAuthRequest("显示备案号前请先填写备案号")
 	}
-	for _, resourceID := range []string{value.LogoResourceID, value.DarkLogoResourceID, value.AuthVideoResourceID, value.AuthVideoPosterResourceID} {
+	for _, resourceID := range []string{value.LogoResourceID, value.DarkLogoResourceID, value.AuthVideoResourceID, value.AuthVideoPosterResourceID, value.PaymentQRResourceID} {
 		if len(resourceID) > 80 {
 			return BadAuthRequest("外观资源 ID 无效")
 		}
@@ -520,7 +534,7 @@ func validateAppearanceResourceType(slot string, resource *model.Resource) error
 		return BadAuthRequest("登录页品牌视频必须是视频资源")
 	}
 	if slot != AppearanceAssetVideo && resource.Kind != "image" {
-		return BadAuthRequest("Logo 和视频封面必须是图片资源")
+		return BadAuthRequest("Logo、视频封面与收款二维码必须是图片资源")
 	}
 	return nil
 }
@@ -582,6 +596,8 @@ func appearanceAssetLabel(slot string) string {
 		return "视频封面"
 	case AppearanceAssetVideo:
 		return "品牌视频"
+	case AppearanceAssetPaymentQR:
+		return "充值收款二维码"
 	default:
 		return "外观资源"
 	}
@@ -597,6 +613,8 @@ func appearanceResourceID(value AppearanceSetting, slot string) string {
 		return value.AuthVideoResourceID
 	case AppearanceAssetPoster:
 		return value.AuthVideoPosterResourceID
+	case AppearanceAssetPaymentQR:
+		return value.PaymentQRResourceID
 	default:
 		return ""
 	}
@@ -662,6 +680,11 @@ func publicAppearanceSetting(setting *model.SystemSetting, value AppearanceSetti
 	if value.AuthVideoPosterResourceID != "" {
 		result.AuthVideoPosterConfigured = true
 		result.AuthVideoPosterURL = appearanceAssetURL(AppearanceAssetPoster, revision)
+	}
+	if value.PaymentQRResourceID != "" {
+		// 收款码是"支付渠道还没接通时的兜底"，没配就不出现在充值页，不需要内置默认图。
+		result.PaymentQRConfigured = true
+		result.PaymentQRURL = appearanceAssetURL(AppearanceAssetPaymentQR, revision)
 	}
 	return result
 }

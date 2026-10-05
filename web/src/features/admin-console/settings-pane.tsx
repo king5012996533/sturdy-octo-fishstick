@@ -21,12 +21,13 @@ function draftOf(setting: AdminAppearanceSetting): Draft {
     return rest;
 }
 
-/** 四个上传槽位：浅色 Logo、深色 Logo、品牌视频与视频封面。 */
+/** 五个上传槽位：浅色 Logo、深色 Logo、品牌视频、视频封面与充值收款码。 */
 const assetSlots: Array<{ slot: AdminAppearanceAssetSlot; label: string; hint: string; accept: string; kind: "image" | "video"; field: keyof Draft }> = [
     { slot: "logo", label: "浅色模式 Logo", hint: "PNG / JPEG / WebP，5MB 以内，建议方形透明底", accept: "image/png,image/jpeg,image/webp", kind: "image", field: "logoResourceId" },
     { slot: "logo-dark", label: "深色模式 Logo", hint: "留空则沿用浅色 Logo", accept: "image/png,image/jpeg,image/webp", kind: "image", field: "darkLogoResourceId" },
     { slot: "poster", label: "视频封面", hint: "PNG / JPEG / WebP，10MB 以内", accept: "image/png,image/jpeg,image/webp", kind: "image", field: "authVideoPosterResourceId" },
     { slot: "video", label: "登录页品牌视频", hint: "MP4 / WebM，256MB 以内", accept: "video/mp4,video/webm", kind: "video", field: "authVideoResourceId" },
+    { slot: "payment-qr", label: "充值收款二维码", hint: "PNG / JPEG / WebP，5MB 以内。配置后展示在用户端积分中心的充值区，供支付渠道接通前扫码付款、运营手工补单", accept: "image/png,image/jpeg,image/webp", kind: "image", field: "paymentQrResourceId" },
 ];
 
 /** Go 的 time.Time 零值会序列化成 0001-01-01，展示成"1/1/1"比留空更让人困惑。 */
@@ -233,7 +234,7 @@ export function SettingsPane() {
                 </section>
 
                 <section className="admin-card admin-settings-section">
-                    <h3 className="admin-settings-title"><ImageIcon className="size-3.5" />品牌资源</h3>
+                    <h3 className="admin-settings-title"><ImageIcon className="size-3.5" />品牌与收款资源</h3>
                     {assetSlots.map((item) => {
                         const resourceId = String(draft[item.field] ?? "");
                         const previewURL = setting?.public
@@ -243,7 +244,9 @@ export function SettingsPane() {
                                     ? setting.public.darkLogoUrl
                                     : item.slot === "poster"
                                         ? setting.public.authVideoPosterUrl
-                                        : setting.public.authVideoUrl
+                                        : item.slot === "payment-qr"
+                                            ? setting.public.paymentQrUrl
+                                            : setting.public.authVideoUrl
                             : "";
                         return (
                             <div className="admin-asset-row" key={item.slot}>

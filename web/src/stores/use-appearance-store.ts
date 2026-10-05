@@ -4,7 +4,7 @@ import type { PublicAppearance } from "@/services/api/appearance";
 import { applySkinTheme, DEFAULT_CLASSIC_SKIN, normalizeSkinDefinition } from "@/lib/skin-themes";
 
 export const DEFAULT_PUBLIC_APPEARANCE: PublicAppearance = {
-    schemaVersion: 7,
+    schemaVersion: 8,
     brandName: "KinoTV",
     brandSlug: "kinotv",
     authHeroTitle: "让一个故事，\n从文字走向银幕。",
@@ -17,6 +17,8 @@ export const DEFAULT_PUBLIC_APPEARANCE: PublicAppearance = {
     authVideoUrl: "https://boss-shjd.biliapi.net/updream/aniforge/video/video_bbcb00bd-650d-4249-9346-5cd21fd2484c_m1hc-u0-1pu13x-3v1s.mp4",
     authVideoPosterUrl: "https://i0.hdslb.com/bfs/aitool/aniforge/image/02933f26-5f1b-49ff-a811-b7f95ee5e5b8_m1hc-u0-sau.jpg",
     authVideoAutoplay: true,
+    // 收款码没有内置默认图：没配置就代表"这条兜底路径不存在"，前端不再渲染。
+    paymentQrUrl: "",
     skinId: "classic",
     activeSkin: DEFAULT_CLASSIC_SKIN,
     seoTitle: "KinoTV",
@@ -29,6 +31,7 @@ export const DEFAULT_PUBLIC_APPEARANCE: PublicAppearance = {
     darkLogoConfigured: false,
     authVideoConfigured: false,
     authVideoPosterConfigured: false,
+    paymentQrConfigured: false,
     configured: false,
     revision: "builtin",
 };
@@ -64,7 +67,7 @@ export function normalizePublicAppearance(value?: Partial<PublicAppearance> | nu
     return {
         ...DEFAULT_PUBLIC_APPEARANCE,
         ...value,
-        schemaVersion: 7,
+        schemaVersion: 8,
         brandName: resolvedBrandName,
         brandSlug,
         authHeroTitle,
@@ -87,6 +90,8 @@ export function normalizePublicAppearance(value?: Partial<PublicAppearance> | nu
         darkLogoConfigured: Boolean(value?.darkLogoConfigured),
         authVideoConfigured: customVideo,
         authVideoPosterConfigured: Boolean(value?.authVideoPosterConfigured),
+        paymentQrUrl: value?.paymentQrConfigured ? safeAppearanceURL(value?.paymentQrUrl, "") : "",
+        paymentQrConfigured: Boolean(value?.paymentQrConfigured),
         configured: Boolean(value?.configured),
         revision: String(value?.revision || DEFAULT_PUBLIC_APPEARANCE.revision),
     };

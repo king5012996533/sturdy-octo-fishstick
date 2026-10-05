@@ -575,6 +575,8 @@ export type AdminAppearanceSetting = {
     authVideoResourceId: string;
     authVideoPosterResourceId: string;
     authVideoAutoplay: boolean;
+    /** 充值页收款二维码的资源 ID；留空表示不展示。 */
+    paymentQrResourceId: string;
     skinId: string;
     skinThemes: AdminAppearanceSkinTheme[];
     seoTitle: string;
@@ -597,7 +599,7 @@ export type AdminAppearancePublic = PublicAppearance;
 /** 保存请求只接受资源 ID，不接受裸 URL：站外地址不进首屏。 */
 export type AdminAppearanceInput = Omit<AdminAppearanceSetting, "schemaVersion" | "public" | "configured" | "updatedBy" | "createdAt" | "updatedAt">;
 
-export type AdminAppearanceAssetSlot = "logo" | "logo-dark" | "video" | "poster";
+export type AdminAppearanceAssetSlot = "logo" | "logo-dark" | "video" | "poster" | "payment-qr";
 
 export function getAdminAppearance() {
     return http.get<AdminAppearanceSetting>("/admin/settings/appearance");
