@@ -1,6 +1,6 @@
 import { AutoComplete, Tag } from "antd";
 
-import { modelPriceTargetLabel, modelPriceTargetSearchText, type ModelPriceTarget } from "./model-price-targets";
+import { modelPriceTargetName, modelPriceTargetSearchText, type ModelPriceTarget } from "./model-price-targets";
 
 /**
  * 模型标识选择器。
@@ -33,7 +33,11 @@ export function ModelKeyPicker({
         searchText: modelPriceTargetSearchText(target),
         label: (
             <span className="flex min-w-0 items-center gap-2">
-                <span className="truncate">{modelPriceTargetLabel(target)}</span>
+                {/* 名字一行、完整标识一行：拼成一行会被输入框的宽度截成「Replicate · 主账…」。 */}
+                <span className="flex min-w-0 flex-col">
+                    <span className="truncate">{modelPriceTargetName(target)}</span>
+                    <span className="admin-user-sub truncate">{target.fullKey}</span>
+                </span>
                 {target.enabled ? null : <Tag>{`已停用`}</Tag>}
             </span>
         ),
@@ -50,6 +54,8 @@ export function ModelKeyPicker({
             onChange={(next) => onChange?.(next)}
             onSelect={(_next, option) => onPick?.((option as { target: ModelPriceTarget }).target)}
             placeholder={placeholder}
+            // 下拉跟着内容走：模型标识比输入框长，按输入框宽度截断等于没显示。
+            popupMatchSelectWidth={false}
             // 目录为空（所有渠道都停用、或目录请求失败）时，手填仍是退路，所以要说清格式。
             notFoundContent={<span className="admin-user-sub">没有匹配的模型；也可以直接手填「渠道 ID::平台模型标识」。</span>}
             allowClear

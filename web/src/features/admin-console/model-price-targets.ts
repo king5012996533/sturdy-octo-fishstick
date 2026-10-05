@@ -41,10 +41,20 @@ export function toPriceCapability(capability: string): ModelPriceCapability | nu
     return null;
 }
 
-/** 下拉里的展示文案：先说人看得懂的名字，再把标识放后面备查。 */
-export function modelPriceTargetLabel(target: ModelPriceTarget): string {
+/** 渠道 + 模型名：运营在这张表里认的就是这两个东西。 */
+export function modelPriceTargetName(target: ModelPriceTarget): string {
     const name = target.displayName.trim() || target.modelKey;
-    return `${target.channelName} · ${name} · ${target.modelKey}`;
+    return `${target.channelName} · ${name}`;
+}
+
+/**
+ * 一行式文案：通知条、提示语这类地方用。
+ *
+ * 下拉里不用它——拼成一行会被输入框的宽度截成「Replicate · 主账…」，所以选项拆成两行
+ * （名字在上、完整标识在下）。
+ */
+export function modelPriceTargetLabel(target: ModelPriceTarget): string {
+    return `${modelPriceTargetName(target)} · ${target.modelKey}`;
 }
 
 /** 搜索用的一整串：渠道名、展示名、模型标识都要能命中，否则运营只能按标识搜。 */

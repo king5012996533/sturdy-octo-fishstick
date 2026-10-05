@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import {
     channelModelFullKey,
     modelPriceTargetLabel,
+    modelPriceTargetName,
     modelPriceTargetSearchText,
     toPriceCapability,
     type ModelPriceTarget,
@@ -53,6 +54,8 @@ describe("后台可定价模型目录", () => {
             enabled: true,
         };
         expect(modelPriceTargetLabel(target)).toBe("Replicate·主账号 · MiniMax Music 2.5 · minimax/music-2.5");
+        // 下拉用两行：第一行渠道 + 模型名，第二行完整标识；拼成一行会被输入框截断。
+        expect(modelPriceTargetName(target)).toBe("Replicate·主账号 · MiniMax Music 2.5");
         // 展示名缺失时退回模型标识，不能出现 " ·  · " 这种空档。
         expect(modelPriceTargetLabel({ ...target, displayName: "" })).toBe("Replicate·主账号 · minimax/music-2.5 · minimax/music-2.5");
 
@@ -82,5 +85,9 @@ describe("后台可定价模型目录", () => {
         expect(picker).toContain("onSelect={(_next, option) => onPick?.((option as { target: ModelPriceTarget }).target)}");
         // 目录为空时仍要能手填完整标识。
         expect(picker).toContain("notFoundContent");
+        // 下拉宽度跟内容走，并按两行展示（名字 + 完整标识）。
+        expect(picker).toContain("popupMatchSelectWidth={false}");
+        expect(picker).toContain("modelPriceTargetName(target)");
+        expect(picker).toContain("{target.fullKey}");
     });
 });
