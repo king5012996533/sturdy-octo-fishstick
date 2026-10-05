@@ -19125,6 +19125,14 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 .canvas-model-picker-menu.is-model-list {
     width: min(720px, calc(100vw - 24px)) !important;
 }
+/* 平台目录（渠道全归平台所有）不展示渠道层：用户选的是型号，渠道名属于平台内部账目。
+   没有二级页头，列表也就不必为它让出那 68px。 */
+.canvas-model-picker-menu.is-flat-list {
+    width: min(420px, calc(100vw - 24px)) !important;
+}
+.canvas-model-picker-menu.is-flat-list .canvas-model-picker-options {
+    max-height: calc(var(--canvas-model-picker-max-height) - 20px);
+}
 .canvas-model-picker-two-pane {
     display: grid;
     width: 100%;

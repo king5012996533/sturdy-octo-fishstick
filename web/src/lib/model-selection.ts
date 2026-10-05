@@ -1,7 +1,7 @@
 import { defaultImageCapabilityConfig, modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, STANDARD_IMAGE_SIZE_VALUES, videoDurationAllowed, type ImageCapabilityConfig } from "@/lib/model-capabilities";
 import { videoResolutionComparisonKey } from "@/lib/video-generation-options";
 import { imageSizePresets } from "@/lib/image-size-presets";
-import { modelOptionName, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { modelOptionName, PUBLIC_MODEL_CATALOG_ID, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 
 export type ModelInputSummary = {
     textCount: number;
@@ -49,6 +49,41 @@ export function configuredModelDisplayName(config: AiConfig, value: string) {
     const model = modelOptionName(value);
     const channel = resolveModelChannel(config, value);
     return channel.modelProfiles?.find((item) => item.model === model)?.displayName?.trim() || model;
+}
+
+/** 模型是否挂在平台自有渠道上（系统渠道或平台公开目录）。 */
+export function isPlatformOwnedModel(config: AiConfig, model: string) {
+    const channel = resolveModelChannel(config, model);
+    return channel.id === PUBLIC_MODEL_CATALOG_ID || channel.scope === "system";
+}
+
+/**
+ * 候选模型是否全部来自平台自有渠道。
+ *
+ * 这时渠道对用户没有区分意义——它只表示"这笔钱从哪个上游账号出"，
+ * 名字也是平台内部的（"Replicate · 主账号"、"腾讯 TokenHub · 主账号"）。
+ * 选择器据此跳过渠道层直接平铺型号；只有当用户自己配过渠道、需要靠渠道名
+ * 区分同名模型时，才保留两级目录。
+ */
+export function isPlatformOnlyCatalog(config: AiConfig, models: string[]) {
+    return models.length > 0 && models.every((model) => isPlatformOwnedModel(config, model));
+}
+
+/**
+ * 跨渠道按显示名合并模型组。
+ *
+ * 同一个型号可能分散在多个平台渠道，对用户来说是同一个型号；平铺展示时按显示名
+ * 并成一行，选中后仍由兼容路由决定落到哪一个渠道。
+ */
+export function flattenModelGroupsByDisplayName(config: AiConfig, models: string[]): DisplayModelGroup[] {
+    const merged = new Map<string, DisplayModelGroup>();
+    groupModelsByDisplayName(config, models).forEach((group) => {
+        const key = group.label.toLocaleLowerCase();
+        const existing = merged.get(key);
+        if (existing) existing.models.push(...group.models);
+        else merged.set(key, { key, label: group.label, models: [...group.models] });
+    });
+    return Array.from(merged.values());
 }
 
 export function modelCompatibilityError(config: AiConfig, model: string, requirements?: ModelRequirements) {
