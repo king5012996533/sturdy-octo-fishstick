@@ -105,17 +105,22 @@ func New(deps bootstrap.HostedDeps, options Options) (bootstrap.HostedExtension,
 	if options.DevEchoCode {
 		log.Printf("auth: 开发回显已开启，验证码会随下发响应一起返回；仅限本地联调")
 	}
+	// 礼包先建壳再回填 service：auth.NewService 的入参里要放钩子，而钩子又需要
+	// 刚装配出来的这个 service，直接互相引用会构成初始化循环。
+	gift := &registrationGift{}
 	service, err := auth.NewService(auth.Options{
-		Store:       auth.NewStore(db),
-		EmailSender: emailSender(),
-		SMSSender:   smsSender(),
-		StateSecret: []byte(strings.TrimSpace(options.StateSecret)),
-		DevEchoCode: options.DevEchoCode,
+		Store:            auth.NewStore(db),
+		EmailSender:      emailSender(),
+		SMSSender:        smsSender(),
+		StateSecret:      []byte(strings.TrimSpace(options.StateSecret)),
+		DevEchoCode:      options.DevEchoCode,
+		OnUserRegistered: gift.grant,
 	})
 	if err != nil {
 		closeDB()
 		return nil, err
 	}
+	gift.service = service
 	extension := &Extension{
 		service: service,
 		canvas:  deps.Service,

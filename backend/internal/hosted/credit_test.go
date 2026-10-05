@@ -47,9 +47,10 @@ func TestHostedCreditTopUpReachesWallet(t *testing.T) {
 	}
 
 	wallet := readWallet(t, router, userCookie, "")
-	// 没充过钱的账号就是零，不是 404：把零余额做成错误会让新用户的积分卡片显示成加载失败。
-	if wallet.Balance != 0 || wallet.UserID == "" {
-		t.Fatalf("新账号应返回零余额账户，实际 %#v", wallet)
+	// 没充过钱的账号余额就是注册礼包，而不是 404：把"还没有账户"做成错误会让新用户的
+	// 积分卡片显示成加载失败。
+	if wallet.Balance != registrationGiftCredits || wallet.UserID == "" {
+		t.Fatalf("新账号应返回注册礼包余额，实际 %#v", wallet)
 	}
 
 	recorder := perform(router, http.MethodPost, "/api/payments/orders", `{"planCode":"topup-100"}`, userCookie)
@@ -76,7 +77,7 @@ func TestHostedCreditTopUpReachesWallet(t *testing.T) {
 		`{"remark":"线下转账"}`, adminCookie); recorder.Code != http.StatusOK {
 		t.Fatalf("补单失败：%d %s", recorder.Code, recorder.Body.String())
 	}
-	if wallet := readWallet(t, router, userCookie, ""); wallet.Balance != 11000 {
+	if wallet := readWallet(t, router, userCookie, ""); wallet.Balance != 11000+registrationGiftCredits {
 		t.Fatalf("到账后余额应为 11000，实际 %d", wallet.Balance)
 	}
 
@@ -168,8 +169,9 @@ func TestHostedCreditLedgerIgnoresForeignUserID(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &ledger); err != nil {
 		t.Fatalf("解析流水响应失败: %v %s", err, recorder.Body.String())
 	}
-	if len(ledger.Data.Entries) != 0 {
-		t.Fatalf("查询串里的 userId 不应生效，实际返回了 %d 条", len(ledger.Data.Entries))
+	// 会话账号自己的注册礼包可以出现，受害者的流水一条都不能带出来。
+	if len(ledger.Data.Entries) != 1 || ledger.Data.Entries[0].RefType != "REGISTER" {
+		t.Fatalf("查询串里的 userId 不应生效，实际返回了 %#v", ledger.Data.Entries)
 	}
 }
 
@@ -196,7 +198,7 @@ func TestHostedAdminCreditAdjustRequiresNote(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("带原因的补偿应成功，实际 %d：%s", recorder.Code, recorder.Body.String())
 	}
-	if wallet := readWalletFor(t, router, adminCookie, targetID); wallet.Balance != 500 {
+	if wallet := readWalletFor(t, router, adminCookie, targetID); wallet.Balance != 500+registrationGiftCredits {
 		t.Fatalf("补偿后余额应为 500，实际 %d", wallet.Balance)
 	}
 }
@@ -256,11 +258,15 @@ func TestHostedAdminCreditAccountsSortsByBalance(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &page); err != nil {
 		t.Fatalf("解析积分列表失败: %v %s", err, recorder.Body.String())
 	}
-	if page.Data.Total != 2 || len(page.Data.Accounts) != 2 {
-		t.Fatalf("应有两个积分账户，实际 %#v", page.Data)
+	// 注册会发新人礼包，所以三个账号都有钱包：big 与 small 是加过分，admin 只有礼包。
+	if page.Data.Total != 3 || len(page.Data.Accounts) != 3 {
+		t.Fatalf("应有三个积分账户，实际 %#v", page.Data)
 	}
-	if page.Data.Accounts[0].UserID != bigID || page.Data.Accounts[0].Balance != 90000 {
+	if page.Data.Accounts[0].UserID != bigID || page.Data.Accounts[0].Balance != 90000+registrationGiftCredits {
 		t.Fatalf("应按余额降序，实际首行 %#v", page.Data.Accounts[0])
+	}
+	if page.Data.Accounts[1].UserID != smallID || page.Data.Accounts[2].UserID != adminID {
+		t.Fatalf("应按余额降序，实际 %#v", page.Data.Accounts)
 	}
 	if page.Data.Accounts[0].Email != "rank-big@example.com" {
 		t.Fatalf("应带上账号资料，实际 %#v", page.Data.Accounts[0])

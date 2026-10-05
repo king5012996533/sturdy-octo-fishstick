@@ -9,7 +9,23 @@ import (
 	"infinite-canvas/backend/internal/auth"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
+
+// insertWalletlessAccount 直接在账号库里建一个"还没有积分账户"的账号。
+//
+// 注册路径现在都会发新人礼包，所以"钱包不存在"这种情况只能绕开注册构造，而它恰恰是
+// 后台读数必须给出零余额视图、而不是缺字段或报错的那条路。
+func insertWalletlessAccount(t *testing.T, authDB *gorm.DB, email string) string {
+	t.Helper()
+	name := "无积分账户"
+	mail := email
+	user := &auth.User{Name: &name, Email: &mail, Role: auth.RoleUser, Status: auth.StatusActive}
+	if err := auth.NewStore(authDB).CreateUser(user); err != nil {
+		t.Fatalf("建无积分账户账号失败: %v", err)
+	}
+	return user.ID
+}
 
 // 用户管理页的积分读数。
 //
@@ -39,16 +55,25 @@ func TestHostedAdminUserListCarriesCreditBalance(t *testing.T) {
 	if !ok {
 		t.Fatalf("用户列表里没有充值过的账号，实际 %#v", rows)
 	}
-	if rich.Credit == nil || rich.Credit.Balance != 1200 || rich.Credit.LifetimeIn != 1200 {
+	if rich.Credit == nil || rich.Credit.Balance != 1200+registrationGiftCredits || rich.Credit.LifetimeIn != 1200+registrationGiftCredits {
 		t.Fatalf("列表应带出余额与累计获得，实际 %#v", rich.Credit)
 	}
-	// 没充过钱的账号是最常见的一类，必须给出零余额视图而不是缺字段或报错。
+	// 注册过但没充过钱的账号：余额就是新人礼包。
 	fresh, ok := rows[freshID]
 	if !ok {
 		t.Fatalf("用户列表里没有新注册的账号，实际 %#v", rows)
 	}
-	if fresh.Credit == nil || fresh.Credit.Balance != 0 {
-		t.Fatalf("未注册积分账户的账号应显示零余额，实际 %#v", fresh.Credit)
+	if fresh.Credit == nil || fresh.Credit.Balance != registrationGiftCredits {
+		t.Fatalf("新注册账号应带出注册礼包余额，实际 %#v", fresh.Credit)
+	}
+	// 连积分账户都还没有的账号（历史账号、直接建号）也必须给出零余额视图。
+	walletlessID := insertWalletlessAccount(t, authDB, "user-credit-walletless@example.com")
+	bare, ok := readAdminUserRows(t, router, adminCookie)[walletlessID]
+	if !ok {
+		t.Fatalf("用户列表里没有无积分账户的账号")
+	}
+	if bare.Credit == nil || bare.Credit.Balance != 0 {
+		t.Fatalf("没有积分账户的账号应显示零余额，实际 %#v", bare.Credit)
 	}
 }
 
@@ -75,7 +100,7 @@ func TestHostedAdminUserDetailCarriesCreditBalance(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("解析用户详情失败: %v %s", err, recorder.Body.String())
 	}
-	if envelope.Data.Credit == nil || envelope.Data.Credit.Balance != 300 {
+	if envelope.Data.Credit == nil || envelope.Data.Credit.Balance != 300+registrationGiftCredits {
 		t.Fatalf("详情应带出余额，实际 %#v", envelope.Data.Credit)
 	}
 }
@@ -103,12 +128,12 @@ func TestHostedAdminCreditAccountReadsSingleWallet(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("解析余额失败: %v %s", err, recorder.Body.String())
 	}
-	if envelope.Data.Balance != 640 || envelope.Data.LifetimeIn != 640 {
+	if envelope.Data.Balance != 640+registrationGiftCredits || envelope.Data.LifetimeIn != 640+registrationGiftCredits {
 		t.Fatalf("单账号余额应为 640，实际 %#v", envelope.Data)
 	}
 
-	// 抽屉要对一个从没充过钱的账号也给出零余额，而不是让运营看到一次失败。
-	_, emptyID := registerAccount(t, router, authDB, "wallet-empty@example.com")
+	// 抽屉要对一个还没有积分账户的账号也给出零余额，而不是让运营看到一次失败。
+	emptyID := insertWalletlessAccount(t, authDB, "wallet-empty@example.com")
 	recorder = perform(router, http.MethodGet, "/api/admin/credits/accounts/"+emptyID, "", adminCookie)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("读零余额账号失败：%d %s", recorder.Code, recorder.Body.String())
