@@ -127,6 +127,99 @@ nodone_code=$?
 set -e
 expect "缺 done 时恢复被拒绝" 1 "$nodone_code"
 
+printf '\n[发布备份清理]\n'
+# 造一个发布目录：每个类别都远超保留份数，另外混入不该被碰的活文件与不认识的条目。
+RELEASE="$WORK/release"
+mkdir -p "$RELEASE/backups" "$RELEASE/data" "$RELEASE/web" "$RELEASE/src.new"
+printf 'live' > "$RELEASE/web/index.html"
+cp /bin/echo "$RELEASE/kinotv-server" 2>/dev/null || printf 'bin' > "$RELEASE/kinotv-server"
+printf 'src' > "$RELEASE/src.new/main.go"
+printf 'nope' > "$RELEASE/foo.bak-20260101"          # 名字像备份但不匹配任何已知模式
+touch -t 202001010000 "$RELEASE/foo.bak-20260101"
+for i in 1 2 3 4 5; do
+    mkdir -p "$RELEASE/web.bak-2026100${i}-1200"
+    printf 'x' > "$RELEASE/web.bak-2026100${i}-1200/index.html"
+    printf 'bin' > "$RELEASE/kinotv-server.bak-2026100${i}-1200"
+    printf 'db' > "$RELEASE/open_ai_canvas.db.bak-2026100${i}-1200"
+    printf 'auth' > "$RELEASE/kinotv-auth.db.bak-2026100${i}-1200"
+    touch -t "2026100${i}1200" \
+        "$RELEASE/web.bak-2026100${i}-1200" \
+        "$RELEASE/kinotv-server.bak-2026100${i}-1200" \
+        "$RELEASE/open_ai_canvas.db.bak-2026100${i}-1200" \
+        "$RELEASE/kinotv-auth.db.bak-2026100${i}-1200"
+done
+for i in 1 2 3; do
+    printf 'res' > "$RELEASE/resources.bak-2026100${i}-1300.tgz"
+    printf 'snap' > "$RELEASE/backups/snap-2026100${i}"
+    touch -t "2026100${i}1300" "$RELEASE/resources.bak-2026100${i}-1300.tgz"
+    touch -t "2026100${i}1400" "$RELEASE/backups/snap-2026100${i}"
+done
+
+# dry-run 必须先做到"只看不动"：删错东西的第一步往往是没先跑它。
+"$SCRIPT_DIR/kinotv-prune-releases.sh" --release-dir "$RELEASE" --log "$WORK/prune.log" \
+    --dry-run --quiet >/dev/null 2>&1
+expect "dry-run 退出码" 0 "$?"
+expect "dry-run 不删除任何条目" 24 "$(find "$RELEASE" -maxdepth 1 -name '*.bak-*' | wc -l | tr -d ' ')"
+
+"$SCRIPT_DIR/kinotv-prune-releases.sh" --release-dir "$RELEASE" --log "$WORK/prune.log" --quiet >/dev/null 2>&1
+expect "正式清理退出码" 0 "$?"
+# 每个类别都按默认份数保留：前端 3 / 二进制 3 / 库快照 3 / 资源 2 / 手工快照 2。
+expect "前端保留最近 3 份" 3 "$(find "$RELEASE" -maxdepth 1 -name 'web.bak-*' | wc -l | tr -d ' ')"
+expect "二进制保留最近 3 份" 3 "$(find "$RELEASE" -maxdepth 1 -name 'kinotv-server.bak-*' | wc -l | tr -d ' ')"
+expect "两个库各保留最近 3 份" 6 "$(find "$RELEASE" -maxdepth 1 -name '*.db.bak-*' | wc -l | tr -d ' ')"
+expect "资源归档保留最近 2 份" 2 "$(find "$RELEASE" -maxdepth 1 -name 'resources.bak-*' | wc -l | tr -d ' ')"
+expect "手工快照保留最近 2 份" 2 "$(find "$RELEASE/backups" -maxdepth 1 -mindepth 1 | wc -l | tr -d ' ')"
+expect_true "删除的是最旧的那份（20261001 已不在）" \
+    "$([ ! -d "$RELEASE/web.bak-20261001-1200" ] && echo yes || echo no)"
+expect_true "最新的一份仍然在（20261005）" \
+    "$([ -d "$RELEASE/web.bak-20261005-1200" ] && echo yes || echo no)"
+
+# 活文件与不认识的条目一个都不能少：这几种误删都是不可逆的事故。
+expect_true "活前端目录未被碰" "$([ -f "$RELEASE/web/index.html" ] && echo yes || echo no)"
+expect_true "活二进制未被碰" "$([ -f "$RELEASE/kinotv-server" ] && echo yes || echo no)"
+expect_true "源目录未被碰" "$([ -f "$RELEASE/src.new/main.go" ] && echo yes || echo no)"
+expect_true "不认识的 foo.bak-* 未被碰" "$([ -f "$RELEASE/foo.bak-20260101" ] && echo yes || echo no)"
+
+# 排序必须认文件名里的时间戳，而不是目录 mtime：发布备份是 cp -a / mv 出来的，
+# 目录 mtime 继承自源目录，会明显早于"备份是什么时候做的"。
+# 下面两条故意把名字与 mtime 弄反，谁说了算必须一目了然。
+mkdir -p "$RELEASE/web.bak-20200101-0000"
+printf 'x' > "$RELEASE/web.bak-20200101-0000/index.html"
+touch "$RELEASE/web.bak-20200101-0000"                       # 名字最老，mtime 最新
+mkdir -p "$RELEASE/web.bak-20301231-2359"
+printf 'x' > "$RELEASE/web.bak-20301231-2359/index.html"
+touch -t 201901010000 "$RELEASE/web.bak-20301231-2359"       # 名字最新，mtime 最老
+"$SCRIPT_DIR/kinotv-prune-releases.sh" --release-dir "$RELEASE" --log "$WORK/prune.log" \
+    --keep-releases 2 --quiet >/dev/null 2>&1
+expect_true "名字最新的即使 mtime 很老也留下" \
+    "$([ -d "$RELEASE/web.bak-20301231-2359" ] && echo yes || echo no)"
+expect_true "名字最老的即使 mtime 刚改过也删掉" \
+    "$([ ! -d "$RELEASE/web.bak-20200101-0000" ] && echo yes || echo no)"
+
+# 名字里没有时间戳的条目（backups/ 下就有这种）退回 mtime 排序，不能被当成 0 先删。
+mkdir -p "$RELEASE/backups"
+printf 'x' > "$RELEASE/backups/recent-no-stamp"
+touch "$RELEASE/backups/recent-no-stamp"
+"$SCRIPT_DIR/kinotv-prune-releases.sh" --release-dir "$RELEASE" --log "$WORK/prune.log" \
+    --keep-snapshots 1 --quiet >/dev/null 2>&1
+expect_true "名字无时间戳时按 mtime 保留最新的" \
+    "$([ -f "$RELEASE/backups/recent-no-stamp" ] && echo yes || echo no)"
+
+# 至少留 1 份：--keep-* 传 0 也不能把回滚物清空。
+"$SCRIPT_DIR/kinotv-prune-releases.sh" --release-dir "$RELEASE" --log "$WORK/prune.log" \
+    --keep-releases 0 --keep-db 0 --keep-media 0 --keep-snapshots 0 --quiet >/dev/null 2>&1
+expect "keep=0 时前端仍留 1 份" 1 "$(find "$RELEASE" -maxdepth 1 -name 'web.bak-*' | wc -l | tr -d ' ')"
+expect "keep=0 时两个库各留 1 份" 2 "$(find "$RELEASE" -maxdepth 1 -name '*.db.bak-*' | wc -l | tr -d ' ')"
+expect "keep=0 时手工快照仍留 1 份" 1 "$(find "$RELEASE/backups" -maxdepth 1 -mindepth 1 | wc -l | tr -d ' ')"
+
+# 发布目录写错时必须明确失败，不能"清理 0 份"然后报成功。
+set +e
+"$SCRIPT_DIR/kinotv-prune-releases.sh" --release-dir "$WORK/no-such-release" --log "$WORK/prune.log" \
+    --quiet >/dev/null 2>&1
+no_release_code=$?
+set -e
+expect "发布目录不存在时退出码 1" 1 "$no_release_code"
+
 printf '\n[静态检查：变量名后紧跟非 ASCII 字符]\n'
 # bash 在部分版本/区域设置下会把紧跟 $VAR 的多字节字符并进变量名，变成
 # "DEGRADED）: unbound variable"。这种 bug 只在特定分支上才炸，跑不出来就是漏网。

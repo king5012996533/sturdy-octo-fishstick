@@ -1,0 +1,14 @@
+[Unit]
+Description=KinoTV 发布备份清理（旧前端 / 旧二进制 / 发布前快照）
+Documentation=file:/opt/kinotv/docs/hosted-deployment.md
+# 排在每日备份之后：备份脚本裁的是数据备份目录，这里裁的是发布回滚物，都要动磁盘，
+# 串行执行避免两边同时大批量删文件把 IO 打满。
+After=kinotv-backup.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/kinotv.env
+Environment=KINOTV_RELEASE_DIR=/opt/kinotv
+ExecStart=/opt/kinotv/scripts/kinotv/kinotv-prune-releases.sh --log /var/log/kinotv-prune.log
+# 删除失败会让退出码为 1，oneshot 进入 failed，`systemctl --failed` 里能看到；
+# 比只在日志里写一行"删不掉"更容易被发现。

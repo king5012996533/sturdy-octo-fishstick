@@ -1,0 +1,11 @@
+[Unit]
+Description=每天 04:00 清理 KinoTV 发布备份
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+# 关机或停机错过任务时补跑一次：磁盘涨满不会自己好转，漏跑必须留下痕迹。
+Persistent=true
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target

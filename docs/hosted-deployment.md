@@ -272,6 +272,7 @@ CANVAS_BACKEND_DATA_DIR=/opt/kinotv/data CANVAS_DATABASE_DRIVER=sqlite /tmp/insp
 | `kinotv-backup.sh` | SQLite 在线快照 + 配置 + 用户资源，按次产出整份目录 |
 | `kinotv-restore.sh` | 校验备份 → 恢复到目标目录 → 可选真起一次服务演练 |
 | `kinotv-restore-drill.py` | 演练里的 HTTP/SQLite 断言（登录、配置、列表） |
+| `kinotv-prune-releases.sh` | 按份数裁掉发布目录下的旧前端 / 旧二进制 / 旧快照 |
 | `kinotv-selftest.sh` | 改过上面任何一个之后跑一次，含负向用例 |
 
 ### 备份
@@ -357,7 +358,7 @@ ALERT_EMAIL_TO=           # 邮件，走 BEEFTV_SMTP_*
 ```bash
 install -m 644 scripts/kinotv/systemd/*.service scripts/kinotv/systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now kinotv-backup.timer kinotv-healthcheck.timer kinotv-restore-drill.timer
+systemctl enable --now kinotv-backup.timer kinotv-healthcheck.timer kinotv-restore-drill.timer kinotv-prune-releases.timer
 ```
 
 | 定时器 | 频率 | 作用 |
@@ -365,8 +366,9 @@ systemctl enable --now kinotv-backup.timer kinotv-healthcheck.timer kinotv-resto
 | `kinotv-backup.timer` | 每天 03:30 | 备份 |
 | `kinotv-healthcheck.timer` | 每 5 分钟 | 巡检，异常告警 |
 | `kinotv-restore-drill.timer` | 每周日 04:30 | 恢复演练 |
+| `kinotv-prune-releases.timer` | 每天 04:00 | 清理发布备份，见「磁盘维护」 |
 
-三个 timer 都带 `Persistent=true`（关机错过会补跑）——漏掉一天备份却毫无痕迹，
+四个 timer 都带 `Persistent=true`（关机错过会补跑）——漏掉一天备份却毫无痕迹，
 是这类任务里最难发现的一种故障。
 
 **这套与 `/root` 下旧脚本的关系。** 机器上原本有 `backup-db.sh`（PostgreSQL/MySQL）、
@@ -378,13 +380,43 @@ systemctl enable --now kinotv-backup.timer kinotv-healthcheck.timer kinotv-resto
 ## 磁盘维护
 
 每次发布会把旧前端挪成 `web.bak-<时间戳>`（每份约 103M）并保留旧二进制。它们只用于
-回滚最近一次，**不需要长期堆**：
+回滚，**不需要长期堆**——这对文件一个多月能攒到好几个 G，所以交给定时任务每天裁一次，
+不再靠人记得敲 `rm`。
 
 ```bash
-cd /opt/kinotv && ls -1dt web.bak-* | tail -n +3 | xargs rm -rf   # 只留最近两份
-ls -1t kinotv-server.bak-* | tail -n +3 | xargs rm -rf
-df -h /
+# 看一遍将删除什么（不动文件）
+/opt/kinotv/scripts/kinotv/kinotv-prune-releases.sh --dry-run
+
+# 实际执行（kinotv-prune-releases.timer 每天 04:00 自动跑这条）
+/opt/kinotv/scripts/kinotv/kinotv-prune-releases.sh
 ```
+
+保留策略按**份数**而不是天数：这些是发布回滚物，生命周期跟着"上次发布"走。按天数算的话，
+长时间不发布时旧的会因过期被删光，真出事时一份都回滚不了。
+
+| 类别 | 默认保留 |
+| --- | --- |
+| `web.bak-*`、`kinotv-server.bak-*` | 各 3 份 |
+| `open_ai_canvas.db.bak-*`、`kinotv-auth.db.bak-*` | 各 3 份 |
+| `resources.bak-*.tgz` | 2 份 |
+| `backups/` 下的发布前手工快照 | 2 份 |
+
+几条硬约束，改脚本时别拆掉：
+
+- 每个类别至少留 1 份，`--keep-*` 传 0 也不生效；"全删光"不交给脚本决定。
+- 排序认文件名里的时间戳（`yyyymmdd-hhmmss`），取不到才退回 mtime。**别改成按 mtime 排**：
+  发布备份是 `cp -a` / `mv` 出来的，目录 mtime 继承自源目录，实测
+  `kinotv-server.bak-20261005-1516` 的 mtime 是 10-04 20:58，比自己早一天——按 mtime
+  排会把最新那份回滚物排到很旧的位置。
+- 只删名字匹配已知模式的条目——不认识的、以及 `web/`、`kinotv-server`、`data/`、
+  `src.new*` 这些活文件一律不碰。
+- 与备份脚本一样带锁，且超过 6 小时的锁视为残留自动接管。
+
+清理记录写在 `/var/log/kinotv-prune.log`；有条目删不掉时退出码为 1，systemd 里就是
+`failed`。发布目录如果配错（不存在），脚本直接失败而不是"成功清理 0 份"。
+
+`/root/backups/kinotv`（真正的数据备份）由 `kinotv-backup.sh` 自己裁剪：库与配置留
+7 天、资源包留 3 天，见 `KINOTV_BACKUP_KEEP_DAYS` / `KINOTV_BACKUP_KEEP_MEDIA_DAYS`。
 
 ## 日常操作
 
