@@ -63,6 +63,9 @@ CATALOG: dict[str, set[str]] = {
         # 漏一个就会被这个脚本当成"超纲"下架，前台少一档。
         "MiniMax-H3",
         "MiniMax-H3-2K",
+        # 纵横科技 TTP-grok：按分辨率分档定价，两档价挂在同一条货架记录下
+        # （价目表的视频档位就是分辨率本身），因此这里只有一条。
+        "grok-imagine-video/v1.5",
     },
 }
 MANAGED_CAPABILITIES = tuple(CATALOG)
