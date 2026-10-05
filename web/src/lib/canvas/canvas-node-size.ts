@@ -1,10 +1,25 @@
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { CanvasNodeType, isBuiltinCanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
-export const MEDIA_NODE_MIN_SIZE = { width: 420, height: 236 } as const;
-export const VIDEO_NODE_MAX_SIZE = { width: 720, height: 520 } as const;
+export const MEDIA_NODE_MIN_SIZE = { width: 360, height: 202 } as const;
+// 媒体卡片的展示上限。新建、上传、生成结果回填共用同一档，避免同一张素材在三条路径下
+// 落成三种尺寸（上一版默认 720×520，拖进来的方图比新建的卡片还大）。
+// 显式标注为 number：这个常量会作为 fitNodeSize 的默认参数，字面量类型会把调用方传进来的
+// 动态宽高判成类型错误。
+export const MEDIA_NODE_MAX_SIZE: { width: number; height: number } = { width: 560, height: 405 };
+export const VIDEO_NODE_MAX_SIZE = MEDIA_NODE_MAX_SIZE;
 
-export function fitNodeSize(width: number, height: number, maxWidth = 720, maxHeight = 520, minWidth = MEDIA_NODE_MIN_SIZE.width, minHeight = MEDIA_NODE_MIN_SIZE.height) {
+/**
+ * 用户是否手动定过这张卡片的几何。
+ *
+ * 生成结果回填默认按上游产物的真实比例重算宽高并居中，会把用户手动拉过的卡片压回默认
+ * 尺寸（Windows 上表现为「卡片一直变」）。只要动过（锁定 / 自由比例 / 手动拉过）就原样保留。
+ */
+export function hasManualNodeGeometry(node: CanvasNodeData) {
+    return Boolean(node.metadata?.locked || node.metadata?.freeResize || node.metadata?.manualSize);
+}
+
+export function fitNodeSize(width: number, height: number, maxWidth = MEDIA_NODE_MAX_SIZE.width, maxHeight = MEDIA_NODE_MAX_SIZE.height, minWidth = MEDIA_NODE_MIN_SIZE.width, minHeight = MEDIA_NODE_MIN_SIZE.height) {
     const w = Math.max(1, width);
     const h = Math.max(1, height);
     // 媒体节点既要保留原始比例，也要给生成状态、操作按钮留下稳定的可读空间。
@@ -65,11 +80,7 @@ export function ensureMediaNodeMinimumSize(node: CanvasNodeData) {
         width = targetSize.width;
         height = targetSize.height;
     } else {
-        const shouldPromoteEmptyStage = !node.metadata?.content
-            && !node.metadata?.freeResize
-            && !node.metadata?.locked
-            && emptyStage !== undefined
-            && (width <= 0 || height <= 0);
+        const shouldPromoteEmptyStage = !node.metadata?.content && !node.metadata?.freeResize && !node.metadata?.locked && emptyStage !== undefined && (width <= 0 || height <= 0);
         if (shouldPromoteEmptyStage) {
             width = emptyStage.width;
             height = emptyStage.height;
@@ -77,9 +88,7 @@ export function ensureMediaNodeMinimumSize(node: CanvasNodeData) {
     }
     const naturalWidth = node.metadata?.naturalWidth || 0;
     const naturalHeight = node.metadata?.naturalHeight || 0;
-    const requestedSize = node.type === CanvasNodeType.Image && node.metadata?.generationType === "edit"
-        ? nodeSizeFromRatio(node.metadata.size || "auto", node.width, node.height)
-        : null;
+    const requestedSize = node.type === CanvasNodeType.Image && node.metadata?.generationType === "edit" ? nodeSizeFromRatio(node.metadata.size || "auto", node.width, node.height) : null;
     const naturalRatio = naturalWidth / Math.max(1, naturalHeight);
     const nodeRatio = node.width / Math.max(1, node.height);
     // 修复旧版图生图无条件继承参考节点尺寸造成的比例错误，不覆盖自由拉伸或锁定布局。

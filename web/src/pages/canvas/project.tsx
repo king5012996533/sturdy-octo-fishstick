@@ -24,8 +24,9 @@ import { persistCanvasMediaPerformanceMode, readCanvasMediaPerformanceMode } fro
 import { summarizeCanvasContext } from "@/lib/canvas/canvas-context-summary";
 import { DEFAULT_DRAWING_ENGINE } from "@/lib/canvas/canvas-drawing-engine";
 import { refreshCanvasCharacterReferenceNodes } from "@/lib/canvas/canvas-character-reference";
+import { canApplyRemoteCanvasSnapshot } from "@/lib/canvas/canvas-remote-snapshot";
 import { useAssetStore } from "@/stores/use-asset-store";
-import { flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import { flushCanvasStorePersistence, pendingCanvasStorePersistence, useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { ensureCanvasNodeAsset } from "@/services/project-asset-sync";
 import { useCanvasThemeStore, useCanvasThemeScope } from "@/stores/canvas/use-canvas-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -320,6 +321,30 @@ function InfiniteCanvasPage() {
         nodesRef.current = next;
         setNodesState(next);
     }, []);
+
+    /**
+     * 把后台快照套用到编辑器。
+     *
+     * 必须挡在"用户正在操作"和"本地还没落盘"之外：云端那份一定落后于内存里的编辑
+     * （位置要到指针抬起才提交，保存本身是异步的），覆盖回来就是把卡片拉回旧位置、
+     * 把刚选的尺寸改回去，跟着节点走的输入框也会一起闪。判定见
+     * lib/canvas/canvas-remote-snapshot.ts。
+     *
+     * 依赖里只放 setNodes 是刻意的：setConnections 在本函数下方才声明，把它写进依赖数组
+     * 会在渲染期读到一个还没初始化的绑定。闭包体在调用时才求值，那时它已经就位。
+     */
+    const applyRemoteCanvasSnapshot = useCallback((project: CanvasProject) => {
+        const container = containerRef.current;
+        const allowed = canApplyRemoteCanvasSnapshot({
+            nodeDragging: container?.dataset.canvasNodeDragging === "true",
+            viewportInteracting: container?.dataset.canvasViewportInteracting === "true",
+            hasPendingLocalWrite: Boolean(pendingCanvasStorePersistence(getActiveUserScope())),
+        });
+        if (!allowed) return;
+        setNodes(project.nodes || []);
+        setConnections(project.connections || []);
+    }, [setNodes]);
+
     useEffect(() => {
         if (!projectId || !isLocalWorkspaceMode()) return;
         let disposed = false;
@@ -327,23 +352,22 @@ function InfiniteCanvasPage() {
             if (disposed) return;
             void refreshLocalCanvasProjectIfChanged(projectId).then((project) => {
                 if (!disposed && project) {
-                    setNodes(project.nodes || []);
-                    setConnections(project.connections || []);
+                    applyRemoteCanvasSnapshot(project);
                 }
             });
         };
         const timer = window.setInterval(check, 4000);
         return () => { disposed = true; window.clearInterval(timer); };
-    }, [projectId, setNodes]);
+    }, [applyRemoteCanvasSnapshot, projectId]);
     useEffect(() => {
         if (!projectId || !isLocalWorkspaceMode() || window.location.protocol !== "http:") return;
         const source = new EventSource(`/api/canvas-projects/${encodeURIComponent(projectId)}/events`);
         const sync = () => void refreshLocalCanvasProjectIfChanged(projectId).then((project) => {
-            if (project) { setNodes(project.nodes || []); setConnections(project.connections || []); }
+            if (project) applyRemoteCanvasSnapshot(project);
         });
         source.addEventListener("canvas.updated", sync);
         return () => { source.removeEventListener("canvas.updated", sync); source.close(); };
-    }, [projectId, setNodes]);
+    }, [applyRemoteCanvasSnapshot, projectId]);
     const [nodeStackOrder, setNodeStackOrder] = useState<CanvasNodeStackOrder>([]);
     const bringNodeToFront = useCallback((nodeId: string) => {
         setNodeStackOrder((current) => bringCanvasNodeToFront(current, nodeId));
@@ -973,8 +997,10 @@ function InfiniteCanvasPage() {
         chatSessionsRef.current = chatSessions;
         activeChatIdRef.current = activeChatId;
         selectedNodeIdsRef.current = selectedNodeIds;
-        viewportRef.current = viewport;
-    }, [activeChatId, chatSessions, nodes, connections, selectedNodeIds, viewport]);
+        // viewportRef is written by the camera controller and live canvas during
+        // interaction. Copying React's throttled value here can overwrite a
+        // newer drag position when another part of the editor re-renders.
+    }, [activeChatId, chatSessions, nodes, connections, selectedNodeIds]);
 
     useEffect(() => {
         if (!projectLoaded) return;
@@ -2001,8 +2027,10 @@ function InfiniteCanvasPage() {
     const dialogNodeCandidate = dialogNodeId ? nodeById.get(dialogNodeId) || null : null;
     const dialogNode = canOpenCanvasNodePromptPanel(dialogNodeCandidate) ? dialogNodeCandidate : null;
     // dragPreview is published on the same pointer-down frame as isNodeDragging.
-    // Treat either signal as moving so floating editors disappear before the
-    // first preview transform is painted and never affect drag layout.
+    // 这个标记只留给「选中态浮层」：多选工具栏和节点悬浮工具栏靠选中包围盒定位，拖拽中跟着
+    // 动只会互相打架，所以拖拽期间收起。
+    // 挂在节点下方的输入面板不走这里——它自己订阅拖拽预览跟手，卸载再挂载会让输入框在每次
+    // 拖拽时闪出闪回（Windows 上尤其明显），见 canvas-workspace-overlays.tsx。
     const isCanvasNodeMoving = isNodeDragging || Boolean(dragPreview?.nodeIds.size);
     const subtitleNode = subtitleNodeId ? nodeById.get(subtitleNodeId) || null : null;
     const timelineNode = timelineNodeId ? nodeById.get(timelineNodeId) || null : null;
@@ -3349,7 +3377,7 @@ function InfiniteCanvasPage() {
                             </AppModal>
                         ) : null}
 
-                        {emotionNode?.metadata?.content && !isCanvasNodeMoving ? (
+                        {emotionNode?.metadata?.content ? (
                             <CanvasEmotionWorkspace
                                 node={emotionNode}
                                 viewport={viewport}
@@ -3371,8 +3399,7 @@ function InfiniteCanvasPage() {
                         dialogNode.type !== CanvasNodeType.BatchTable &&
                         dialogNode.type !== CanvasNodeType.Drawing &&
                         dialogNode.type !== CanvasNodeType.Panorama &&
-                        !selectionBox &&
-                        !isCanvasNodeMoving ? (
+                        !selectionBox ? (
                             <CanvasNodePanelOverlay
                                 node={dialogNode}
                                 viewport={viewport}

@@ -33,6 +33,12 @@ describe("视口提交后的世界层补偿", () => {
         expect(source).toContain("setViewportCommitEpoch((epoch) => epoch + 1);");
     });
 
+    test("编辑器重渲染不会把实时拖拽位置覆盖回 React 旧值", () => {
+        const projectSource = readFileSync(new URL("../src/pages/canvas/project.tsx", import.meta.url), "utf8");
+        expect(projectSource).toContain("selectedNodeIdsRef.current = selectedNodeIds;");
+        expect(projectSource).not.toContain("selectedNodeIdsRef.current = selectedNodeIds;\n        viewportRef.current = viewport;");
+    });
+
     test("滚轮缩放不再依赖固定像素除数和 100 整数倍判定", () => {
         expect(source).not.toContain("WHEEL_ZOOM_DELTA");
         expect(source).not.toContain("looksLikeMouseWheel");

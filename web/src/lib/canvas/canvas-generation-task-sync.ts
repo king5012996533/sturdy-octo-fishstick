@@ -1,6 +1,6 @@
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { seedanceOutputWarning } from "@/lib/seedance-output-warning";
-import { fitNodeSize, nodeSizeFromRatio, VIDEO_NODE_MAX_SIZE } from "@/lib/canvas/canvas-node-size";
+import { VIDEO_NODE_MAX_SIZE, fitNodeSize, hasManualNodeGeometry, nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { compositeEmotionImage } from "@/lib/canvas/canvas-emotion";
 import { storeGeneratedAudio } from "@/services/api/audio";
 import { storeGeneratedVideo } from "@/services/api/video";
@@ -183,14 +183,16 @@ export async function buildGenerationTaskNodeResult(node: CanvasNodeData, task: 
         const resultWidth = reuseImageKey && !hasReportedImageSize && requestedImageSize ? requestedImageSize.width : uploaded.width;
         const resultHeight = reuseImageKey && !hasReportedImageSize && requestedImageSize ? requestedImageSize.height : uploaded.height;
         const normalizedImage = resultWidth === uploaded.width && resultHeight === uploaded.height ? uploaded : { ...uploaded, width: resultWidth, height: resultHeight };
+        const manualGeometry = hasManualNodeGeometry(node);
         const imageSize =
-            node.metadata?.generationType === "edit" && !requestedImageSize ? { width: node.width || imageConfig.width, height: node.height || imageConfig.height } : fitNodeSize(resultWidth, resultHeight, imageSizeBounds.width, imageSizeBounds.height);
+            manualGeometry || (node.metadata?.generationType === "edit" && !requestedImageSize)
+                ? { width: node.width || imageConfig.width, height: node.height || imageConfig.height }
+                : fitNodeSize(resultWidth, resultHeight, imageSizeBounds.width, imageSizeBounds.height);
         return {
             ...node,
             type: CanvasNodeType.Image,
-            width: imageSize.width,
-            height: imageSize.height,
-            position: { x: node.position.x + node.width / 2 - imageSize.width / 2, y: node.position.y + node.height / 2 - imageSize.height / 2 },
+            // 手动拉过/锁定的卡片只换内容，不动几何；否则结果一落地用户拉好的框就被压回默认尺寸。
+            ...(manualGeometry ? {} : { width: imageSize.width, height: imageSize.height, position: { x: node.position.x + node.width / 2 - imageSize.width / 2, y: node.position.y + node.height / 2 - imageSize.height / 2 } }),
             metadata: applyGeneratedMediaResultMetadata(node, imageMetadata(normalizedImage), { prompt, ...completedTaskMetadata(task) }),
         };
     }
@@ -211,7 +213,8 @@ export async function buildGenerationTaskNodeResult(node: CanvasNodeData, task: 
               }
             : await mediaIO.storeGeneratedVideo({ url: videoSource, mimeType: normalizeMediaMimeType(result.video?.mimeType, "video") });
         const videoSize = fitNodeSize(video.width || node.width || VIDEO_NODE_MAX_SIZE.width, video.height || node.height || VIDEO_NODE_MAX_SIZE.height, VIDEO_NODE_MAX_SIZE.width, VIDEO_NODE_MAX_SIZE.height);
-        const geometry = node.metadata?.locked
+        // 同图片：锁定或手动拉过的卡片保留原几何，只替换内容。
+        const geometry = hasManualNodeGeometry(node)
             ? {}
             : {
                   width: videoSize.width,

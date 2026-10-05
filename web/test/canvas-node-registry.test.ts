@@ -24,8 +24,8 @@ describe("节点注册表——覆盖完整性", () => {
 
 describe("节点注册表——几何", () => {
     test("最小尺寸按类型区分", () => {
-        expect(getNodeMinSize(CanvasNodeType.Image)).toEqual({ width: 420, height: 236 });
-        expect(getNodeMinSize(CanvasNodeType.Video)).toEqual({ width: 420, height: 236 });
+        expect(getNodeMinSize(CanvasNodeType.Image)).toEqual({ width: 360, height: 202 });
+        expect(getNodeMinSize(CanvasNodeType.Video)).toEqual({ width: 360, height: 202 });
         expect(getNodeMinSize(CanvasNodeType.Script).width).toBe(800);
         expect(getNodeMinSize(CanvasNodeType.Text)).toEqual({ width: 220, height: 160 });
     });

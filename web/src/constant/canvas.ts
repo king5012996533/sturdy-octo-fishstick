@@ -9,7 +9,7 @@ type CanvasNodeSpec = {
 };
 
 export const NODE_DEFAULT_SIZE = {
-    [CanvasNodeType.Image]: { width: 720, height: 405, title: "图片" },
+    [CanvasNodeType.Image]: { width: 560, height: 315, title: "图片" },
     // LibTV 的文本节点以近似正方形卡片承载提示词与生成入口，作为首屏复刻基准固定为 350×350。
     [CanvasNodeType.Text]: { width: 350, height: 350, title: "文本节点" },
     [CanvasNodeType.Drawing]: { width: 440, height: 300, title: "绘图" },
@@ -17,7 +17,7 @@ export const NODE_DEFAULT_SIZE = {
     [CanvasNodeType.Skill]: { width: 360, height: 220, title: "技能" },
     // 配置节点同时承载模式、渠道、工作流和参数；预留稳定空间，避免控件和错误状态互相挤压。
     [CanvasNodeType.Config]: { width: 480, height: 390, title: "生成配置" },
-    [CanvasNodeType.Video]: { width: 720, height: 405, title: "视频" },
+    [CanvasNodeType.Video]: { width: 560, height: 315, title: "视频" },
     // LibTV renders an empty audio node as a square media card, not a
     // shallow waveform strip; this keeps the empty-state affordance visible.
     [CanvasNodeType.Audio]: { width: 320, height: 320, title: "音频" },
