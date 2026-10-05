@@ -190,6 +190,224 @@
     .app-product-workspace .creation-home .creation-submit.ant-btn:not(:disabled):hover .creation-submit-action::after { animation: none; }
 }
 
+/* 首页两层的宽度契约：灵感墙铺满舞台，输入卡窄一档浮在它上面。
+   两层共用同一个宽度时，输入卡看起来只是网格的第一行，整页塌成一块板；
+   广场又是"一次全出"的浏览面，左右留大边距等于白白缩掉一列。 */
+.app-user-workspace .creation-home {
+    /* 悬浮层永远比它下面的墙窄一点：窄屏上两条公式的最小边距写反，
+       输入卡会比灵感墙更宽，浮层就变成压在墙外面了。 */
+    --creation-home-wall: min(1680px, calc(100% - 48px));
+    --creation-home-composer: min(880px, calc(100% - 72px));
+}
+/* 平台首页空态：真实创作控件保留原有行为，视觉收敛为沉浸式创作入口。 */
+.app-user-workspace .creation-home > .creation-empty-workspace {
+    background: #101314;
+    color: #f5f5ef;
+}
+.app-user-workspace .creation-home .creation-home-hero {
+    min-height: 500px;
+    align-items: flex-start;
+    background: #101314;
+}
+.app-user-workspace .creation-home .creation-home-hero::before {
+    background: linear-gradient(180deg, rgba(16, 19, 20, .2), #101314 94%);
+}
+.app-user-workspace .creation-home .creation-home-hero::after {
+    background: radial-gradient(ellipse at 50% 42%, rgba(30, 93, 75, .38), transparent 56%);
+    mask-image: none;
+    -webkit-mask-image: none;
+}
+.app-user-workspace .creation-home .creation-home-hero-copy {
+    width: min(860px, calc(100% - 40px));
+    margin: 0 auto;
+    align-items: center;
+    gap: 0;
+    padding: 66px 0 0;
+    text-align: center;
+}
+.app-user-workspace .creation-home .creation-home-hero-brand {
+    align-items: center;
+    gap: 7px;
+    padding: 5px 10px;
+    border: 1px solid rgba(255, 255, 255, .18);
+    border-radius: 999px;
+    background: rgba(15, 19, 19, .36);
+    color: #d2dad5;
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .04em;
+    text-transform: none;
+}
+.app-user-workspace .creation-home .creation-home-hero-brand::before {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #d6ff68;
+    content: "";
+}
+.app-user-workspace .creation-home .creation-home-hero-brand em { color: inherit; }
+.app-user-workspace .creation-home .creation-home-hero h1 {
+    max-width: none;
+    margin: 19px 0 14px !important;
+    color: #f5f5ef !important;
+    font-family: "Songti SC", "STSong", "Noto Serif CJK SC", var(--font-display), serif;
+    font-size: clamp(38px, 4.7vw, 61px) !important;
+    font-weight: 600 !important;
+    letter-spacing: .035em !important;
+    line-height: 1.18 !important;
+}
+.app-user-workspace .creation-home .creation-home-hero-sub {
+    max-width: 590px;
+    margin: 0 !important;
+    color: #e1e6e2 !important;
+    font-size: 15px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+    line-height: 1.65 !important;
+    text-shadow: none;
+}
+.app-user-workspace .creation-home .creation-launchpad {
+    position: relative;
+    z-index: 3;
+    /* 悬浮层：比下面的灵感墙窄一档，压在 hero 下缘之上。
+       底栏一行要放下"模式 + 参考 + 语音 + 模型 + 比例 + 时长"六个控件，
+       再加右侧的预扣与发送键，880px 是六个控件不折行的下限。 */
+    width: var(--creation-home-composer);
+    margin: -214px auto 0;
+}
+.app-user-workspace .creation-home .creation-empty-composer {
+    margin: 0 !important;
+}
+.app-user-workspace .creation-home .creation-empty-composer .creation-composer-shell {
+    border: 1px solid rgba(255, 255, 255, .22);
+    border-radius: 12px !important;
+    background: linear-gradient(135deg, rgba(30, 39, 37, .72), rgba(13, 18, 18, .62));
+    box-shadow: 0 18px 54px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .13) !important;
+    backdrop-filter: blur(24px) saturate(135%);
+    -webkit-backdrop-filter: blur(24px) saturate(135%);
+}
+.app-user-workspace .creation-home .creation-empty-composer .creation-chat-composer {
+    border: 0 !important;
+    border-radius: 11px !important;
+}
+.app-user-workspace .creation-home .creation-chat-composer.is-empty .creation-chat-writing-surface {
+    min-height: 126px !important;
+    padding: 16px 20px 8px !important;
+}
+.app-user-workspace .creation-home .creation-chat-editor textarea,
+.app-user-workspace .creation-home .creation-chat-mention-editor {
+    min-height: 88px !important;
+    font-size: 15px !important;
+}
+.app-user-workspace .creation-home .creation-chat-dock {
+    min-height: 48px !important;
+    padding: 4px 8px 8px 10px !important;
+}
+/* 预扣金额不许被压缩：它在别处有 40cqw 的宽度上限，窄屏上只差几个像素，
+   折掉的是余额最后一位数字。首页底栏空间够，直接把上限解开。 */
+.app-user-workspace .creation-home .creation-credit-estimate { flex: none; max-width: none; white-space: nowrap; }
+.app-user-workspace .creation-home .creation-submit.is-icon-only .creation-submit-action {
+    border-radius: 9px;
+    background: #d6ff68;
+    box-shadow: none;
+    color: #17332b;
+}
+/* 空输入时发送键是禁用态，禁用态那条规则多了 .ant-btn 与 :disabled，优先级更高，
+   会把渐变底色压回来 —— 首页这颗键在没写字时也得是青柠，只是压暗一档。 */
+.app-user-workspace .creation-home .creation-submit.is-icon-only.ant-btn:disabled .creation-submit-action {
+    background: #d6ff68;
+    color: #17332b;
+    box-shadow: none;
+    opacity: .55;
+}
+.app-user-workspace .creation-home .creation-submit.is-icon-only.ant-btn:disabled { background: transparent !important; box-shadow: none; }
+/* 窄屏放不下 880px 时不再让控件在底栏内部折行 —— 那样第二行只剩一个控件，
+   右边的预扣与发送键却还停在同一行的居中位置。改成底栏自己折：控件独占一行，
+   预扣与发送键右对齐排第二行，两行都是齐的。 */
+@media (max-width: 1119px) {
+    .app-user-workspace .creation-home .creation-chat-dock {
+        flex-wrap: wrap !important;
+        justify-content: flex-end;
+    }
+    .app-user-workspace .creation-home .creation-chat-controls { flex: 1 1 100%; width: 100%; }
+    .app-user-workspace .creation-home .creation-submit { margin-left: 0; }
+}
+.app-user-workspace .creation-home .creation-featured-works {
+    width: 100%;
+    margin: 26px 0 0 !important;
+    padding: 0 !important;
+}
+.app-user-workspace .creation-home .creation-featured-heading {
+    width: var(--creation-home-wall);
+    margin-inline: auto;
+}
+.app-user-workspace .creation-home .creation-featured-heading {
+    min-height: 48px;
+    margin-bottom: 14px !important;
+    padding: 0 4px;
+    border: 1px solid rgba(255, 255, 255, .1);
+    border-radius: 9px;
+    background: rgba(31, 38, 38, .45);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+    backdrop-filter: blur(18px) saturate(125%);
+}
+.app-user-workspace .creation-home .creation-featured-heading-main { display: flex; width: 100%; height: 46px; align-items: center; justify-content: space-between; gap: 16px; }
+.app-user-workspace .creation-home .creation-featured-heading .creation-collection-tab { color: rgba(255, 255, 255, .62) !important; }
+.app-user-workspace .creation-home .creation-featured-heading .creation-collection-tab.is-active { color: #fff !important; }
+.app-user-workspace .creation-home .creation-featured-heading .creation-featured-eyebrow { display: none; }
+/* 类型筛选挪到栏头右侧：原先它自成一行，栏头右边空一大截、下面又多一排按钮，
+   两层导航说的是同一件事。现在"左栏目名 / 右类型"只占一行。 */
+.app-user-workspace .creation-home .creation-featured-heading .creation-inspiration-filters { width: auto; flex-wrap: nowrap; gap: 7px; margin: 0; }
+/* 窄屏一行塞不下栏名加三档筛选，硬挤会把"灵感推荐"和每个筛选都折成两行。
+   让栏头自己换行：第一行栏目名，第二行筛选，两边都保持原本的字号。 */
+@media (max-width: 720px) {
+    .app-user-workspace .creation-home .creation-featured-heading { min-height: 0; }
+    .app-user-workspace .creation-home .creation-featured-heading-main { height: auto; flex-wrap: wrap; gap: 8px; padding-block: 6px; }
+    .app-user-workspace .creation-home .creation-featured-heading .creation-collection-tab { white-space: nowrap; }
+    .app-user-workspace .creation-home .creation-featured-heading .creation-inspiration-filters { flex-wrap: wrap; }
+}
+.app-user-workspace .creation-home .creation-inspiration-filters button { border: 1px solid rgba(255, 255, 255, .15); border-radius: 999px; background: rgba(18, 23, 23, .48); color: #d8dfdb; }
+.app-user-workspace .creation-home .creation-inspiration-filters button[aria-pressed="true"] { border-color: #d6ff68; background: rgba(214, 255, 104, .15); color: #d6ff68; }
+/* 广场是"一次全出"：58 张卡铺进自适应多列，铺满一行再换行。
+   原来这里是写死的 1.55fr / 0.9fr 两列，卡片本身又靠 aspect-ratio 撑高，
+   第二行之后的高度全塌成 0 —— 58 条里只有头两条真的看得见。 */
+.app-user-workspace .creation-home .creation-featured-layout {
+    width: var(--creation-home-wall);
+    margin-inline: auto;
+    padding-inline: 0;
+    gap: 16px !important;
+}
+.app-user-workspace .creation-home .creation-featured-layout:not(.creation-skill-grid) {
+    grid-template-columns: repeat(auto-fill, minmax(288px, 1fr)) !important;
+    /* globals 给这张网格设了 align-items: stretch。卡片高度靠 aspect-ratio 撑，
+       被拉高之后比例会反过来算宽度，小卡就会横向溢出自己的列、压到隔壁。
+       这里只让主推位拉伸（它要填满跨的两行），其余卡片按比例自然落位。 */
+    align-items: start;
+}
+/* 主推位默认只横跨两列、按 16/9 落位；globals 里那套 2×2 在下面按条件打开。
+   高度靠比例撑的卡片不能再参与拉伸：拉高之后比例会反过来算宽度，卡片会横向
+   溢出自己的列，压到隔壁那张上。 */
+.app-user-workspace .creation-home .creation-featured-card.is-featured-hero {
+    grid-row: auto;
+    align-self: auto;
+    aspect-ratio: 16 / 9;
+}
+/* 三列以上且条目够多时，主推位向下跨一行，与右侧两张小卡拼成"一大两小"。
+   只有两列时它本就占满整行，跨的第二行没有内容，会被拉成一条竖缝。
+   跨行时高度由行决定（aspect-ratio 关掉），所以可以安全地留一个高度下限。 */
+@media (min-width: 1200px) {
+    .app-user-workspace .creation-home .creation-featured-layout:not(.creation-skill-grid):has(> :nth-child(5)) .creation-featured-card.is-featured-hero {
+        grid-row: span 2;
+        align-self: stretch;
+        aspect-ratio: auto;
+        min-height: 320px;
+    }
+}
+.app-user-workspace .creation-home .creation-featured-layout > .creation-featured-card:not(.is-featured-hero):not(.creation-skill-card) {
+    aspect-ratio: 16 / 11;
+}
+
 /* 参数弹窗挂在 body overlays，必须直接用用户表面 token；描边由 Ant inner 的 1px border 造成。 */
 .app-user-overlays .creation-control-popover,
 .app-product-overlays .creation-control-popover {

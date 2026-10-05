@@ -826,7 +826,15 @@ export function CreationFeaturedWorks({ onStartPrompt, onUseInspiration }: { onS
                     <button type="button" className={`creation-collection-tab ${!isSkill ? "is-active" : ""}`} aria-pressed={!isSkill} onClick={() => setCollection("inspiration")}>灵感推荐</button>
                     <button type="button" className={`creation-collection-tab ${isSkill ? "is-active" : ""}`} aria-pressed={isSkill} onClick={() => setCollection("skill")}>Skill</button>
                 </div>
-                <span className="creation-featured-eyebrow">Inspiration</span>
+                {/* 类型筛选和栏目名同一排：两层导航合成一行，栏头右侧不再是空盒子。 */}
+                {isSkill ? <span className="creation-featured-eyebrow">Inspiration</span> : <div className="creation-inspiration-filters" role="group" aria-label="灵感类型">
+                    {(["all", "video", "image", "text"] as const)
+                        // 0 条的分类不渲染：广场内容全部来自真实作品，某一类暂时没有就该整档消失，
+                        // 留一个写着"0"的按钮只会让人以为加载失败了。
+                        .map((value) => ({ value, count: creationInspirationPool.filter((item) => value === "all" || item.mode === value).length }))
+                        .filter((tab) => tab.value === "all" || tab.count > 0)
+                        .map(({ value, count }) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === "all" ? "全部灵感" : modeLabels[value]}<span>{count}</span></button>)}
+                </div>}
             </div>
         </div>
         {isSkill ? <div className="creation-skill-toolbar">
@@ -835,14 +843,7 @@ export function CreationFeaturedWorks({ onStartPrompt, onUseInspiration }: { onS
                 <button type="button" role="tab" aria-selected={skillSection === "mine"} onClick={() => setSkillSection("mine")}>我的</button>
             </div>
             {skillSection === "mine" ? <button type="button" className="creation-skill-create" onClick={() => navigate("/skills?create=1")}><Plus size={16} />创建 Skill</button> : null}
-        </div> : <div className="creation-inspiration-filters" role="group" aria-label="灵感类型">
-            {(["all", "video", "image", "text"] as const)
-                // 0 条的分类不渲染：广场内容全部来自真实作品，某一类暂时没有就该整档消失，
-                // 留一个写着"0"的按钮只会让人以为加载失败了。
-                .map((value) => ({ value, count: creationInspirationPool.filter((item) => value === "all" || item.mode === value).length }))
-                .filter((tab) => tab.value === "all" || tab.count > 0)
-                .map(({ value, count }) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === "all" ? "全部灵感" : modeLabels[value]}<span>{count}</span></button>)}
-        </div>}
+        </div> : null}
         <div className={`creation-featured-layout ${isSkill ? "creation-skill-grid" : ""}`}>
                 {isSkill ? visibleSkills.map((item) => <button key={item.title} type="button" className="product-collection-card creation-featured-card creation-skill-card" onClick={() => onStartPrompt("video", item.prompt)}>
                     <span className="creation-featured-media"><img src={item.image} alt="" loading="lazy" /><span className="creation-skill-type">视频</span><span className="creation-skill-hover-use"><Sparkles />使用</span></span>

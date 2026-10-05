@@ -1238,12 +1238,12 @@ export default function CreatePage() {
                             ) : null}
                         </AnimatePresence>
                         <main ref={threadScrollRef} onScroll={handleThreadScroll} className="creation-empty-workspace creation-scrollbar">
-                            <section className="creation-home-hero" aria-label={`${brandName} Agent 创作台`}>
+                            <section className="creation-home-hero" aria-label={`${brandName} 创作平台`}>
                                 <img className="creation-home-hero-art" src="/home/hero.webp" alt="" aria-hidden="true" draggable={false} />
                                 <div className="creation-home-hero-copy">
-                                    <p className="creation-home-hero-brand"><span>{brandName}</span> <em>Agent</em></p>
-                                    <h1>{brandName} <span>Agent</span></h1>
-                                    <p className="creation-home-hero-sub">用想象力，生成属于你的电影</p>
+                                    <p className="creation-home-hero-brand"><span>{brandName}</span> <em>创作平台</em></p>
+                                    <h1>把想象，拍成故事。</h1>
+                                    <p className="creation-home-hero-sub">写下一句想法，或带来一张参考图。{brandName} 会陪你把它发展成真正能被看见的故事。</p>
                                 </div>
                             </section>
                             <section ref={launchpadRef} className="creation-launchpad" aria-label="开始创作">
