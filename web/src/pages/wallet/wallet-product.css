@@ -426,6 +426,8 @@
     flex-direction: column;
     gap: 8px;
     min-width: 0;
+    /* 收款码旁边是一屏宽的卡片：说明限宽，警告条才不会拉成一整条横幅。 */
+    max-width: 560px;
 }
 .wallet-pay-qr-copy h3 {
     margin: 0;
@@ -442,6 +444,12 @@
     padding-left: 18px;
     /* Tailwind preflight 把列表标记清掉了，三步必须带序号才看得出是"按顺序做"。 */
     list-style: decimal;
+    color: color-mix(in srgb, var(--foreground) 58%, transparent);
+    font-size: var(--fs-caption);
+    line-height: 1.7;
+}
+.wallet-pay-qr-after {
+    margin: 0;
     color: color-mix(in srgb, var(--foreground) 58%, transparent);
     font-size: var(--fs-caption);
     line-height: 1.7;

@@ -1,5 +1,7 @@
 import { useAppearanceStore } from "@/stores/use-appearance-store";
 
+import { Callout } from "@/components/ui/product/callout";
+
 import { WalletPanel } from "./wallet-kit";
 
 /**
@@ -22,9 +24,11 @@ export function TopUpPaymentQR() {
                 <h3>扫码充值（人工确认到账）</h3>
                 <ol>
                     <li>先在上方选择档位并下单，记下订单号。</li>
-                    <li>扫码付款，金额与订单一致，备注里写上订单号。</li>
-                    <li>运营核对到账后积分自动入账，进度可在下方「充值订单」查看。</li>
+                    <li>扫码付款，金额与订单金额一致。</li>
                 </ol>
+                {/* 备注是这条兜底路径唯一的对账依据：不写订单号，钱到了也对不出是哪一单该给谁充。 */}
+                <Callout tone="warning">务必在付款备注里写上订单号，否则运营无法确认这笔钱充到哪个账号。</Callout>
+                <p className="wallet-pay-qr-after">运营核对到账后积分自动入账，进度可在下方「充值订单」查看。</p>
             </div>
         </WalletPanel>
     );
