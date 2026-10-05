@@ -62,6 +62,7 @@ func (e *Extension) handleAdminResourceList(c *gin.Context) {
 		Until:            until,
 		UnreferencedOnly: adminBoolQuery(c, "unreferenced"),
 		UntrackedOnly:    adminBoolQuery(c, "untracked"),
+		TrackedOnly:      adminBoolQuery(c, "tracked"),
 		Page:             page,
 		PageSize:         pageSize,
 	})

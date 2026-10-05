@@ -280,6 +280,21 @@ func TestHostedAdminResourceReconciliationJoinsTaskAndCharge(t *testing.T) {
 	if filtered.Data.Total != 1 || filtered.Data.Resources[0].ID != "res-upload" {
 		t.Fatalf("未关联任务筛选结果异常：%#v", filtered.Data.Resources)
 	}
+
+	// 只看生成的：上传那条必须被排除，剩下三条都是有任务的产物。
+	recorder = perform(router, http.MethodGet, "/api/admin/resources?tracked=true", "", adminCookie)
+	var tracked adminResourceListBody
+	if err := json.Unmarshal(recorder.Body.Bytes(), &tracked); err != nil {
+		t.Fatalf("解析筛选响应失败: %v", err)
+	}
+	if tracked.Data.Total != 3 {
+		t.Fatalf("只看生成的 = %d; want 3", tracked.Data.Total)
+	}
+	for _, row := range tracked.Data.Resources {
+		if row.TaskID == "" {
+			t.Fatalf("只看生成的筛选混入了上传：%#v", row)
+		}
+	}
 }
 
 func TestHostedAdminResourceBackfillIsAdminOnly(t *testing.T) {

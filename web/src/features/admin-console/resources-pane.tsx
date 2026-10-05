@@ -1,7 +1,7 @@
 import { Button, DatePicker, Input, Select, Switch, Table, Tag, Tooltip, type TableProps } from "antd";
 import type { Dayjs } from "dayjs";
 import { AlertTriangle, RefreshCw, Search } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { formatBytes, formatCount, formatDateTime } from "@/lib/format-usage";
 
@@ -24,6 +24,23 @@ function kindLabel(kind: string) {
 }
 
 const emptyTotals: AdminResourceTotals = { total: 0, unreferenced: 0, untracked: 0, totalBytes: 0, users: 0 };
+
+/**
+ * 列表筛选条件。
+ *
+ * 加载、重试、回填后刷新都要原样带上同一份条件，散在五处各写一遍的话，漏掉一个字段
+ * 就会静默查到另一个口径——那正是这一页最不该出的错。
+ */
+type ResourceListFilters = {
+    keyword: string;
+    kind: string;
+    unreferenced: boolean;
+    untracked: boolean;
+    tracked: boolean;
+    range: [Dayjs | null, Dayjs | null] | null;
+    page: number;
+    pageSize: number;
+};
 
 /** 时长读成秒，比毫秒更贴近运营对视频、音频的直觉。 */
 function formatDuration(durationMs: number) {
@@ -51,6 +68,7 @@ export function ResourcesPane() {
     const [kind, setKind] = useState("");
     const [unreferencedOnly, setUnreferencedOnly] = useState(false);
     const [untrackedOnly, setUntrackedOnly] = useState(false);
+    const [trackedOnly, setTrackedOnly] = useState(false);
     const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(20);
@@ -63,15 +81,7 @@ export function ResourcesPane() {
     const [reconciliationOpen, setReconciliationOpen] = useState(false);
 
     const load = useCallback(
-        async (options: {
-            keyword: string;
-            kind: string;
-            unreferenced: boolean;
-            untracked: boolean;
-            range: [Dayjs | null, Dayjs | null] | null;
-            page: number;
-            pageSize: number;
-        }) => {
+        async (options: ResourceListFilters) => {
             setLoading(true);
             setError("");
             try {
@@ -80,6 +90,7 @@ export function ResourcesPane() {
                     kind: options.kind,
                     unreferenced: options.unreferenced,
                     untracked: options.untracked,
+                    tracked: options.tracked,
                     since: options.range?.[0]?.startOf("day").toISOString(),
                     until: options.range?.[1]?.endOf("day").toISOString(),
                     page: options.page,
@@ -98,9 +109,23 @@ export function ResourcesPane() {
         [],
     );
 
+    const filters = useMemo<ResourceListFilters>(
+        () => ({
+            keyword,
+            kind,
+            unreferenced: unreferencedOnly,
+            untracked: untrackedOnly,
+            tracked: trackedOnly,
+            range,
+            page,
+            pageSize,
+        }),
+        [keyword, kind, unreferencedOnly, untrackedOnly, trackedOnly, range, page, pageSize],
+    );
+
     useEffect(() => {
-        void load({ keyword, kind, unreferenced: unreferencedOnly, untracked: untrackedOnly, range, page, pageSize });
-    }, [load, keyword, kind, unreferencedOnly, untrackedOnly, range, page, pageSize]);
+        void load(filters);
+    }, [load, filters]);
 
     // 输入即查询会把每一次按键都变成一次列表请求，这里做 300ms 防抖。
     useEffect(() => {
@@ -219,7 +244,7 @@ export function ResourcesPane() {
                     >
                         对账异常
                     </Button>
-                    <Button icon={<RefreshCw className="size-3.5" />} loading={loading} onClick={() => void load({ keyword, kind, unreferenced: unreferencedOnly, untracked: untrackedOnly, range, page, pageSize })}>
+                    <Button icon={<RefreshCw className="size-3.5" />} loading={loading} onClick={() => void load(filters)}>
                         刷新
                     </Button>
                 </div>
@@ -308,9 +333,23 @@ export function ResourcesPane() {
                         onChange={(checked) => {
                             setPage(1);
                             setUntrackedOnly(checked);
+                            // 「未关联任务」与「生成的」互为补集，同时打开只会得到空表。
+                            if (checked) setTrackedOnly(false);
                         }}
                     />
                     <span style={{ fontSize: "var(--fs-label)", color: "var(--admin-ink-faint)" }}>只看未关联任务</span>
+                </span>
+                <span className="flex items-center gap-2">
+                    <Switch
+                        size="small"
+                        checked={trackedOnly}
+                        onChange={(checked) => {
+                            setPage(1);
+                            setTrackedOnly(checked);
+                            if (checked) setUntrackedOnly(false);
+                        }}
+                    />
+                    <span style={{ fontSize: "var(--fs-label)", color: "var(--admin-ink-faint)" }}>只看生成的</span>
                 </span>
                 <span style={{ fontSize: "var(--fs-label)", color: "var(--admin-ink-faint)" }}>共 {formatCount(total)} 条产物</span>
             </div>
@@ -318,7 +357,7 @@ export function ResourcesPane() {
             {error ? (
                 <div className="admin-notice is-error">
                     <span>{error}</span>
-                    <Button size="small" type="text" onClick={() => void load({ keyword, kind, unreferenced: unreferencedOnly, untracked: untrackedOnly, range, page, pageSize })}>
+                    <Button size="small" type="text" onClick={() => void load(filters)}>
                         重试
                     </Button>
                 </div>
@@ -353,7 +392,7 @@ export function ResourcesPane() {
                 open={reconciliationOpen}
                 reconciliation={reconciliation}
                 onClose={() => setReconciliationOpen(false)}
-                onBackfilled={() => void load({ keyword, kind, unreferenced: unreferencedOnly, untracked: untrackedOnly, range, page, pageSize })}
+                onBackfilled={() => void load(filters)}
             />
         </div>
     );

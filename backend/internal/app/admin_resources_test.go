@@ -162,6 +162,21 @@ func TestAdminResourcePageMarksUnreferencedAndSignsPreview(t *testing.T) {
 		}
 	}
 
+	// 反过来的那一半：只看有生成任务的产物。两个开关必须是严丝合缝的补集，
+	// 否则运营在两个视图之间来回切时会看到对不上的总数。
+	page, err = service.AdminResourcePage(repository.AdminResourceFilter{TrackedOnly: true, Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 2 {
+		t.Fatalf("只看生成的 = %d; want 2", page.Total)
+	}
+	for _, row := range page.Resources {
+		if row.TaskID == "" {
+			t.Fatalf("只看生成的筛选混入了没有任务的产物：%#v", row)
+		}
+	}
+
 	// 关键字同时命中账号昵称与产物 ID。
 	page, err = service.AdminResourcePage(repository.AdminResourceFilter{Keyword: "甲账号", Page: 1, PageSize: 20})
 	if err != nil {

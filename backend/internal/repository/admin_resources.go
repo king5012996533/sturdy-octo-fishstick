@@ -20,10 +20,14 @@ type AdminResourceFilter struct {
 	// 这正是对账要捞的那批——上游出了结果，客户端却没把它存下来。
 	UnreferencedOnly bool
 	// UntrackedOnly 只看没有关联任务的产物：用户上传的素材，以及回填后仍然对不上
-	// 任何任务的历史数据。上传本来就没有任务，所以它也是排除上传、聚焦生成产物的开关。
+	// 任何任务的历史数据。
 	UntrackedOnly bool
-	Page          int
-	PageSize      int
+	// TrackedOnly 只看有关联任务的产物，也就是"我们跑出来的"那批。判据取 task_id 而不是
+	// source：source 是后加的列，回填失败的历史产物会留空，而"有任务"才是硬证据。
+	// 它与 UntrackedOnly 互为补集，两个开关合起来把全表切干净，中间不留缝。
+	TrackedOnly bool
+	Page        int
+	PageSize    int
 }
 
 // AdminResourceRow 是管理端产物列表的一行。
@@ -55,6 +59,12 @@ type AdminResourceTotals struct {
 // 时应当改成写入时记引用关系，而不是继续加索引。
 const adminResourceReferencedExpr = `(EXISTS (SELECT 1 FROM assets WHERE assets.payload_json LIKE '%' || resources.id || '%')` +
 	` OR EXISTS (SELECT 1 FROM canvas_projects WHERE canvas_projects.payload_json LIKE '%' || resources.id || '%'))`
+
+// adminResourceTrackedExpr 判定一条产物有没有关联的生成任务。
+//
+// 上传本来就没有任务，回填失败的历史产物也没有，两者同属「未关联任务」；剩下的才是我方
+// 调上游跑出来的。筛选用它正反两面，避免两处各写一遍条件后慢慢走偏。
+const adminResourceTrackedExpr = `(resources.task_id IS NOT NULL AND resources.task_id <> '')`
 
 func (r *Repository) adminResourceBaseQuery(filter AdminResourceFilter) *gorm.DB {
 	// 时间列由本进程写入，带的是本地时区偏移；SQLite 按字符串比较时间，绑定值必须落在
@@ -88,7 +98,10 @@ func (r *Repository) adminResourceBaseQuery(filter AdminResourceFilter) *gorm.DB
 		query = query.Where("NOT " + adminResourceReferencedExpr)
 	}
 	if filter.UntrackedOnly {
-		query = query.Where("(resources.task_id IS NULL OR resources.task_id = '')")
+		query = query.Where("NOT " + adminResourceTrackedExpr)
+	}
+	if filter.TrackedOnly {
+		query = query.Where(adminResourceTrackedExpr)
 	}
 	return query
 }

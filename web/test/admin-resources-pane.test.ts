@@ -28,11 +28,14 @@ describe("后台生成产物面板", () => {
         expect(api).toContain('"/admin/resources"');
         expect(api).toContain("unreferenced");
         expect(api).toContain("untracked");
+        expect(api).toContain("tracked");
         const pane = read(panePath);
         expect(pane).toContain("unreferenced: unreferencedOnly");
         expect(pane).toContain("untracked: untrackedOnly");
+        expect(pane).toContain("tracked: trackedOnly");
         expect(pane).toContain("只看用户没拿到的");
         expect(pane).toContain("只看未关联任务");
+        expect(pane).toContain("只看生成的");
     });
 
     test("对账异常与历史回填是独立面板，回填先演练再写库", () => {

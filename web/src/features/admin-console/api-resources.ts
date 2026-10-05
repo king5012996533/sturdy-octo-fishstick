@@ -103,6 +103,8 @@ export function listAdminResources(
         until?: string;
         unreferenced?: boolean;
         untracked?: boolean;
+        /** 只看有关联生成任务的产物（"我们跑出来的"），与 untracked 互为补集。 */
+        tracked?: boolean;
         page?: number;
         pageSize?: number;
     } = {},
@@ -116,6 +118,7 @@ export function listAdminResources(
             until: params.until || undefined,
             unreferenced: params.unreferenced ? "true" : undefined,
             untracked: params.untracked ? "true" : undefined,
+            tracked: params.tracked ? "true" : undefined,
             page: params.page,
             pageSize: params.pageSize,
         },
