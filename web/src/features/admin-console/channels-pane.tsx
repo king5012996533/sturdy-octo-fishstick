@@ -1,6 +1,7 @@
 import { App, Button, Form, Input, InputNumber, Modal, Popconfirm, Select, Switch, Table, Tag, Tooltip, type TableProps } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, CloudDownload, Copy, Pencil, Plus, RefreshCw, Save, Trash2, Zap } from "lucide-react";
+import { useNavigate } from "react-router";
+import { ArrowDown, ArrowUp, BadgePercent, CloudDownload, Copy, Pencil, Plus, RefreshCw, Save, Trash2, Zap } from "lucide-react";
 
 import { ChannelHeadersEditor, validateChannelHeaders } from "@/components/channel-headers-editor";
 import { defaultModelCapabilityConfig } from "@/lib/model-capabilities";
@@ -31,6 +32,7 @@ import {
     type AdminChannelModel,
     type AdminChannelModelInput,
 } from "./api";
+import { channelModelFullKey } from "./model-price-targets";
 
 const capabilityLabels: Record<string, string> = { text: "文本", image: "图片", video: "视频", audio: "音频" };
 const capabilityOptions = Object.entries(capabilityLabels).map(([value, label]) => ({ value, label }));
@@ -75,6 +77,8 @@ function errorMessage(error: unknown, fallback: string) {
  * 只改前端顺序：管理员看到的就是真实生效的优先级。
  */
 export function ChannelsPane() {
+    const navigate = useNavigate();
+
     const { message } = App.useApp();
     const [channels, setChannels] = useState<AdminChannel[]>([]);
     const [channelOrder, setChannelOrder] = useState<string[]>([]);
@@ -398,11 +402,22 @@ export function ChannelsPane() {
         {
             title: "操作",
             key: "actions",
-            width: 176,
+            width: 236,
             render: (_value, record) => (
                 <span className="flex items-center gap-1">
                     <Tooltip title="连通性测试">
                         <Button size="small" type="text" icon={<Zap className="size-3.5" />} aria-label={`测试 ${record.modelKey}`} onClick={() => void testExistingModel(record)} />
+                    </Tooltip>
+                    <Tooltip title="给这个模型定价">
+                        <Button
+                            size="small"
+                            type="text"
+                            icon={<BadgePercent className="size-3.5" />}
+                            aria-label={`定价 ${record.modelKey}`}
+                            onClick={() => navigate(`/admin?section=pricing&model=${encodeURIComponent(channelModelFullKey(record.channelId, record.modelKey))}`)}
+                        >
+                            定价
+                        </Button>
                     </Tooltip>
                     <Button size="small" type="text" icon={<Pencil className="size-3.5" />} onClick={() => openModelEditor(record)}>
                         编辑

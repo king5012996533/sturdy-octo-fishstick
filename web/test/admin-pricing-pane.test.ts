@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { formatMultiplierBp, formatSellPrice, formatUnitPrice, numberOrNull } from "../src/features/admin-console/pricing-pane";
+import { formatMultiplierBp, formatSellPrice, formatUnitPrice, numberOrNull, priceDefaultsFor } from "../src/features/admin-console/pricing-pane";
 
 const root = resolve(import.meta.dir, "..");
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
@@ -217,5 +217,48 @@ describe("后台模型定价面板", () => {
         expect(api).toContain("upstreamUnitPrice: number | null;");
         expect(api).toContain("sellUnitPrice: number | null;");
         expect(api).toContain("priced: boolean;");
+    });
+
+    test("模型标识从目录里选，而不是手抄主键", () => {
+        const pane = read(panePath);
+        // 曾经的写法是一个 placeholder 写着 gpt-4o 的文本框——本平台没有一个模型标识长这样。
+        expect(pane).not.toContain('<Input placeholder="gpt-4o" />');
+        expect(pane).toContain("ModelKeyPicker");
+        // 表单与试算两处都要换：只换一处会留下另一个仍然要求手抄的入口。
+        expect(pane.match(/<ModelKeyPicker /g)?.length).toBe(2);
+        expect(pane).toContain("loadModelPriceTargets");
+        // 选中后要联动能力/单位/档位，否则运营仍得自己判断按秒还是按次。
+        expect(pane).toContain("applyTargetToPriceForm");
+        expect(pane).toContain("applyTargetToPreviewForm");
+    });
+
+    test("能力决定默认计价单位，选错单位等于按错误的量结算", () => {
+        expect(priceDefaultsFor("TEXT")).toEqual({ capability: "TEXT", unit: "TOKEN_1M", priceTier: "INPUT" });
+        expect(priceDefaultsFor("IMAGE")).toEqual({ capability: "IMAGE", unit: "IMAGE", priceTier: "" });
+        // 音频按次（服务端拒绝 SECOND），视频按秒。
+        expect(priceDefaultsFor("AUDIO")).toEqual({ capability: "AUDIO", unit: "REQUEST", priceTier: "" });
+        expect(priceDefaultsFor("VIDEO")).toEqual({ capability: "VIDEO", unit: "SECOND", priceTier: "" });
+        const pane = read(panePath);
+        expect(pane).toContain("priceDefaultsFor(changed.capability as ModelPriceCapability)");
+    });
+
+    test("从渠道页带 ?model= 进来时把价目表收敛到这一个模型", () => {
+        const pane = read(panePath);
+        expect(pane).toContain('searchParams.get("model")');
+        expect(pane).toContain("const focusModelKey");
+        expect(pane).toContain("dataSource={focusModelKey ? focusPrices : prices}");
+        // 这个模型一行价都还没有时直接开在新增表单上，不让用户再看一遍空表。
+        expect(pane).toContain("openPriceEditor(null, focusTarget)");
+        expect(pane).toContain("autoOpenedFocus");
+        // 收敛只是筛选，能一键退回全表。
+        expect(pane).toContain("查看全部");
+        expect(pane).toContain("clearFocusModel");
+    });
+
+    test("渠道与模型页每个模型都有直达定价的入口", () => {
+        const channels = read("src/features/admin-console/channels-pane.tsx");
+        expect(channels).toContain("channelModelFullKey(record.channelId, record.modelKey)");
+        expect(channels).toContain("/admin?section=pricing&model=");
+        expect(channels).toContain('aria-label={`定价 ${record.modelKey}`}');
     });
 });

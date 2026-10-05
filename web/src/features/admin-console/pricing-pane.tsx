@@ -1,8 +1,12 @@
 import { Button, Form, Input, InputNumber, Modal, Select, Switch, Table, Tag, type TableProps } from "antd";
 import { BadgePercent, Calculator, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import { formatCount, formatDateTime } from "@/lib/format-usage";
+
+import { ModelKeyPicker } from "./model-key-picker";
+import { loadModelPriceTargets, modelPriceTargetLabel, type ModelPriceTarget } from "./model-price-targets";
 
 import {
     createAdminModelPrice,
@@ -82,6 +86,28 @@ const defaultTierByCapability: Record<ModelPriceCapability, ModelPricePriceTier>
     VIDEO: "",
     AUDIO: "",
 };
+
+/** 能力的默认计价单位：与后端口径一致，选错单位等于按错误的量结算。 */
+const defaultUnitByCapability: Record<ModelPriceCapability, ModelPriceUnit> = {
+    TEXT: "TOKEN_1M",
+    IMAGE: "IMAGE",
+    AUDIO: "REQUEST",
+    VIDEO: "SECOND",
+};
+
+/**
+ * 选定模型能力后，单位和档位的默认值一起收敛。
+ *
+ * 只填模型标识、留下上一条记录的档位（比如文本的 INPUT），运营得自己判断"这个模型按秒
+ * 还是按次"；猜错的代价不是一次表单校验失败，而是一次真实的计费错误。
+ */
+export function priceDefaultsFor(capability: ModelPriceCapability): {
+    capability: ModelPriceCapability;
+    unit: ModelPriceUnit;
+    priceTier: ModelPricePriceTier;
+} {
+    return { capability, unit: defaultUnitByCapability[capability], priceTier: defaultTierByCapability[capability] };
+}
 
 const tierExtraByCapability: Record<ModelPriceCapability, string> = {
     TEXT: "文本三档必填：缓存命中 / 缓存未命中 / 输出各配一行，缺一档这条模型就用不了。",
@@ -244,6 +270,11 @@ function priceFormValuesOf(price: ModelPrice): PriceFormValues {
     };
 }
 
+/** 从目录里选中的模型 → 新建定价表单的预填值。 */
+function priceFormValuesOfTarget(target: ModelPriceTarget): Partial<PriceFormValues> {
+    return { modelKey: target.fullKey, ...priceDefaultsFor(target.capability) };
+}
+
 function priceInputOf(values: PriceFormValues): ModelPriceInput {
     return {
         modelKey: values.modelKey.trim(),
@@ -274,10 +305,22 @@ function reasonOf(error: unknown, fallback: string) {
  * 全局的 antd message 在本项目是关闭的，所有反馈都走页面内的 .admin-notice。
  */
 export function PricingPane() {
+    const [searchParams, setSearchParams] = useSearchParams();
+    /**
+     * 从「渠道与模型」带过来的 ?model=。
+     *
+     * 后台的价目表是一张平表，模型标识长成 `CHANNEL_000003::minimax/music-2.5`；运营
+     * 的入口在模型列表那一侧（"这个模型多少钱"），所以带着标识进来后直接把表收敛到它。
+     */
+    const focusModelKey = (searchParams.get("model") ?? "").trim();
+
     const [rules, setRules] = useState<MarkupRule[]>([]);
     const [draftRules, setDraftRules] = useState<MarkupRuleDraft[]>([]);
     const [defaultMultiplierBp, setDefaultMultiplierBp] = useState<number | null>(null);
     const [prices, setPrices] = useState<ModelPrice[]>([]);
+    /** 可定价的模型目录：选择器用它把"渠道 + 模型"换成价目表认的完整标识。 */
+    const [targets, setTargets] = useState<ModelPriceTarget[]>([]);
+    const [targetsLoaded, setTargetsLoaded] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [notice, setNotice] = useState("");
@@ -303,19 +346,42 @@ export function PricingPane() {
     const [previewForm] = Form.useForm<PreviewFormValues>();
     const previewFormCapability = Form.useWatch("capability", previewForm);
 
+    const focusTarget = useMemo(
+        () => (focusModelKey ? targets.find((target) => target.fullKey === focusModelKey) ?? null : null),
+        [focusModelKey, targets],
+    );
+    const focusPrices = useMemo(
+        () => (focusModelKey ? prices.filter((price) => price.modelKey === focusModelKey) : []),
+        [focusModelKey, prices],
+    );
+
+    const clearFocusModel = useCallback(() => {
+        const next = new URLSearchParams(searchParams);
+        next.delete("model");
+        setSearchParams(next, { replace: true });
+    }, [searchParams, setSearchParams]);
+
     const load = useCallback(async () => {
         setLoading(true);
         setError("");
+        setTargetsLoaded(false);
         try {
-            const [markupPayload, pricePayload] = await Promise.all([getAdminBillingMarkup(), listAdminModelPrices()]);
+            const [markupPayload, pricePayload, catalog] = await Promise.all([
+                getAdminBillingMarkup(),
+                listAdminModelPrices(),
+                // 目录拉不到不能把整页拖垮：选择器退化成手填，定价本身照常可用。
+                loadModelPriceTargets().catch(() => [] as ModelPriceTarget[]),
+            ]);
             const loadedRules = markupPayload.rules ?? [];
             setRules(loadedRules);
             setDraftRules(loadedRules.map(markupDraftOf));
             setDefaultMultiplierBp(markupPayload.defaultMultiplierBp);
             setPrices(pricePayload.prices ?? []);
+            setTargets(catalog);
         } catch (loadError) {
             setError(reasonOf(loadError, "加载定价失败"));
         } finally {
+            setTargetsLoaded(true);
             setLoading(false);
         }
     }, []);
@@ -383,15 +449,41 @@ export function PricingPane() {
     }, [draftRules]);
 
     const openPriceEditor = useCallback(
-        (price: ModelPrice | null) => {
+        (price: ModelPrice | null, target?: ModelPriceTarget | null) => {
             setPriceEditor({ price });
             setPriceFormError("");
             setError("");
             setNotice("");
-            priceForm.setFieldsValue(price ? priceFormValuesOf(price) : emptyPrice);
+            priceForm.setFieldsValue(price ? priceFormValuesOf(price) : { ...emptyPrice, ...(target ? priceFormValuesOfTarget(target) : {}) });
         },
         [priceForm],
     );
+
+    /** 选中目录项：把能力与它决定的两格一并填好，别让运营自己判断按秒还是按次。 */
+    const applyTargetToPriceForm = useCallback(
+        (target: ModelPriceTarget) => {
+            priceForm.setFieldsValue(priceFormValuesOfTarget(target));
+        },
+        [priceForm],
+    );
+
+    const applyTargetToPreviewForm = useCallback(
+        (target: ModelPriceTarget) => {
+            previewForm.setFieldsValue({ capability: target.capability, priceTier: defaultTierByCapability[target.capability] });
+        },
+        [previewForm],
+    );
+
+    // 带着 ?model= 进来、而这个模型还一行价都没有时，把新增表单直接开在它上面：先看一张
+    // 空表、再自己点「新增定价」、再自己选一遍刚在渠道页选过的模型，是把同一件事做两遍。
+    const autoOpenedFocus = useRef("");
+    useEffect(() => {
+        if (!focusModelKey || loading || !targetsLoaded) return;
+        if (autoOpenedFocus.current === focusModelKey) return;
+        autoOpenedFocus.current = focusModelKey;
+        if (focusPrices.length) return;
+        openPriceEditor(null, focusTarget);
+    }, [focusModelKey, focusPrices.length, focusTarget, loading, openPriceEditor, targetsLoaded]);
 
     const submitPrice = useCallback(
         async (values: PriceFormValues) => {
@@ -615,7 +707,7 @@ export function PricingPane() {
                     <Button icon={<RefreshCw className="size-3.5" />} loading={loading} onClick={() => void load()}>
                         刷新
                     </Button>
-                    <Button type="primary" icon={<Plus className="size-3.5" />} onClick={() => openPriceEditor(null)}>
+                    <Button type="primary" icon={<Plus className="size-3.5" />} onClick={() => openPriceEditor(null, focusTarget)}>
                         新增定价
                     </Button>
                 </div>
@@ -690,12 +782,26 @@ export function PricingPane() {
                         </div>
                     </div>
 
+                    {focusModelKey ? (
+                        <div className="admin-notice">
+                            <span>
+                                只看模型 <code>{focusTarget ? modelPriceTargetLabel(focusTarget) : focusModelKey}</code> 的定价，共{" "}
+                                {formatCount(focusPrices.length)} 条。
+                            </span>
+                            <Button size="small" type="text" onClick={clearFocusModel}>
+                                查看全部
+                            </Button>
+                        </div>
+                    ) : null}
+
                     <div className="admin-card">
                         <div className="admin-card-head">
                             <span className="flex items-center gap-2">
                                 <Calculator className="size-4" />
                                 <b style={{ fontSize: "var(--fs-body)" }}>模型单价</b>
-                                <span className="admin-console-mono">prices · {prices.length}</span>
+                                <span className="admin-console-mono">
+                                    prices · {focusModelKey ? `${focusPrices.length}/${prices.length}` : prices.length}
+                                </span>
                             </span>
                             <span className="admin-user-sub">
                                 金额一律整数分：TEXT 按分/百万token（缓存命中 / 未命中 / 输出三档分开）、IMAGE 按分/张、SECOND 按分/秒、REQUEST 按分/次，页面不做元与分的换算。
@@ -705,11 +811,15 @@ export function PricingPane() {
                             rowKey="id"
                             size="small"
                             loading={loading}
-                            dataSource={prices}
+                            dataSource={focusModelKey ? focusPrices : prices}
                             columns={priceColumns}
                             scroll={{ x: 1320 }}
                             pagination={false}
-                            locale={{ emptyText: "还没有定价记录。点右上角「新增定价」，把上游价格回填进来。" }}
+                            locale={{
+                                emptyText: focusModelKey
+                                    ? "这个模型还没有定价记录。点右上角「新增定价」，模型已经替你选好了。"
+                                    : "还没有定价记录。点右上角「新增定价」，把上游价格回填进来。",
+                            }}
                         />
                     </div>
 
@@ -742,8 +852,13 @@ export function PricingPane() {
                                     onFinish={(values) => void submitPreview(values)}
                                 >
                                     <div className="admin-meta-grid">
-                                        <Form.Item label="模型标识" name="modelKey" rules={[{ required: true, message: "请填写模型标识" }]}>
-                                            <Input placeholder="gpt-4o" />
+                                        <Form.Item
+                                            label="模型标识"
+                                            name="modelKey"
+                                            rules={[{ required: true, message: "请选择或填写模型标识" }]}
+                                            extra="从下拉里选模型，能力与档位会一起填好。"
+                                        >
+                                            <ModelKeyPicker targets={targets} onPick={applyTargetToPreviewForm} />
                                         </Form.Item>
                                         <Form.Item label="厂商 code" name="vendorCode">
                                             <Input placeholder="openai" />
@@ -818,17 +933,18 @@ export function PricingPane() {
                         // 跟"我只是换个能力"毫不相关。
                         onValuesChange={(changed) => {
                             if (!("capability" in changed)) return;
-                            const next = changed.capability as ModelPriceCapability;
-                            priceForm.setFieldsValue({
-                                // 音频与视频口径不同：视频按秒，音频按次（服务端拒绝给音频配 SECOND）。
-                                unit: next === "TEXT" ? "TOKEN_1M" : next === "IMAGE" ? "IMAGE" : next === "AUDIO" ? "REQUEST" : "SECOND",
-                                priceTier: defaultTierByCapability[next] ?? "",
-                            });
+                            // 音频与视频口径不同：视频按秒，音频按次（服务端拒绝给音频配 SECOND）。
+                            priceForm.setFieldsValue(priceDefaultsFor(changed.capability as ModelPriceCapability));
                         }}
                         onFinish={(values) => void submitPrice(values)}
                     >
-                        <Form.Item label="模型标识" name="modelKey" rules={[{ required: true, message: "请填写模型标识" }]}>
-                            <Input placeholder="gpt-4o" />
+                        <Form.Item
+                            label="模型标识"
+                            name="modelKey"
+                            rules={[{ required: true, message: "请选择或填写模型标识" }]}
+                            extra="价目表认的是「渠道 ID::平台模型标识」，从下拉里选模型会连能力、单位一起填好；也能手填。"
+                        >
+                            <ModelKeyPicker targets={targets} onPick={applyTargetToPriceForm} />
                         </Form.Item>
                         <Form.Item label="厂商 code" name="vendorCode" extra="对应「模型厂商」里的厂商标识；留空表示平台自有。" >
                             <Input placeholder="openai" />
