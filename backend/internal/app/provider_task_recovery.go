@@ -28,6 +28,43 @@ func (s *Service) QueryFailedVideoTask(ctx context.Context, userID string, taskI
 	return s.queryFailedVideoTask(ctx, task, strings.TrimSpace(userID))
 }
 
+// AdminRecoverFailedVideoTask 用人工提供的上游任务号取回失败视频任务的结果。
+//
+// 存在的理由：聚合上游的创建接口是阻塞式的，偶发"已经建了任务却回了 5xx"。这时平台
+// 手里没有上游任务号，PollStage 停在 submission_unknown，用户既拿不到产物、又不能重试
+// （重试等于重复计费）。上游不提供任务列表接口，所以唯一的补救入口是人工从上游工作台
+// 抄下任务号。这条路只对管理员开放：平台所有账号共用同一个上游账号，普通用户能随意
+// 指定任务号就等于能把别人的产物拉进自己的画布。
+func (s *Service) AdminRecoverFailedVideoTask(ctx context.Context, actor *model.User, taskID string, providerRequestID string) (*ProviderTaskQueryResult, error) {
+	if err := s.RequireAdmin(actor); err != nil {
+		return nil, err
+	}
+	taskID = strings.TrimSpace(taskID)
+	providerRequestID = strings.TrimSpace(providerRequestID)
+	if taskID == "" {
+		return nil, BadAuthRequest("缺少任务号")
+	}
+	if providerRequestID == "" {
+		return nil, BadAuthRequest("请填写上游任务号")
+	}
+	task, err := s.repo.Task(taskID)
+	if err != nil {
+		return nil, err
+	}
+	// 先落到任务上再查询：查询路径读的就是这个字段，成功后的产物登记也依赖它。
+	task.ProviderRequestID = providerRequestID
+	result, err := s.queryFailedVideoTask(ctx, task, "")
+	if err != nil {
+		return nil, err
+	}
+	if err := s.appendAdminAudit(actor, "task.retrieve_provider_result", "task", task.ID, "人工凭上游任务号取回失败视频", map[string]any{
+		"providerRequestId": providerRequestID, "providerStatus": result.ProviderStatus, "recovered": result.Recovered,
+	}); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (s *Service) AdminQueryFailedVideoTask(ctx context.Context, actor *model.User, logID string) (*ProviderTaskQueryResult, error) {
 	if err := s.RequireAdmin(actor); err != nil {
 		return nil, err

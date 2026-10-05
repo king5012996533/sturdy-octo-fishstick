@@ -103,6 +103,24 @@ func RegisterAdminRoutes(r *gin.RouterGroup, svc *app.Service) {
 		ok(c, channel)
 	})
 
+	// 人工取回：上游偶发"建了任务却回 5xx"时，平台拿不到上游任务号，用户既拿不到
+	// 产物也不能重试。这里允许管理员抄一个上游任务号把结果拉回来，不重新生成。
+	admin.POST("/tasks/:id/retrieve-provider", func(c *gin.Context) {
+		var input struct {
+			ProviderRequestID string `json:"providerRequestId"`
+		}
+		if err := c.ShouldBindJSON(&input); err != nil {
+			fail(c, http.StatusBadRequest, errors.New("上游任务号格式错误"))
+			return
+		}
+		result, err := svc.AdminRecoverFailedVideoTask(c.Request.Context(), adminUser(c), c.Param("id"), input.ProviderRequestID)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
+
 	admin.GET("/channels/:id/models", func(c *gin.Context) {
 		models, err := svc.AdminChannelModels(adminUser(c), c.Param("id"))
 		if err != nil {
