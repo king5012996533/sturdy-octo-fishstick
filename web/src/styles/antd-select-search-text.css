@@ -1,0 +1,15 @@
+/*
+ * antd 6.5.1 选择器搜索态的文字色兜底。
+ *
+ * .ant-select-input 的文字色取 var(--ant-select-color)，但这个变量只在 Select 的
+ * customize 变体下声明。普通 Select / AutoComplete 一旦进入搜索态，
+ * .ant-select-content-has-search-value 会把文字色设成 transparent，输入框继承之后
+ * 敲进去的字就整个看不见了——下拉列表还在，只有输入的内容消失。
+ *
+ * 让搜索态容器继承所在容器的文字色：输入框跟着一起可见；容器里那些用来撑宽的镜像
+ * 文案本来就被 antd 设成 opacity: 0，不会因此显形。
+ * 上游规则是运行时注入的，层叠顺序排在我们的样式表后面，所以要 !important。
+ */
+.ant-select:not(.ant-select-customize) .ant-select-content-has-search-value {
+    color: inherit !important;
+}
