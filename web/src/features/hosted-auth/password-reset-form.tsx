@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { App, Button, Form, Input } from "antd";
+import { Button, Form, Input } from "antd";
 import { ArrowRightOutlined, LockOutlined, SafetyOutlined, UserOutlined } from "@ant-design/icons";
 
 import { ApiError } from "@/services/api/request";
 
 import { resetHostedAuthPassword, sendPasswordResetCode, type HostedAuthMethod } from "./api";
+import { AuthNotice, useAuthNotice } from "./auth-notice";
 import { identityShapeOf, isValidEmailInput, isValidPasswordInput, isValidPhoneInput, resolveDevCodeHint } from "./credentials";
 
 /**
@@ -23,12 +24,11 @@ export function PasswordResetForm({ methods, initialTarget, onCancel, onDone }: 
     onCancel: () => void;
     onDone: (target: string) => void;
 }) {
-    const { message } = App.useApp();
+    const { notice, showNotice, clearNotice } = useAuthNotice();
     const [form] = Form.useForm<{ target: string; code: string; password: string; confirmPassword: string }>();
     const [sending, setSending] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [cooldown, setCooldown] = useState(0);
-    const [error, setError] = useState("");
 
     const emailMethod = useMemo(() => methods.find((item) => item.methodType === "EMAIL_CODE"), [methods]);
     const phoneMethod = useMemo(() => methods.find((item) => item.methodType === "PHONE_CODE"), [methods]);
@@ -52,9 +52,10 @@ export function PasswordResetForm({ methods, initialTarget, onCancel, onDone }: 
     const handleSendCode = useCallback(async () => {
         const target = String(form.getFieldValue("target") ?? "").trim();
         if (!codeMethod || !target) {
-            message.warning(`请先填写正确的${identityLabel}`);
+            showNotice("warning", `请先填写正确的${identityLabel}`);
             return;
         }
+        clearNotice();
         setSending(true);
         try {
             const challenge = await sendPasswordResetCode(codeMethod.methodType, target);
@@ -62,37 +63,36 @@ export function PasswordResetForm({ methods, initialTarget, onCancel, onDone }: 
             const devHint = resolveDevCodeHint(challenge);
             if (devHint) {
                 form.setFieldValue("code", devHint.code);
-                message.info(devHint.message);
+                showNotice("info", devHint.message);
             } else {
-                message.success(`验证码已发送至 ${challenge.target || target}`);
+                showNotice("success", `验证码已发送至 ${challenge.target || target}`);
             }
         } catch (sendError) {
-            message.error(sendError instanceof ApiError ? sendError.message : "验证码发送失败，请稍后重试");
+            showNotice("error", sendError instanceof ApiError ? sendError.message : "验证码发送失败，请稍后重试");
         } finally {
             setSending(false);
         }
-    }, [codeMethod, form, identityLabel, message]);
+    }, [clearNotice, codeMethod, form, identityLabel, showNotice]);
 
     const handleSubmit = useCallback(async (values: { target: string; code: string; password: string }) => {
         const target = String(values.target ?? "").trim();
         const methodType = identityShapeOf(target) === "phone" ? "PHONE_CODE" : "EMAIL_CODE";
+        clearNotice();
         setSubmitting(true);
         try {
             const result = await resetHostedAuthPassword({ methodType, target, code: String(values.code ?? "").trim(), newPassword: values.password });
-            setError("");
             // 重置成功不同时签发会话：新密码是用户刚刚设置的，让他用一次自己的新凭据
             // 登录一遍，才能确认这串密码真的记得住、也真的能进得来。
             const signedOut = result.revokedSessions > 0 ? `，其他 ${result.revokedSessions} 台设备已退出登录` : "";
-            message.success(`密码已重置${signedOut}，请用新密码登录`);
+            showNotice("success", `密码已重置${signedOut}，请用新密码登录`);
             onDone(target);
         } catch (submitError) {
             const text = submitError instanceof ApiError ? submitError.message : "重置密码失败，请稍后重试";
-            setError(text);
-            message.error(text);
+            showNotice("error", text);
         } finally {
             setSubmitting(false);
         }
-    }, [message, onDone]);
+    }, [clearNotice, onDone, showNotice]);
 
     const targetRules = useMemo(() => {
         const validate = (_rule: unknown, value: unknown) => {
@@ -157,7 +157,7 @@ export function PasswordResetForm({ methods, initialTarget, onCancel, onDone }: 
                 <Input.Password size="large" autoComplete="new-password" maxLength={64} prefix={<LockOutlined aria-hidden />} placeholder="请再次输入新密码" data-testid="hosted-auth-reset-confirm-password" />
             </Form.Item>
 
-            {error ? <p className="auth-form-error">{error}</p> : null}
+            <AuthNotice notice={notice} />
 
             <Button type="primary" size="large" htmlType="submit" block loading={submitting} className="auth-submit" icon={<ArrowRightOutlined aria-hidden />} iconPlacement="end" data-testid="hosted-auth-reset-submit">
                 重置密码

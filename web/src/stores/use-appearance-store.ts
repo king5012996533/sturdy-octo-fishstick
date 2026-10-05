@@ -7,8 +7,8 @@ export const DEFAULT_PUBLIC_APPEARANCE: PublicAppearance = {
     schemaVersion: 8,
     brandName: "KinoTV",
     brandSlug: "kinotv",
-    authHeroTitle: "让一个故事，\n从文字走向银幕。",
-    authHeroDescription: "",
+    authHeroTitle: "让下一个故事，\n从这里开始。",
+    authHeroDescription: "从一个灵感，到真正能被看见的作品。和创作者一起，探索影像的下一种可能。",
     // 单色方标而不是横排字标：侧栏与加载器都按 16-40px 渲染，横排字标在这个尺寸下
     // 只剩一团灰。浅色主题由 BrandLogo 的 invert 滤镜处理，所以只维护一份白色资产。
     logoUrl: "/kino-mark.svg",

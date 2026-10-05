@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { App, Button, Checkbox, ConfigProvider, Divider, Form, Input, theme as antdTheme } from "antd";
-import { ArrowRightOutlined, GithubOutlined, LockOutlined, PictureOutlined, SafetyOutlined, ThunderboltOutlined, UserOutlined, VideoCameraOutlined } from "@ant-design/icons";
+import { Button, Checkbox, ConfigProvider, Divider, Form, Input, theme as antdTheme } from "antd";
+import { ArrowRightOutlined, GithubOutlined, GoogleOutlined, LockOutlined, SafetyOutlined, UserOutlined, WechatOutlined } from "@ant-design/icons";
 
 import { BrandLogoFrame } from "@/components/brand/brand-logo";
 import { SiteComplianceFooter } from "@/components/layout/site-compliance-footer";
@@ -10,6 +10,7 @@ import { brandStudioLabel, useAppearanceStore } from "@/stores/use-appearance-st
 import "./login-page.css";
 
 import { HostedAuthAgreementDialog } from "./agreement-dialog";
+import { AuthNotice, useAuthNotice } from "./auth-notice";
 import { PasswordResetForm } from "./password-reset-form";
 import { completeHostedOAuthCallback, fetchHostedAuthAgreements, loginHostedAuth, registerHostedAuth, requestHostedOAuthAuthorize, sendHostedAuthCode, type HostedAuthAgreements, type HostedAuthMethod, type HostedAuthUser } from "./api";
 import { identityShapeOf, isValidEmailInput, isValidPasswordInput, isValidPhoneInput, resolveDevCodeHint, type IdentityShape } from "./credentials";
@@ -56,7 +57,7 @@ export function shouldOfferRegistration(error: unknown): boolean {
 const defaultAssign: LocationAssigner = (url) => window.location.assign(url);
 
 export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: HostedAuthMethod[]; onAuthenticated: (user: HostedAuthUser) => void }) {
-    const { message } = App.useApp();
+    const { notice, showNotice, clearNotice } = useAuthNotice();
     const appearance = useAppearanceStore((state) => state.appearance);
     const [form] = Form.useForm<{ target: string; code: string; password: string; confirmPassword: string }>();
     const [mode, setMode] = useState<AuthMode>("login");
@@ -67,7 +68,11 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
     const [agreed, setAgreed] = useState(false);
     const [agreements, setAgreements] = useState<HostedAuthAgreements | null>(null);
     const [agreementView, setAgreementView] = useState<string | null>(null);
+    // 微信 / Google 还没接入：占位按钮点了在卡片里回一句实话。
+    // 不用 message：全局 CSS 关掉了 antd 的浮层提示，发出去也没人看得见。
+    const [pendingProvider, setPendingProvider] = useState<"微信" | "Google" | null>(null);
     const callbackHandled = useRef(false);
+
 
     const emailMethod = useMemo(() => methods.find((item) => item.methodType === EMAIL_METHOD), [methods]);
     const phoneMethod = useMemo(() => methods.find((item) => item.methodType === PHONE_METHOD), [methods]);
@@ -86,6 +91,12 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
     const resetAvailable = Boolean(emailMethod || phoneMethod);
 
     const [factor, setFactor] = useState<HostedAuthFactor>("password");
+
+    // 换登录模式或换因子时收起那句话：它是针对刚刚那一下点击的回答，
+    // 换了场景还挂着会像一张撕不掉的便签。
+    useEffect(() => {
+        setPendingProvider(null);
+    }, [mode]);
     // 选中态要跟着可用因子走：后台关掉某个通道后若不作废选中态，表单会因为找不到
     // 因子而整块空白，用户只看到「没有可用登录方式」。
     const activeFactor: HostedAuthFactor = factors.includes(factor) ? factor : (factors[0] ?? "password");
@@ -151,10 +162,10 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                 window.history.replaceState(null, "", window.location.pathname);
                 onAuthenticated(result.user);
             } catch (error) {
-                message.error(error instanceof ApiError ? error.message : "GitHub 登录失败，请重试");
+                showNotice("error", error instanceof ApiError ? error.message : "GitHub 登录失败，请重试");
             }
         })();
-    }, [message, onAuthenticated]);
+    }, [onAuthenticated, showNotice]);
 
     /**
      * 换因子。
@@ -176,9 +187,11 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
     const handleSendCode = useCallback(async () => {
         const target = String(form.getFieldValue("target") ?? "").trim();
         if (!codeMethod || !target) {
-            message.warning(`请先填写正确的${identityLabel}`);
+            showNotice("warning", `请先填写正确的${identityLabel}`);
             return;
         }
+        // 这一屏的提示条是常驻的，重试前先把上一条擦掉，否则旧失败和新动作会同时挂着。
+        clearNotice();
         setSending(true);
         try {
             const challenge = await sendHostedAuthCode(codeMethod.methodType, target);
@@ -187,21 +200,22 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
             if (devHint) {
                 // 本地没有投递通道，后端把码回显了：直接填进去，省掉去日志里捞。
                 form.setFieldValue("code", devHint.code);
-                message.info(devHint.message);
+                showNotice("info", devHint.message);
             } else {
-                message.success(`验证码已发送至 ${challenge.target}，${Math.round(challenge.cooldownSeconds / 60) || 1} 分钟内有效`);
+                showNotice("success", `验证码已发送至 ${challenge.target}，${Math.round(challenge.cooldownSeconds / 60) || 1} 分钟内有效`);
             }
         } catch (error) {
-            message.error(error instanceof ApiError ? error.message : "验证码发送失败，请稍后重试");
+            showNotice("error", error instanceof ApiError ? error.message : "验证码发送失败，请稍后重试");
         } finally {
             setSending(false);
         }
-    }, [codeMethod, form, identityLabel, message]);
+    }, [clearNotice, codeMethod, form, identityLabel, showNotice]);
 
     const handleSubmit = useCallback(
         async (values: { target: string; code: string; password: string }) => {
             const methodType = isPasswordFactor ? passwordMethod?.methodType : codeMethod?.methodType;
             if (!methodType) return;
+            clearNotice();
             setSubmitting(true);
             try {
                 const result = await loginHostedAuth({
@@ -214,20 +228,20 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
             } catch (error) {
                 if (shouldOfferRegistration(error)) {
                     if (!supportsSignUp(activeFactor)) {
-                        message.error(error instanceof ApiError ? error.message : "该账号不存在，且当前未开放注册");
+                        showNotice("error", error instanceof ApiError ? error.message : "该账号不存在，且当前未开放注册");
                         return;
                     }
                     // 未注册不算操作失败：切到注册页并保留已填标识，省掉用户重新输入。
                     setMode("register");
-                    message.info(`该${identityLabel}还没有账号，已切到注册。设置密码即可开始`);
+                    showNotice("info", `该${identityLabel}还没有账号，已切到注册。设置密码即可开始`);
                     return;
                 }
-                message.error(error instanceof ApiError ? error.message : "登录失败，请稍后重试");
+                showNotice("error", error instanceof ApiError ? error.message : "登录失败，请稍后重试");
             } finally {
                 setSubmitting(false);
             }
         },
-        [activeFactor, codeMethod, identityLabel, isPasswordFactor, message, onAuthenticated, passwordMethod, supportsSignUp],
+        [activeFactor, clearNotice, codeMethod, identityLabel, isPasswordFactor, onAuthenticated, passwordMethod, showNotice, supportsSignUp],
     );
 
     // 进入注册页时才拉协议：登录页不需要为它多打一次请求。
@@ -239,24 +253,25 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                 const payload = await fetchHostedAuthAgreements();
                 if (!cancelled) setAgreements(payload);
             } catch (error) {
-                if (!cancelled) message.error(error instanceof ApiError ? error.message : "协议加载失败，请稍后重试");
+                if (!cancelled) showNotice("error", error instanceof ApiError ? error.message : "协议加载失败，请稍后重试");
             }
         })();
         return () => {
             cancelled = true;
         };
-    }, [agreements, message, mode]);
+    }, [agreements, mode, showNotice]);
 
     const handleRegister = useCallback(
         async (values: { target: string; code: string; password: string }) => {
             const methodType = isPasswordFactor ? passwordMethod?.methodType : codeMethod?.methodType;
             if (!methodType) return;
+            clearNotice();
             if (!agreed) {
-                message.warning("请先阅读并勾选同意《用户协议》与《隐私政策》");
+                showNotice("warning", "请先阅读并勾选同意《用户协议》与《隐私政策》");
                 return;
             }
             if (!agreements) {
-                message.warning("协议还没加载完成，请稍后重试");
+                showNotice("warning", "协议还没加载完成，请稍后重试");
                 return;
             }
             setSubmitting(true);
@@ -270,16 +285,17 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                 });
                 onAuthenticated(result.user);
             } catch (error) {
-                message.error(error instanceof ApiError ? error.message : "注册失败，请稍后重试");
+                showNotice("error", error instanceof ApiError ? error.message : "注册失败，请稍后重试");
             } finally {
                 setSubmitting(false);
             }
         },
-        [agreed, agreements, codeMethod, isPasswordFactor, message, onAuthenticated, passwordMethod],
+        [agreed, agreements, clearNotice, codeMethod, isPasswordFactor, onAuthenticated, passwordMethod, showNotice],
     );
 
     const handleGithubLogin = useCallback(
         async (assign: LocationAssigner = defaultAssign) => {
+            clearNotice();
             setOauthPending(true);
             try {
                 const authorized = await requestHostedOAuthAuthorize({
@@ -289,10 +305,10 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                 assign(authorized.authUrl);
             } catch (error) {
                 setOauthPending(false);
-                message.error(error instanceof ApiError ? error.message : "GitHub 登录暂不可用");
+                showNotice("error", error instanceof ApiError ? error.message : "GitHub 登录暂不可用");
             }
         },
-        [message],
+        [clearNotice, showNotice],
     );
 
     /** 标识字段的三种口径：邮箱、手机号、两者皆可（密码通道都收）。 */
@@ -366,11 +382,14 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                     fontSize: 13,
                     borderRadius: 12,
                     controlHeightLG: 46,
-                    colorPrimary: "#6366f1",
-                    colorLink: "#a5b4fc",
-                    colorLinkHover: "#c7d2fe",
-                    colorText: "#f2f3f8",
-                    colorTextPlaceholder: "rgba(242,243,248,0.32)",
+                    // 青柠是品牌色，但它是浅色：按钮文字、复选框对勾这些压在青柠上的
+                    // 前景必须反过来用深墨，否则白字在青柠上等于看不见。
+                    colorPrimary: "#d6ff68",
+                    colorLink: "#d6ff68",
+                    colorLinkHover: "#e6ff9e",
+                    colorWhite: "#16211c",
+                    colorText: "#f5f5ef",
+                    colorTextPlaceholder: "rgba(245,245,239,0.32)",
                     colorBorder: "rgba(255,255,255,0.12)",
                     colorBgContainer: "rgba(255,255,255,0.05)",
                 },
@@ -379,16 +398,16 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                     Button: {
                         fontWeight: 600,
                         primaryShadow: "none",
-                        colorPrimary: "#6366f1",
-                        colorPrimaryHover: "#4f46e5",
-                        colorPrimaryActive: "#4338ca",
-                        primaryColor: "#ffffff",
+                        colorPrimary: "#d6ff68",
+                        colorPrimaryHover: "#e2ff8f",
+                        colorPrimaryActive: "#c4f04f",
+                        primaryColor: "#16211c",
                         defaultBg: "rgba(255,255,255,0.04)",
                         defaultBorderColor: "rgba(255,255,255,0.14)",
-                        defaultColor: "#f2f3f8",
+                        defaultColor: "#f5f5ef",
                     },
-                    Input: { activeShadow: "0 0 0 3px rgba(99,102,241,0.2)" },
-                    Checkbox: { colorPrimary: "#6366f1" },
+                    Input: { activeShadow: "0 0 0 3px rgba(214,255,104,0.18)" },
+                    Checkbox: { colorPrimary: "#d6ff68" },
                 },
             }}
         >
@@ -430,23 +449,15 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                         </header>
 
                         <div className="max-w-[34rem]">
-                            <p className="auth-hero-eyebrow">AI 创作工作台</p>
+                            <p className="auth-hero-eyebrow">AI 影像创作平台</p>
                             <h1 className="auth-hero-title">{renderAuthHeroTitle(appearance.authHeroTitle)}</h1>
                             {appearance.authHeroDescription ? <p className="auth-hero-desc">{appearance.authHeroDescription}</p> : null}
 
-                            <ul className="auth-hero-features">
-                                {AUTH_HERO_FEATURES.map((feature) => (
-                                    <li key={feature.title}>
-                                        <span className="auth-hero-feature-icon" aria-hidden>
-                                            {feature.icon}
-                                        </span>
-                                        <span className="auth-hero-feature-text">
-                                            <strong>{feature.title}</strong>
-                                            <span>{feature.detail}</span>
-                                        </span>
-                                    </li>
-                                ))}
-                            </ul>
+                            <blockquote className="auth-hero-quote">
+                                <span aria-hidden>“</span>
+                                <p>我终于能把脑子里的电影感画面，完整地讲给别人看。</p>
+                                <cite>KinoTV 创作者</cite>
+                            </blockquote>
                         </div>
 
                         {/* 备案号必须出现在登录页上：它是「本站已备案」的对外声明。 */}
@@ -475,6 +486,8 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                             <h2 className="auth-title">{AUTH_TITLES[mode]}</h2>
                             <p className="auth-subtitle">{subtitle}</p>
                         </header>
+
+                        <AuthNotice notice={notice} />
 
                         {/* 因子切换只在两条因子都能用时出现。通道是后台开关决定的，界面上
                             让用户在邮箱/手机/密码之间先做一道选择题，就是「为了登录而登录」：
@@ -618,14 +631,31 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
                             </Form>
                         ) : null}
 
-                        {hasAnyMethod && showGithub ? (
+                        {/* 微信与 Google 还没接入，按钮先占位：藏起来会被读成「不支持」，
+                            点了如实说在做，用户才知道是可以等的。 */}
+                        {hasAnyMethod ? (
                             <>
                                 <Divider plain className="auth-divider">
-                                    或继续使用
+                                    或使用以下方式
                                 </Divider>
-                                <Button size="large" block icon={<GithubOutlined aria-hidden />} loading={oauthPending} onClick={() => void handleGithubLogin()} data-testid="hosted-auth-github" className="auth-github">
-                                    使用 GitHub 登录
-                                </Button>
+                                <div className="auth-third-party">
+                                    {showGithub ? (
+                                        <Button size="large" block icon={<GithubOutlined aria-hidden />} loading={oauthPending} onClick={() => void handleGithubLogin()} data-testid="hosted-auth-github" className="auth-github">
+                                            GitHub
+                                        </Button>
+                                    ) : null}
+                                    <Button size="large" block icon={<WechatOutlined aria-hidden />} onClick={() => setPendingProvider("微信")} data-testid="hosted-auth-wechat">
+                                        微信
+                                    </Button>
+                                    <Button size="large" block icon={<GoogleOutlined aria-hidden />} onClick={() => setPendingProvider("Google")} data-testid="hosted-auth-google">
+                                        Google
+                                    </Button>
+                                </div>
+                                {pendingProvider ? (
+                                    <p className="auth-third-party-hint" role="status" data-testid="hosted-auth-third-party-hint">
+                                        {pendingProvider}登录正在开发中，敬请期待。
+                                    </p>
+                                ) : null}
                             </>
                         ) : null}
 
@@ -649,18 +679,6 @@ export function HostedAuthLoginPage({ methods, onAuthenticated }: { methods: Hos
         </ConfigProvider>
     );
 }
-
-/**
- * 左侧能力三栏。
- *
- * 写死在代码里而不是做成配置项：这三行是「登录页即产品说明」的骨架，一旦可配置就会被
- * 填成一串营销词；字数也会撑破左栏，把主视觉挤成背景板。
- */
-const AUTH_HERO_FEATURES = [
-    { title: "AI 图像", detail: "生成 · 编辑 · 风格", icon: <PictureOutlined /> },
-    { title: "AI 视频", detail: "文生视频 · 图生视频", icon: <VideoCameraOutlined /> },
-    { title: "创作智能体", detail: "剧本 · 分镜 · 画布", icon: <ThunderboltOutlined /> },
-];
 
 /**
  * 主标题按配置里的换行断行，并把 AI 这个词染成品牌色。

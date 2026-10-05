@@ -12,23 +12,26 @@
 
 .auth-scene {
     /* 登录页自己带一套深色令牌：全局那套 --auth-* 是给管理台复用的，跟着它走会让
-       改管理台配色时顺手把登录页也改了，而这里是产品门面。 */
-    --auth-page-bg: #0a0b10;
-    --auth-panel-bg: #0b0c11;
-    --auth-card-bg: rgba(20, 21, 28, 0.72);
-    --auth-accent: #8b93ff;
-    --auth-muted: rgba(242, 243, 248, 0.46);
+       改管理台配色时顺手把登录页也改了，而这里是产品门面。
 
-    --auth-accent-soft: rgba(99, 102, 241, 0.16);
-    --auth-ink: #f2f3f8;
-    --auth-ink-soft: rgba(242, 243, 248, 0.62);
-    --auth-ink-faint: rgba(242, 243, 248, 0.4);
+       这一套是「深墨底 + 青柠」：底色带一点绿，和主视觉里的夜色接得上；品牌色只有一个
+       青柠，落在主按钮、聚焦环和标题里的重音词上。 */
+    --auth-page-bg: #101314;
+    --auth-panel-bg: #0e1212;
+    --auth-card-bg: rgba(25, 30, 31, 0.72);
+    --auth-accent: #d6ff68;
+    --auth-muted: rgba(245, 245, 239, 0.46);
+
+    --auth-accent-soft: rgba(214, 255, 104, 0.16);
+    --auth-ink: #f5f5ef;
+    --auth-ink-soft: rgba(245, 245, 239, 0.62);
+    --auth-ink-faint: rgba(245, 245, 239, 0.4);
 }
 
 /* 选中态在深卡上单独给一层：默认的选中感来自站点主题，卡片是半透明的，
    拖选自己输入的内容时容易和卡底糊在一起。 */
 .auth-scene ::selection {
-    background: rgba(99, 102, 241, 0.36);
+    background: rgba(214, 255, 104, 0.3);
     color: var(--auth-ink);
 }
 
@@ -37,7 +40,7 @@
 .auth-hero {
     position: relative;
     isolation: isolate;
-    background: #0a0b10;
+    background: var(--auth-page-bg);
 }
 
 .auth-hero-art {
@@ -56,10 +59,10 @@
     position: absolute;
     inset: 0;
     background:
-        linear-gradient(96deg, rgba(10, 11, 16, 0.95) 0%, rgba(10, 11, 16, 0.76) 32%, rgba(10, 11, 16, 0.28) 64%, rgba(10, 11, 16, 0) 100%),
-        linear-gradient(0deg, rgba(10, 11, 16, 0.78) 0%, rgba(10, 11, 16, 0) 46%),
+        linear-gradient(96deg, rgba(16, 19, 20, 0.95) 0%, rgba(16, 19, 20, 0.76) 32%, rgba(16, 19, 20, 0.28) 64%, rgba(16, 19, 20, 0) 100%),
+        linear-gradient(0deg, rgba(16, 19, 20, 0.78) 0%, rgba(16, 19, 20, 0) 46%),
         /* 右缘往表单栏的底色上收一道，两栏交界处不留一条硬边。 */
-        linear-gradient(270deg, rgba(11, 12, 17, 0.96) 0%, rgba(11, 12, 17, 0) 22%);
+        linear-gradient(270deg, rgba(14, 18, 18, 0.96) 0%, rgba(14, 18, 18, 0) 22%);
 }
 
 .auth-brand-text {
@@ -114,57 +117,43 @@
 }
 
 .auth-hero-desc {
-    margin: 18px 0 0;
+    margin: 12px 0 0;
     max-width: 32rem;
     font-size: 14.5px;
-    line-height: 1.8;
+    line-height: 1.75;
     color: var(--auth-ink-soft);
 }
 
-.auth-hero-features {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 28px;
-    margin: 34px 0 0;
-    padding: 0;
-    list-style: none;
-}
-
-.auth-hero-features li {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    gap: 10px;
-}
-
-.auth-hero-feature-icon {
+.auth-hero-quote {
     display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    background: rgba(255, 255, 255, 0.07);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
+    grid-template-columns: auto minmax(0, 1fr);
+    width: min(30rem, 100%);
+    margin: 30px 0 0;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    column-gap: 10px;
+}
+
+.auth-hero-quote > span {
     color: var(--auth-accent);
-    font-size: 15px;
+    font-family: Georgia, serif;
+    font-size: 28px;
+    line-height: .8;
 }
 
-.auth-hero-feature-text {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-}
-
-.auth-hero-feature-text strong {
-    font-size: 13.5px;
-    font-weight: 600;
-    color: var(--auth-ink);
-}
-
-.auth-hero-feature-text span {
+.auth-hero-quote p {
+    margin: 0;
+    color: #d9e4de;
     font-size: 12px;
+    line-height: 1.55;
+}
+
+.auth-hero-quote cite {
+    grid-column: 2;
+    margin-top: 5px;
     color: var(--auth-ink-faint);
+    font-size: 10px;
+    font-style: normal;
 }
 
 /* 备案信息压在图上：全局那套是给深底写的，这里是浅底。 */
@@ -191,9 +180,9 @@
    两边特异性相同时胜负由打包顺序决定，而那顺序不该成为「卡片底色」的依据。 */
 .auth-scene .auth-scene-form-pane {
     background:
-        radial-gradient(120% 60% at 100% 0%, rgba(99, 102, 241, 0.16), transparent 60%),
-        radial-gradient(90% 40% at 0% 100%, rgba(79, 70, 229, 0.1), transparent 60%),
-        linear-gradient(180deg, #0c0d13 0%, #0a0b10 100%);
+        radial-gradient(120% 60% at 100% 0%, rgba(56, 122, 96, 0.22), transparent 60%),
+        radial-gradient(90% 40% at 0% 100%, rgba(214, 255, 104, 0.07), transparent 60%),
+        linear-gradient(180deg, #121716 0%, #0d1110 100%);
 }
 
 .auth-card {
@@ -289,12 +278,12 @@
 .auth-form .ant-input-affix-wrapper:focus-within,
 .auth-form .ant-input:focus {
     border-color: var(--auth-accent) !important;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22) !important;
+    box-shadow: 0 0 0 3px rgba(214, 255, 104, 0.2) !important;
 }
 
 .auth-form .ant-input-prefix {
     margin-inline-end: 10px;
-    color: rgba(242, 243, 248, 0.34);
+    color: rgba(245, 245, 239, 0.34);
 }
 
 .auth-field-label {
@@ -317,25 +306,42 @@
 }
 
 .auth-inline-send:hover:not(:disabled) {
-    background: rgba(99, 102, 241, 0.26);
+    background: rgba(214, 255, 104, 0.26);
 }
 
 .auth-inline-send:disabled {
     background: rgba(255, 255, 255, 0.05);
-    color: rgba(242, 243, 248, 0.3);
+    color: rgba(245, 245, 239, 0.3);
     cursor: not-allowed;
 }
 
 .auth-submit,
-.auth-github {
+.auth-github,
+.auth-third-party .ant-btn {
     height: 46px;
     border-radius: 12px;
+}
+
+/* 第三方入口排成一行：只有 GitHub 时它独占整行，多一个就等宽分栏。 */
+.auth-third-party {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    gap: 10px;
+}
+
+/* 占位入口的回答贴着那一排按钮：它是对「点了微信」的回应，飘到卡片别处就成了另一条消息。 */
+.auth-third-party-hint {
+    margin: 10px 0 0;
+    text-align: center;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--auth-accent);
 }
 
 .auth-divider {
     margin: 20px 0 16px;
     font-size: 12px;
-    color: rgba(242, 243, 248, 0.34);
+    color: rgba(245, 245, 239, 0.34);
 }
 
 .auth-mode-switch {
@@ -358,13 +364,29 @@
     vertical-align: baseline;
 }
 
-/* 重置表单自己的错误条：表单级的失败（验证码错、密码不合规）不属于某个字段，
-   标红那一个输入框会把原因指向错误的地方。 */
-.auth-form-error {
-    margin: 0 0 4px;
+/* 认证门面自己的提示条：表单级的失败（验证码错、密码不合规）和「验证码已发出」
+   这类回执都不属于某个字段，统一落在同一个位置，用户才知道该往哪儿看。
+   这也是这一屏唯一的反馈通道——全局 CSS 关掉了 antd 的浮层提示。 */
+.auth-notice {
+    margin: 0 0 14px;
     font-size: 12.5px;
     line-height: 1.6;
+}
+
+.auth-notice.is-error {
     color: #fca5a5;
+}
+
+.auth-notice.is-warning {
+    color: #fcd34d;
+}
+
+.auth-notice.is-success {
+    color: var(--auth-accent);
+}
+
+.auth-notice.is-info {
+    color: var(--auth-ink-soft);
 }
 
 /* 移动端表单页的备案声明：宽屏那一份在左侧品牌栏里，这一份只在窄屏出现，
@@ -373,4 +395,13 @@
     width: 100%;
     max-width: 460px;
     margin-top: 18px;
+}
+
+/* 宽屏必须真的收掉：元素上那个 Tailwind 的 lg:hidden 待在 @layer 里，压不过
+   globals.css 里不分层的 .site-compliance-footer{display:flex}，结果是宽屏两栏
+   各挂一条版权与备案。 */
+@media (min-width: 1024px) {
+    .auth-compliance-mobile {
+        display: none;
+    }
 }

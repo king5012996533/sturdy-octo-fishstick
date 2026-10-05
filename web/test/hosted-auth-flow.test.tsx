@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { App } from "antd";
 import { MemoryRouter } from "react-router";
@@ -11,6 +13,9 @@ import { HostedAuthAccountPanel, HostedAuthSidebarFooter, hostedAuthIdentityLabe
 import { ApiError, apiClient } from "../src/services/api/request";
 
 const originalAdapter = apiClient.defaults.adapter;
+
+const root = resolve(import.meta.dir, "..");
+const read = (path: string) => readFileSync(resolve(root, path), "utf8");
 
 afterEach(() => {
     apiClient.defaults.adapter = originalAdapter;
@@ -105,8 +110,16 @@ describe("hosted auth login page", () => {
         expect(markup).not.toContain("使用 GitHub 登录");
     });
 
-    test("启用 GitHub 时渲染第三方登录入口", () => {
-        expect(renderLogin([emailMethod, githubMethod])).toContain("使用 GitHub 登录");
+    test("第三方登录排成一行：GitHub 可用，微信与 Google 先占位", () => {
+        const withGithub = renderLogin([emailMethod, githubMethod]);
+        expect(withGithub).toContain("hosted-auth-github");
+        expect(withGithub).toContain("hosted-auth-wechat");
+        expect(withGithub).toContain("hosted-auth-google");
+        // 微信与 Google 还没接入，但没有 GitHub 也要露出：占位被藏起来等于告诉用户「不支持」。
+        const withoutGithub = renderLogin([emailMethod]);
+        expect(withoutGithub).not.toContain("hosted-auth-github");
+        expect(withoutGithub).toContain("hosted-auth-wechat");
+        expect(withoutGithub).toContain("hosted-auth-google");
     });
 
     test("没有任何登录方式时给出明确提示", () => {
@@ -116,6 +129,18 @@ describe("hosted auth login page", () => {
     test("OAuth 回调地址固定在后端回调路径上", () => {
         expect(oauthRedirectUri("https://canvas.example.com")).toBe("https://canvas.example.com/auth/oauth/callback");
         expect(oauthRedirectUri("https://canvas.example.com/")).toBe("https://canvas.example.com/auth/oauth/callback");
+    });
+
+    // globals.css 把 antd 的浮层提示全局关掉了（工作区反馈走画布内状态），而登录页没有画布：
+    // 这两处再用 message.* 就等于把「验证码发出去了没有」「为什么进不去」发给一个没人看得见的地方。
+    test("登录与重置表单的提示落在卡片里，不走被全局禁用的浮层", () => {
+        for (const file of ["src/features/hosted-auth/login-page.tsx", "src/features/hosted-auth/password-reset-form.tsx"]) {
+            const source = read(file);
+            expect(source).not.toContain("App.useApp()");
+            expect(source).not.toMatch(/message\.(info|success|error|warning)\(/);
+            expect(source).toContain("useAuthNotice");
+            expect(source).toContain("<AuthNotice notice={notice} />");
+        }
     });
 });
 
