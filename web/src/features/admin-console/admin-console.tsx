@@ -36,6 +36,12 @@ type ConsoleSectionKey = "dashboard" | "users" | "roles" | "canvases" | "assets"
 
 const consoleSections: Array<{ key: ConsoleSectionKey; label: string; description: string; icon: LucideIcon; pane: () => React.JSX.Element }> = [
     { key: "dashboard", label: "仪表盘", description: "用户、调用量与存储读数", icon: LayoutDashboard, pane: () => <DashboardPane /> },
+    // 模型与计费紧挨仪表盘：这一组是后台来得最勤的入口，越靠后越容易被侧栏高度裁掉。
+    // 厂商是配置入口，渠道是它的执行层：先用「模型厂商」把上游与密钥挂进来，再看
+    // 「渠道与模型」里落成的 system channel，顺序反过来会让人以为要手填裸地址。
+    { key: "vendors", label: "模型厂商", description: "上游厂商、凭据与模型目录", icon: Boxes, pane: () => <VendorsPane /> },
+    { key: "channels", label: "渠道与模型", description: "上游地址、密钥与可售模型", icon: RadioTower, pane: () => <ChannelsPane /> },
+    { key: "pricing", label: "模型定价", description: "计费倍率与模型单价", icon: BadgePercent, pane: () => <PricingPane /> },
     { key: "users", label: "用户管理", description: "账号、角色与封禁", icon: Users, pane: () => <UsersPane /> },
     { key: "roles", label: "角色与权限", description: "角色定义与权限点分配", icon: ShieldCheck, pane: () => <RolesPane /> },
     { key: "canvases", label: "内容审核", description: "画布内容与处置", icon: ShieldAlert, pane: () => <CanvasPane /> },
@@ -54,11 +60,6 @@ const consoleSections: Array<{ key: ConsoleSectionKey; label: string; descriptio
     { key: "coupons", label: "优惠券", description: "折扣券与核销记录", icon: TicketPercent, pane: () => <CouponsPane /> },
     { key: "tickets", label: "工单与反馈", description: "用户反馈与处理流转", icon: LifeBuoy, pane: () => <TicketsPane /> },
     { key: "settings", label: "站点设置", description: "品牌、Logo 与备案信息", icon: Settings, pane: () => <SettingsPane /> },
-    // 厂商是配置入口，渠道是它的执行层：先用「模型厂商」把上游与密钥挂进来，再看
-    // 「渠道与模型」里落成的 system channel，顺序反过来会让人以为要手填裸地址。
-    { key: "vendors", label: "模型厂商", description: "上游厂商、凭据与模型目录", icon: Boxes, pane: () => <VendorsPane /> },
-    { key: "channels", label: "渠道与模型", description: "上游地址、密钥与可售模型", icon: RadioTower, pane: () => <ChannelsPane /> },
-    { key: "pricing", label: "模型定价", description: "计费倍率与模型单价", icon: BadgePercent, pane: () => <PricingPane /> },
     { key: "features", label: "功能开放", description: "决定前台形态的开关", icon: SlidersHorizontal, pane: () => <FeaturesPane /> },
     { key: "policy", label: "运行时策略", description: "配额、超时与频控", icon: Gauge, pane: () => <PolicyPane /> },
     { key: "audit", label: "审计日志", description: "管理员写操作留痕", icon: ScrollText, pane: () => <AuditPane /> },

@@ -153,12 +153,37 @@ body.admin-overlay-host {
 .admin-console-rail {
     display: flex;
     width: 196px;
+    min-height: 0;
     flex-shrink: 0;
     flex-direction: column;
     gap: 2px;
     border-right: 1px solid var(--admin-hairline-soft);
     padding: 14px 10px;
     background: color-mix(in srgb, var(--auth-panel-bg) 72%, transparent);
+    /*
+     * 分区有二十多个，矮屏放不下。这里必须能滚：以前靠 .admin-console 的
+     * overflow: hidden 兜底，超出的分区被直接裁掉——鼠标够不到，只有脚本
+     * scrollIntoView 能碰到，等于「入口不存在」。
+     */
+    overflow-y: auto;
+    /* 显式画滚动条：macOS 的悬浮滚动条不滚动时不出现，看不出下面还有内容。 */
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--admin-ink) 24%, transparent) transparent;
+}
+
+.admin-console-rail::-webkit-scrollbar {
+    width: 8px;
+}
+
+.admin-console-rail::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.admin-console-rail::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: var(--r-full);
+    background-clip: content-box;
+    background-color: color-mix(in srgb, var(--admin-ink) 24%, transparent);
 }
 
 .admin-console-rail-heading {
@@ -211,6 +236,8 @@ body.admin-overlay-host {
         width: 100%;
         flex-direction: row;
         overflow-x: auto;
+        /* 窄屏改成横向排布，纵向不再需要滚动。 */
+        overflow-y: hidden;
         border-right: 0;
         border-bottom: 1px solid var(--admin-hairline-soft);
         padding: 8px 10px;

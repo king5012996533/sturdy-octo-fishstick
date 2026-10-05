@@ -43,6 +43,21 @@ describe("运营后台分区接线", () => {
         }
     });
 
+    test("侧栏可滚动，模型与计费入口不会被高度裁到点不到", () => {
+        // 分区有二十多个，矮屏放不下。侧栏一度是 overflow: visible，靠 .admin-console 的
+        // overflow: hidden 兜底 → 超出的分区被裁掉，鼠标够不到，界面上等于没有入口。
+        const css = read("src/features/admin-console/admin-console.css");
+        const railStart = css.indexOf(".admin-console-rail {");
+        const rail = css.slice(railStart, css.indexOf("}", railStart));
+        expect(rail).toContain("overflow-y: auto");
+
+        const consoleSrc = read("src/features/admin-console/admin-console.tsx");
+        const order = [...consoleSrc.matchAll(/key: "([a-z-]+)"/g)].map((match) => match[1]);
+        expect(order.length).toBe(24);
+        // 常用的模型/计费入口排在最前，否则默认视口下根本看不到。
+        expect(order.slice(0, 4)).toEqual(["dashboard", "vendors", "channels", "pricing"]);
+    });
+
     test("用户端「帮助与反馈」只在托管形态注册，并出现在侧栏与顶栏标题", () => {
         const router = read("src/router.tsx");
         expect(router).toContain('import("@/pages/support")');
