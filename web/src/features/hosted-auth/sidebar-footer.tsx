@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { ChevronsUpDown, CircleUserRound, LogOut, UserRound } from "lucide-react";
+import { Boxes, ChevronsUpDown, CircleDollarSign, CircleUserRound, LifeBuoy, LogOut, UserRound } from "lucide-react";
 import { Popover } from "antd";
 import { Link } from "react-router";
 
@@ -77,6 +77,42 @@ export function HostedAuthAccountPanel({ onLogout, pending, onNavigate }: { onLo
             >
                 <UserRound className="size-4 shrink-0" />
                 <span>用户中心</span>
+            </Link>
+
+            {/* 余额、帮助与模型介绍都归到"我的"这一层：它们不是创作路径上的一步，
+                常驻侧栏会让导航条越堆越长。放在账户菜单里仍然是一步可达，
+                不用先绕进用户中心再找。 */}
+            <Link
+                to="/wallet"
+                onClick={onNavigate}
+                data-testid="hosted-auth-account-wallet"
+                className="flex h-9 w-full items-center gap-2.5 rounded-[10px] px-2.5 text-[13px] text-foreground/80 transition-colors hover:bg-foreground/5 focus-visible:outline focus-visible:outline-2"
+            >
+                <CircleDollarSign className="size-4 shrink-0" />
+                <span>积分中心</span>
+            </Link>
+
+            {/* 模型介绍是公开页，只读、不带工作区外壳；新开标签进去，用户手里的画布不会被顶掉。 */}
+            <Link
+                to="/models"
+                target="_blank"
+                rel="noreferrer"
+                onClick={onNavigate}
+                data-testid="hosted-auth-account-models"
+                className="flex h-9 w-full items-center gap-2.5 rounded-[10px] px-2.5 text-[13px] text-foreground/80 transition-colors hover:bg-foreground/5 focus-visible:outline focus-visible:outline-2"
+            >
+                <Boxes className="size-4 shrink-0" />
+                <span>模型广场</span>
+            </Link>
+
+            <Link
+                to="/support"
+                onClick={onNavigate}
+                data-testid="hosted-auth-account-support"
+                className="flex h-9 w-full items-center gap-2.5 rounded-[10px] px-2.5 text-[13px] text-foreground/80 transition-colors hover:bg-foreground/5 focus-visible:outline focus-visible:outline-2"
+            >
+                <LifeBuoy className="size-4 shrink-0" />
+                <span>帮助与反馈</span>
             </Link>
 
             {/* 退出登录是低频破坏性操作：放在面板最底部、用危险色、与身份区隔一条线，

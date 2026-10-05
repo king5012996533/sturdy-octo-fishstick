@@ -61,12 +61,15 @@ describe("公开路径白名单", () => {
         expect(router.indexOf("...modelDocRoutes(),")).toBeLessThan(router.indexOf("<WorkspaceLayout />"));
     });
 
-    test("侧栏入口只在托管构建出现，并且新开标签进公开页", () => {
+    test("模型入口收在账户菜单里，并且新开标签进公开页", () => {
         const sidebar = read("src/components/layout/workspace-sidebar-nav.tsx");
+        expect(sidebar).not.toContain('"/models"');
         // 公开页在工作区之外渲染：同标签跳过去，用户手里的画布与未保存状态会被顶掉。
-        expect(sidebar).toContain('__BEEFTV_HOSTED_AUTH__ ? [{ id: "models", title: "模型", icon: Boxes, to: "/models", newTab: true }] : []');
-        // newTab 必须在渲染处生效，否则只是写了一个没人读的字段。
-        expect(sidebar).toContain('target={item.newTab ? "_blank" : undefined}');
+        // 入口只在托管形态注册 —— sidebar-footer 属于 @/features/hosted-auth，本地构建整体被摇掉。
+        const accountMenu = read("src/features/hosted-auth/sidebar-footer.tsx");
+        expect(accountMenu).toContain('to="/models"');
+        expect(accountMenu).toContain('target="_blank"');
+        expect(accountMenu).toContain('data-testid="hosted-auth-account-models"');
     });
 });
 

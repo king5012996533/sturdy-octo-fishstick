@@ -21,10 +21,13 @@ describe("计费模块接线", () => {
         expect(router).not.toContain('import("@/pages/billing")');
         expect(router).toContain('{ path: "/billing", element: <Navigate to="/wallet" replace /> }');
 
+        // 充值入口收在账户菜单里（"我的"那一层），侧栏只留创作路径上的入口。
         const sidebar = read("src/components/layout/workspace-sidebar-nav.tsx");
-        expect(sidebar).toContain('title: "积分中心"');
-        expect(sidebar).toContain('to: "/wallet"');
-        expect(sidebar).toMatch(/__BEEFTV_HOSTED_AUTH__ \? \[\{ id: "wallet"/);
+        expect(sidebar).not.toContain('title: "积分中心"');
+        expect(sidebar).not.toContain('"/wallet"');
+        const accountMenu = read("src/features/hosted-auth/sidebar-footer.tsx");
+        expect(accountMenu).toContain('to="/wallet"');
+        expect(accountMenu).toContain('data-testid="hosted-auth-account-wallet"');
     });
 
     test("顶栏标题与路由 slug 对齐", () => {

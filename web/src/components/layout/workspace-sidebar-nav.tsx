@@ -1,4 +1,4 @@
-import { Bot, Boxes, ChevronRight, CircleDollarSign, Home, LifeBuoy, PanelLeftClose, PanelLeftOpen, Plus, Settings2, ShieldCheck, Sun, Moon } from "lucide-react";
+import { Bot, ChevronRight, Home, PanelLeftClose, PanelLeftOpen, Plus, Settings2, ShieldCheck, Sun, Moon } from "lucide-react";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
@@ -38,8 +38,6 @@ export type WorkspaceNavItem = {
     badge?: string | number;
     disabled?: boolean;
     action?: "search";
-    /** 公开页入口：在工作区之外渲染，新开标签避免当前工作被顶掉。 */
-    newTab?: boolean;
     children?: WorkspaceNavItem[];
 };
 
@@ -68,12 +66,10 @@ function buildNav(features: FeatureAvailability, brandName: string, adminConsole
                 { id: "home", title: "首页", icon: Home, to: "/" },
                 { ...toolItem("canvas", "/project"), title: "项目" },
                 { ...toolItem("assets", "/assets"), title: "资产" },
-                // 平台只卖积分：订阅套餐不再对外售卖，充值入口只有「积分中心」一个。
-                // 入口与计费后端同时成立：本地/桌面构建没有 /api/finance/*，入口必须一起消失。
-                ...(__BEEFTV_HOSTED_AUTH__ ? [{ id: "wallet", title: "积分中心", icon: CircleDollarSign, to: "/wallet" }] : []),
-                ...(__BEEFTV_HOSTED_AUTH__ ? [{ id: "support", title: "帮助与反馈", icon: LifeBuoy, to: "/support" }] : []),
-                // 模型介绍是公开页，只读、不带侧栏；新开标签进去，用户手里的画布不会被顶掉。
-                ...(__BEEFTV_HOSTED_AUTH__ ? [{ id: "models", title: "模型", icon: Boxes, to: "/models", newTab: true }] : []),
+                // 积分中心、帮助与反馈、模型介绍都收进了账户菜单：它们回答的是
+                // "我的账号什么状态、这个平台有哪些模型"，不在创作路径上，挤在侧栏里
+                // 只会和首页/项目/资产这些真正的工作区入口抢注意力。
+                // 充值入口仍然只有「积分中心」一处，只是换了位置。
                 // 托管形态的模型与执行凭证都由平台持有，用户端没有任何可配置项：
                 // 保留入口只会把"选模型"包装成"配模型"，把用户引向一个空设置页。
                 ...(userChannelConfigVisible(features.customChannelsEnabled)
@@ -208,8 +204,6 @@ function NavItem({ item, activeId, onSelect, onOpenSearch, level = 0, collapsed 
                     to={linkTo}
                     className={rowClassName}
                     data-nav-id={item.id}
-                    target={item.newTab ? "_blank" : undefined}
-                    rel={item.newTab ? "noreferrer" : undefined}
                     style={rowStyle}
                     aria-label={collapsed ? item.title : undefined}
                     title={collapsed ? item.title : undefined}

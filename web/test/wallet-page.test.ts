@@ -15,8 +15,12 @@ const lines = (path: string) => read(path).split("\n").length;
  */
 describe("积分中心", () => {
     test("充值与订阅只有一个入口", () => {
+        // 充值入口收在账户菜单里，不在侧栏：侧栏只留工作区入口（首页/项目/资产）。
+        const accountMenu = read("src/features/hosted-auth/sidebar-footer.tsx");
+        expect(accountMenu).toContain('to="/wallet"');
+        expect(accountMenu).not.toContain("/billing");
         const sidebar = read("src/components/layout/workspace-sidebar-nav.tsx");
-        expect(sidebar).toContain('to: "/wallet"');
+        expect(sidebar).not.toContain('to: "/wallet"');
         expect(sidebar).not.toContain("/billing");
         expect(sidebar).not.toContain("订阅与充值");
 

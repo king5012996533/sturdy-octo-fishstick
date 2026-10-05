@@ -540,6 +540,8 @@
     --workspace-reference-topbar: 89px;
     --workspace-reference-page-bg: var(--user-page-bg);
     --user-accent: #087d94;
+    /* 强调色底上的前景：浅色主题的强调色是深青，压深字会糊；深色主题是青柠，压白字同样糊。 */
+    --user-accent-on: #ffffff;
     background: var(--user-page-bg);
     color-scheme: inherit;
 }
@@ -559,8 +561,8 @@
 .app-user-workspace.app-product-workspace .app-workspace-nav-group { gap: 5px; }
 .app-user-workspace.app-product-workspace .app-workspace-nav-group + .app-workspace-nav-group { padding-top: 8px; border-top: 1px solid var(--user-border); }
 .app-user-workspace.app-product-workspace .app-workspace-nav-link { min-height: 50px; padding: 0 16px; border-radius: 10px; color: var(--user-ink-muted); font-size: 16px; }
-.app-user-workspace.app-product-workspace .app-workspace-nav-link[data-nav-id="new"] { min-height: 52px; margin-bottom: 2px; background: #22cbed; color: #071114; font-weight: 650; }
-.app-user-workspace.app-product-workspace .app-workspace-nav-link[data-nav-id="new"]:hover { background:#36d9f6; }
+.app-user-workspace.app-product-workspace .app-workspace-nav-link[data-nav-id="new"] { min-height: 52px; margin-bottom: 2px; background: var(--user-accent, #d6ff68); color: var(--user-accent-on, #152b24); font-weight: 650; }
+.app-user-workspace.app-product-workspace .app-workspace-nav-link[data-nav-id="new"]:hover { background: color-mix(in srgb, var(--user-accent, #d6ff68) 86%, #fff); }
 .app-user-workspace.app-product-workspace .app-workspace-nav-link[data-nav-id="create"] { color:var(--user-ink-muted); }
 .app-user-workspace.app-product-workspace .app-workspace-nav-link.is-active { background: var(--user-surface-hover); color: var(--user-ink); }
 .app-user-workspace.app-product-workspace .app-workspace-nav-link:hover:not(.is-active):not([data-nav-id="new"]) { background:var(--user-surface-hover);color:var(--user-ink); }
@@ -580,18 +582,18 @@
     color: var(--user-ink-muted);
 }
 .app-user-workspace.app-product-workspace .app-workspace-update-action {
-    background: color-mix(in srgb, #22cbed 16%, transparent);
+    background: color-mix(in srgb, var(--user-accent) 16%, transparent);
     color: var(--user-accent);
 }
 .app-user-workspace.app-product-workspace .app-workspace-update-action:hover,
 .app-user-workspace.app-product-workspace .app-workspace-update-action:focus-visible {
-    background: color-mix(in srgb, #22cbed 26%, transparent);
+    background: color-mix(in srgb, var(--user-accent) 26%, transparent);
 }
 .app-user-workspace.app-product-workspace .app-workspace-update-progress-bar {
     background: var(--user-border);
 }
 .app-user-workspace.app-product-workspace .app-workspace-update-progress-bar > span {
-    background: #22cbed;
+    background: var(--user-accent);
 }
 .app-user-workspace.app-product-workspace .app-workspace-sidebar-checkin,
 .app-user-workspace.app-product-workspace .app-workspace-sidebar-storage { display:none; }
@@ -625,7 +627,7 @@
 }
 
 
-.dark .app-user-workspace.app-product-workspace { --user-accent: #22d3ee; }
+.dark .app-user-workspace.app-product-workspace { --user-accent: #d6ff68; --user-accent-on: #152b24; }
 /* ========================================================================
    Product interaction contract
    ------------------------------------------------------------------------
@@ -1242,7 +1244,7 @@
 }
 .app-user-workspace.app-product-workspace .app-workspace-nav-link[data-nav-id="new"],
 .app-user-workspace.app-product-workspace .app-workspace-nav-link[data-nav-id="new"] :is(.app-workspace-nav-title, .app-workspace-nav-icon, svg) {
-    color: #071114 !important;
+    color: var(--user-accent-on, #152b24) !important;
 }
 .app-user-workspace.app-product-workspace .app-workspace-sidebar-footer {
     border-top-color: transparent !important;
@@ -1319,7 +1321,7 @@
 }
 .app-user-workspace.app-product-workspace .app-workspace-nav-link[data-nav-id="new"] {
     margin-bottom: 0 !important;
-    background: #13d5ff !important;
+    background: var(--user-accent, #d6ff68) !important;
     font-weight: 400 !important;
 }
 .app-user-workspace.app-product-workspace .app-workspace-nav-link.is-active:not([data-nav-id="new"]) {

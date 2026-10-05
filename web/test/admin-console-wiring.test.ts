@@ -58,14 +58,17 @@ describe("运营后台分区接线", () => {
         expect(order.slice(0, 4)).toEqual(["dashboard", "vendors", "channels", "pricing"]);
     });
 
-    test("用户端「帮助与反馈」只在托管形态注册，并出现在侧栏与顶栏标题", () => {
+    test("用户端「帮助与反馈」只在托管形态注册，入口收在账户菜单里", () => {
         const router = read("src/router.tsx");
         expect(router).toContain('import("@/pages/support")');
         expect(router).toMatch(/__BEEFTV_HOSTED_AUTH__ \? \[\{ path: "\/support"/);
 
+        // 侧栏只留创作路径上的入口，"我的账号相关的"都收进账户菜单。
         const sidebar = read("src/components/layout/workspace-sidebar-nav.tsx");
-        expect(sidebar).toContain('title: "帮助与反馈"');
-        expect(sidebar).toMatch(/__BEEFTV_HOSTED_AUTH__ \? \[\{ id: "support"/);
+        expect(sidebar).not.toContain('title: "帮助与反馈"');
+        const accountMenu = read("src/features/hosted-auth/sidebar-footer.tsx");
+        expect(accountMenu).toContain('to="/support"');
+        expect(accountMenu).toContain('data-testid="hosted-auth-account-support"');
 
         expect(read("src/components/layout/workspace-top-bar.tsx")).toContain('support: "帮助与反馈"');
     });

@@ -17860,8 +17860,8 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 
 .app-user-workspace .app-workspace-sidebar-rail-brand .app-workspace-brand-mark {
     border-radius: 11px;
-    background: linear-gradient(142deg, #7c5cff 0%, #4f7dff 54%, #22d3ee 100%) !important;
-    box-shadow: 0 8px 20px rgba(86, 96, 255, .3);
+    background: linear-gradient(142deg, #2f7057 0%, #245b47 54%, #1a4436 100%) !important;
+    box-shadow: 0 8px 20px rgba(20, 70, 52, .38);
 }
 
 .app-user-workspace .app-workspace-sidebar-rail-brand .app-workspace-brand-mark svg { color: #fff; }
@@ -20529,19 +20529,27 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap { box-shadow: 0 
 
 .dark .app-user-workspace,
 .dark .app-user-overlays {
-    --user-page-bg: #151517;
-    --user-surface: #1c1c1f;
-    --user-surface-raised: #222226;
-    --user-surface-muted: #26262a;
-    --user-surface-hover: #303036;
-    --user-control-pressed: #3a3a40;
+    /* 深色用户端统一到首页那套墨绿 + 青柠：原来的 #151517 系是中性冷灰，
+       和首页墨绿底、青柠点缀并排时整条侧栏会读成蓝色，像另一个产品。
+       表面色往绿相偏、留白与强调色一起换，首页与其余页面才是同一套语言。 */
+    --user-page-bg: #101314;
+    --user-surface: #171d1c;
+    --user-surface-raised: #1e2523;
+    --user-surface-muted: #232b29;
+    --user-surface-hover: #2c3431;
+    --user-control-pressed: #343d3a;
     --user-border: rgba(255, 255, 255, .09);
     --user-border-strong: rgba(255, 255, 255, .16);
-    --user-ink: #f3f3f5;
-    --user-ink-muted: #b4b4bc;
-    --user-ink-soft: #9797a1;
-    --user-accent: #a69cff;
-    --user-accent-soft: rgba(126, 113, 255, .16);
+    --user-ink: #f5f5ef;
+    --user-ink-muted: #b3bbb6;
+    --user-ink-soft: #959d99;
+    --user-accent: #d6ff68;
+    --user-accent-soft: rgba(214, 255, 104, .16);
+    /* 主按钮：青柠底 + 墨绿字，与首页发送键同一颗色。深色下原来继承浅色主题的
+       靛蓝渐变，白字压在青柠上会糊掉，所以前景色必须一起换。 */
+    --user-action-gradient: linear-gradient(115deg, #d6ff68, #a9e04f);
+    --user-action-gradient-hover: linear-gradient(115deg, #cbff55, #9bd643);
+    --user-action-foreground: #152b24;
     --user-shadow-card: none;
     --user-shadow-hover: none;
 }
