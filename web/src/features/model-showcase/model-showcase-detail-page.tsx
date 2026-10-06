@@ -5,8 +5,8 @@ import { ModelReadme } from "./model-readme";
 import { ShowcasePriceTable } from "./price-table";
 import { ShowcaseSpecTable } from "./spec-table";
 import { ShowcaseShell } from "./showcase-shell";
+import { useShowcaseMeta } from "./use-showcase-meta";
 import { useShowcaseModel } from "./use-showcase-models";
-import { useShowcaseTitle } from "./use-showcase-title";
 
 /**
  * 模型介绍页（公开，单个模型）。
@@ -22,7 +22,10 @@ export function ModelShowcaseDetailPage() {
     const slug = normalizeSlug(useParams()["*"]);
     const { model, loading, error, reload } = useShowcaseModel(slug);
 
-    useShowcaseTitle(model ? `${model.displayName} · 模型介绍` : "模型介绍");
+    useShowcaseMeta(
+        model ? `${model.displayName} 模型介绍 · 参数与价格` : "模型介绍与定价",
+        model ? describeModel(model) : "平台已接入的生成模型清单：能力、参数与价格。",
+    );
 
     return (
         <ShowcaseShell>
@@ -86,4 +89,14 @@ export function ModelShowcaseDetailPage() {
 /** 详情路由用通配匹配，拿到的是一段可能带前导斜杠的剩余路径。 */
 function normalizeSlug(raw: string | undefined): string {
     return (raw || "").replace(/^\/+/, "").trim();
+}
+
+/**
+ * 详情页的描述优先用广场里那份简介：它是运营为这个模型专门写的定位，比参数表里
+ * 拼出来的句子更像人话。搜索结果的描述有长度上限，超出的部分会被自己截掉。
+ */
+function describeModel(model: { displayName: string; summary: string; tagline: string }): string {
+    const copy = (model.summary || model.tagline).trim();
+    if (!copy) return `${model.displayName} 的能力、参数与定价。`;
+    return copy.length > 150 ? `${copy.slice(0, 149)}…` : copy;
 }

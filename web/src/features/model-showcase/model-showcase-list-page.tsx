@@ -2,8 +2,8 @@ import { Link } from "react-router";
 
 import { capabilityLabel } from "./presentation";
 import { ShowcaseShell } from "./showcase-shell";
+import { useShowcaseMeta } from "./use-showcase-meta";
 import { useShowcaseModels } from "./use-showcase-models";
-import { useShowcaseTitle } from "./use-showcase-title";
 
 /**
  * 模型目录（公开）。
@@ -13,7 +13,7 @@ import { useShowcaseTitle } from "./use-showcase-title";
  * 真实截图之前只会让页面显得空。
  */
 export function ModelShowcaseListPage() {
-    useShowcaseTitle("模型介绍");
+    useShowcaseMeta("模型介绍与定价", "平台已接入的生成模型清单：能力、参数与价格，与创作台使用同一份配置，页面上的价就是账单上的价。");
     const { models, loading, error, reload } = useShowcaseModels();
 
     return (

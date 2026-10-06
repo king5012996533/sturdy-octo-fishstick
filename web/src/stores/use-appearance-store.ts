@@ -114,17 +114,17 @@ export function commitPublicAppearance(value?: Partial<PublicAppearance> | null)
 export function applyAppearanceMetadata(appearance: PublicAppearance, targetDocument: Document | undefined = typeof document === "undefined" ? undefined : document) {
     if (!targetDocument) return;
     targetDocument.title = appearance.seoTitle || appearance.brandName;
-    setMeta(targetDocument, "name", "description", appearance.seoDescription);
-    setMeta(targetDocument, "name", "keywords", appearance.seoKeywords);
-    setMeta(targetDocument, "property", "og:title", appearance.seoTitle || appearance.brandName);
-    setMeta(targetDocument, "property", "og:description", appearance.seoDescription);
-    setMeta(targetDocument, "property", "og:site_name", appearance.brandName);
-    setMeta(targetDocument, "property", "og:type", "website");
-    setMeta(targetDocument, "name", "twitter:card", "summary_large_image");
-    setMeta(targetDocument, "name", "twitter:title", appearance.seoTitle || appearance.brandName);
-    setMeta(targetDocument, "name", "twitter:description", appearance.seoDescription);
+    setDocumentMeta(targetDocument, "name", "description", appearance.seoDescription);
+    setDocumentMeta(targetDocument, "name", "keywords", appearance.seoKeywords);
+    setDocumentMeta(targetDocument, "property", "og:title", appearance.seoTitle || appearance.brandName);
+    setDocumentMeta(targetDocument, "property", "og:description", appearance.seoDescription);
+    setDocumentMeta(targetDocument, "property", "og:site_name", appearance.brandName);
+    setDocumentMeta(targetDocument, "property", "og:type", "website");
+    setDocumentMeta(targetDocument, "name", "twitter:card", "summary_large_image");
+    setDocumentMeta(targetDocument, "name", "twitter:title", appearance.seoTitle || appearance.brandName);
+    setDocumentMeta(targetDocument, "name", "twitter:description", appearance.seoDescription);
     const mode = "dark";
-    setMeta(targetDocument, "name", "theme-color", appearance.activeSkin.tokens[mode].canvas);
+    setDocumentMeta(targetDocument, "name", "theme-color", appearance.activeSkin.tokens[mode].canvas);
     let favicon = targetDocument.querySelector<HTMLLinkElement>('link[rel~="icon"]');
     if (!favicon) {
         favicon = targetDocument.createElement("link");
@@ -145,7 +145,8 @@ export function applyAppearanceMetadata(appearance: PublicAppearance, targetDocu
     }
 }
 
-function setMeta(targetDocument: Document, attribute: "name" | "property", key: string, content: string) {
+/** 写一个 meta 标签；content 为空表示这页不需要它，对应标签会被移除。 */
+export function setDocumentMeta(targetDocument: Document, attribute: "name" | "property", key: string, content: string) {
     let element = targetDocument.querySelector<HTMLMetaElement>(`meta[${attribute}="${key}"]`);
     if (!content) {
         element?.remove();

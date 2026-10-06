@@ -59,6 +59,18 @@ export default defineConfig({
             "@": resolve(webDir, "src"),
         },
     },
+    // 预览构建产物（`bun run start`）时同样要能连后端：产物里的接口调用走的是同源
+    // /api，没有这条代理，预览页只能看到一个拿不到数据的空壳，公开页的静态抓取
+    // 也就抓不到任何内容。开发服务器与预览用同一个目标地址。
+    preview: {
+        proxy: {
+            "/api": {
+                target: apiProxyTarget,
+                changeOrigin: true,
+                xfwd: true,
+            },
+        },
+    },
     build: {
         // Keep the SPA route `/assets` distinct from Vite's emitted static files.
         // Otherwise vite preview treats `/assets` as the physical asset directory

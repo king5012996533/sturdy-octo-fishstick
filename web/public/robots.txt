@@ -1,0 +1,11 @@
+# 公开页允许抓取：模型介绍是获客入口，锁在登录门后面等于白写。
+#
+# /api/ 与 /admin 是接口和运营后台，没有可索引的内容，抓了只会浪费双方的配额。
+# 这份文件必须真的存在于站点根目录——SPA 的兜底路由会把不存在的路径也返回
+# index.html，那样爬虫拿到的是一个 HTML 页面当 robots.txt，等于没有这份声明。
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin
+
+Sitemap: https://kinotv.xingtudesign.com/sitemap.xml
