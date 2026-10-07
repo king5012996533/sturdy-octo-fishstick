@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 // Bun 直接执行 TypeScript 测试时需要保留扩展名；生产 tsconfig 不包含 test/。
-import { DEFAULT_VIDEO_PROMPT_MAX_CHARS, defaultModelCapabilityConfig, modelCapabilityConfigFor, normalizeVideoValue } from "../src/lib/model-capabilities.ts";
+import { DEFAULT_VIDEO_PROMPT_MAX_CHARS, defaultModelCapabilityConfig, modelCapabilityConfigFor, normalizeVideoValue, videoDurationAllowed, videoDurationConfigFor, videoDurationOptions } from "../src/lib/model-capabilities.ts";
 import { modelCompatibilityError } from "../src/lib/model-selection.ts";
 import type { AiConfig } from "../src/stores/use-config-store.ts";
 
@@ -218,4 +218,46 @@ test("Aigen Seedance 通道放开多图参考，但不放开音视频参考", ()
     assert.equal(modelCompatibilityError(config, model, { capability: "video", input: fourImages }), "");
     const withVideoReference = { textCount: 0, imageCount: 1, videoCount: 1, audioCount: 0, characterCount: 0 };
     assert.equal(modelCompatibilityError(config, model, { capability: "video", input: withVideoReference }), "最多支持 0 个参考视频");
+});
+
+// 上游可能按分辨率档位限定时长：Seedance 2.0 mini 的 720p 最长 12 秒、480p 能到 15 秒。
+// 合同里只有一组 duration 时，界面只能二选一：把 15 秒露给拿不到的档位（用户选完只拿到
+// 12 秒的成片），或为 720p 把 480p 的 15 秒也砍掉。durationByResolution 就是给这种情形留的口子。
+test("per-resolution duration hides options the tier cannot produce", () => {
+    const profile = defaultModelCapabilityConfig("zongheng-video", "saedancMini2.0").video!;
+    profile.duration = { selection: "enum", values: [10, 12, 15], default: 15 };
+    profile.durationByResolution = {
+        "720p": { selection: "enum", values: [10, 12], default: 12 },
+        "480p": { selection: "enum", values: [10, 12, 15], default: 15 },
+    };
+    profile.resolutions = ["480p", "720p"];
+    profile.defaultResolution = "720p";
+
+    assert.deepEqual(videoDurationOptions(profile, "720p"), [10, 12]);
+    assert.deepEqual(videoDurationOptions(profile, "480p"), [10, 12, 15]);
+    assert.equal(videoDurationAllowed(profile, 15, "720p"), false);
+    assert.equal(videoDurationAllowed(profile, 15, "480p"), true);
+    // auto / 未指定走默认档位，不能因为读不到分辨率就放开到顶层枚举。
+    assert.equal(videoDurationAllowed(profile, 15, "auto"), false);
+    assert.equal(videoDurationAllowed(profile, 15, undefined), false);
+    assert.equal(videoDurationConfigFor(profile, "480p").default, 15);
+});
+
+// 从 480p 的 15 秒切到 720p 时，秒数必须收拢到新档位合法的值，
+// 否则表单会停在一个点提交就被拒的数字上。
+test("normalizeVideoValue snaps second when the resolution changes", () => {
+    const profile = defaultModelCapabilityConfig("zongheng-video", "saedancMini2.0").video!;
+    profile.duration = { selection: "enum", values: [10, 12, 15], default: 15 };
+    profile.durationByResolution = {
+        "720p": { selection: "enum", values: [10, 12], default: 12 },
+        "480p": { selection: "enum", values: [10, 12, 15], default: 15 },
+    };
+    profile.resolutions = ["480p", "720p"];
+    profile.defaultResolution = "720p";
+
+    assert.equal(normalizeVideoValue(profile, { seconds: "15", ratio: "16:9", resolution: "480p" }).seconds, "15");
+    assert.equal(normalizeVideoValue(profile, { seconds: "15", ratio: "16:9", resolution: "720p" }).seconds, "12");
+    // 没有按档位登记的模型行为不变。
+    const plain = { ...profile, durationByResolution: undefined };
+    assert.equal(normalizeVideoValue(plain, { seconds: "15", ratio: "16:9", resolution: "720p" }).seconds, "15");
 });

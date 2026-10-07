@@ -102,17 +102,22 @@ type ParameterSupport struct {
 }
 
 type VideoCapabilityConfig struct {
-	References        VideoReferenceConfig `json:"references"`
-	Duration          VideoDurationConfig  `json:"duration"`
-	DurationSupported *bool                `json:"durationSupported,omitempty"`
-	Ratios            []string             `json:"ratios"`
-	DefaultRatio      string               `json:"defaultRatio"`
-	Resolutions       []string             `json:"resolutions"`
-	DefaultResolution string               `json:"defaultResolution"`
-	GenerateAudio     VideoBooleanConfig   `json:"generateAudio"`
-	Watermark         VideoBooleanConfig   `json:"watermark"`
-	Operations        []string             `json:"operations"`
-	DefaultOperation  string               `json:"defaultOperation"`
+	References VideoReferenceConfig `json:"references"`
+	Duration   VideoDurationConfig  `json:"duration"`
+	// DurationByResolution 给"不同分辨率档位有不同时长上限"的模型留出口子。
+	// 单一 duration 表达不了这种形态：要么把 15 秒露给最长只到 12 秒的档位（用户选了
+	// 15 秒却拿到 12 秒的成片），要么为了 720p 把 480p 的 15 秒一起砍掉。键取
+	// resolutions 里的规范写法（如 "720p"），未登记的分辨率回落到上面的 duration。
+	DurationByResolution map[string]VideoDurationConfig `json:"durationByResolution,omitempty"`
+	DurationSupported    *bool                          `json:"durationSupported,omitempty"`
+	Ratios               []string                       `json:"ratios"`
+	DefaultRatio         string                         `json:"defaultRatio"`
+	Resolutions          []string                       `json:"resolutions"`
+	DefaultResolution    string                         `json:"defaultResolution"`
+	GenerateAudio        VideoBooleanConfig             `json:"generateAudio"`
+	Watermark            VideoBooleanConfig             `json:"watermark"`
+	Operations           []string                       `json:"operations"`
+	DefaultOperation     string                         `json:"defaultOperation"`
 }
 
 type VideoReferenceConfig struct {
@@ -973,6 +978,39 @@ func validateImageCapabilityConfig(value *ImageCapabilityConfig) error {
 	return nil
 }
 
+// videoDurationKey 把用户选的分辨率收敛成 durationByResolution 的键。
+//
+// 解析顺序与真实请求一致：先按合同里的 resolutions 认（"2k"、"4k" 这类别名由
+// videoResolutionNameRequest 归一），认不出来（auto / 空 / 未声明）就用默认分辨率——
+// 前端在这种情况下的选项也来自默认档位。
+func videoDurationKey(profile *VideoCapabilityConfig, requested string) string {
+	if profile == nil {
+		return ""
+	}
+	if name := videoResolutionNameRequest(profile, requested); name != "" {
+		return strings.ToLower(strings.TrimSpace(name))
+	}
+	return strings.ToLower(strings.TrimSpace(profile.DefaultResolution))
+}
+
+// videoDurationForResolution 取某个分辨率档位下的时长合同，没登记就回落到顶层 duration。
+func videoDurationForResolution(profile *VideoCapabilityConfig, resolution string) VideoDurationConfig {
+	if profile == nil {
+		return VideoDurationConfig{}
+	}
+	if len(profile.DurationByResolution) == 0 {
+		return profile.Duration
+	}
+	key := strings.ToLower(strings.TrimSpace(resolution))
+	if key == "" {
+		return profile.Duration
+	}
+	if override, ok := profile.DurationByResolution[key]; ok {
+		return override
+	}
+	return profile.Duration
+}
+
 func validateVideoCapabilityConfig(value *VideoCapabilityConfig) error {
 	if value.References.PromptMaxChars < 1 || value.References.PromptMaxChars > 1000000 {
 		return BadAuthRequest("提示词最大字符数必须在 1-1000000 之间")
@@ -999,6 +1037,14 @@ func validateVideoCapabilityConfig(value *VideoCapabilityConfig) error {
 	}
 	if err := validateVideoDuration(value.Duration); err != nil {
 		return err
+	}
+	for resolution, duration := range value.DurationByResolution {
+		if !containsCapabilityString(value.Resolutions, resolution) {
+			return BadAuthRequest("按分辨率设置的时长档位 " + resolution + " 不在支持的分辨率里")
+		}
+		if err := validateVideoDuration(duration); err != nil {
+			return err
+		}
 	}
 	if len(value.Ratios) == 0 {
 		if strings.TrimSpace(value.DefaultRatio) != "" {
@@ -1171,7 +1217,13 @@ func validateVideoTaskParameters(profile *VideoCapabilityConfig, input canvasGen
 		return err
 	}
 	seconds, err := strconv.Atoi(strings.TrimSpace(input.Config.VideoSeconds))
-	if err != nil || !videoDurationAllowed(profile.Duration, seconds) {
+	durationKey := videoDurationKey(profile, input.Config.VQuality)
+	if err != nil || !videoDurationAllowed(videoDurationForResolution(profile, durationKey), seconds) {
+		// 档位自己有上限时报得更具体：用户看到"720p 最长 12 秒"才知道该换 480p，
+		// 只说"时长不在支持范围内"会让他把 10 / 12 / 15 全试一遍。
+		if _, limited := profile.DurationByResolution[durationKey]; limited && durationKey != "" {
+			return BadAuthRequest("当前时长在该分辨率档位下不可用：" + durationKey + " 档只支持 " + videoDurationRangeLabel(videoDurationForResolution(profile, durationKey)))
+		}
 		return BadAuthRequest("视频时长不在当前模型支持范围内")
 	}
 	if input.Config.Size != "" && !videoRatioAllowed(profile.Ratios, input.Config.Size) {
@@ -1322,6 +1374,25 @@ func validateGPTImage2CustomSize(value string) error {
 		return errors.New("图片总像素需在 655360 到 8294400 之间")
 	}
 	return nil
+}
+
+// videoDurationRangeLabel 把一档时长渲染成用户能读的范围，用于按分辨率档位报错。
+func videoDurationRangeLabel(value VideoDurationConfig) string {
+	if value.Selection == "enum" {
+		parts := make([]string, 0, len(value.Values))
+		for _, item := range value.Values {
+			if item == -1 {
+				parts = append(parts, "自动")
+				continue
+			}
+			parts = append(parts, strconv.Itoa(item))
+		}
+		return strings.Join(parts, " / ") + " 秒"
+	}
+	if value.Min == value.Max {
+		return strconv.Itoa(value.Min) + " 秒"
+	}
+	return strconv.Itoa(value.Min) + "-" + strconv.Itoa(value.Max) + " 秒"
 }
 
 func videoDurationAllowed(value VideoDurationConfig, seconds int) bool {

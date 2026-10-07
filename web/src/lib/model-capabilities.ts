@@ -58,6 +58,15 @@ export type ImageCapabilityConfig = {
     maxOutputs: number;
 };
 
+export type VideoDurationConfig = {
+    selection: "range" | "enum";
+    min?: number;
+    max?: number;
+    step?: number;
+    values?: number[];
+    default: number;
+};
+
 export type VideoCapabilityConfig = {
     references: {
         promptMaxChars: number;
@@ -91,14 +100,11 @@ export type VideoCapabilityConfig = {
         minAudioDurationSeconds?: number;
         maxAudioTotalDurationSeconds?: number;
     };
-    duration: {
-        selection: "range" | "enum";
-        min?: number;
-        max?: number;
-        step?: number;
-        values?: number[];
-        default: number;
-    };
+    duration: VideoDurationConfig;
+    // 有些上游按分辨率档位限定时长（Seedance 2.0 mini：720p 最长 12 秒、480p 到 15 秒），
+    // 单一 duration 只能二选一：要么把 15 秒露给拿不到的档位，要么把 480p 的 15 秒也砍掉。
+    // 键是 resolutions 里的规范写法（如 "720p"），没登记的档位回落到上面的 duration。
+    durationByResolution?: Record<string, VideoDurationConfig>;
     durationSupported?: boolean;
     ratios: string[];
     defaultRatio: string;
@@ -1544,10 +1550,12 @@ export function imageSizeRequest(profile: ImageCapabilityConfig, value?: string)
 }
 
 export function normalizeVideoValue(profile: VideoCapabilityConfig, value: { seconds?: string; ratio?: string; resolution?: string }) {
-    const duration = profile.duration.selection === "enum" ? ((profile.duration.values || []).includes(Number(value.seconds)) ? Number(value.seconds) : profile.duration.default) : normalizeRangeDuration(profile, Number(value.seconds));
+    // 分辨率要先定下来：时长可选范围跟着档位走，切档位后原本合法的 15 秒在 720p 上不成立。
+    const resolution = resolveVideoResolutionValue(profile, value.resolution);
+    const durationSpec = videoDurationConfigFor(profile, resolution);
+    const duration = durationSpec.selection === "enum" ? ((durationSpec.values || []).includes(Number(value.seconds)) ? Number(value.seconds) : durationSpec.default) : normalizeRangeDuration(durationSpec, Number(value.seconds));
     const ratio = resolveVideoRatioValue(profile, value.ratio);
     // 前端状态历史上保存过 `720`，而能力配置和供应商通常使用 `720p`；统一按能力中的原始值返回，避免被误判为不支持。
-    const resolution = resolveVideoResolutionValue(profile, value.resolution);
     return { seconds: String(duration), ratio, resolution };
 }
 
@@ -1579,29 +1587,43 @@ export function videoResolutionRequest(profile: VideoCapabilityConfig, value: st
     return undefined;
 }
 
-function normalizeRangeDuration(profile: VideoCapabilityConfig, value: number) {
-    const min = profile.duration.min || 1;
-    const max = profile.duration.max || min;
-    const step = profile.duration.step || 1;
-    const candidate = Number.isFinite(value) ? Math.floor(value) : profile.duration.default;
+function normalizeRangeDuration(duration: VideoDurationConfig, value: number) {
+    const min = duration.min || 1;
+    const max = duration.max || min;
+    const step = duration.step || 1;
+    const candidate = Number.isFinite(value) ? Math.floor(value) : duration.default;
     const clamped = Math.min(max, Math.max(min, candidate));
     const maxStep = Math.max(0, Math.floor((max - min) / step));
     return min + Math.min(maxStep, Math.max(0, Math.round((clamped - min) / step))) * step;
 }
 
-export function videoDurationOptions(profile: VideoCapabilityConfig) {
-    if (profile.duration.selection === "enum") return profile.duration.values || [];
-    const min = profile.duration.min || 1;
-    const max = profile.duration.max || min;
-    const step = profile.duration.step || 1;
+// videoDurationKey 把用户选的分辨率收敛成 durationByResolution 的键。
+// 认不出（auto / 空 / 未声明）时用默认分辨率：那种情况下界面上的档位就是默认档位。
+export function videoDurationKey(profile: VideoCapabilityConfig, resolution: string | undefined) {
+    return (videoResolutionRequest(profile, resolution) || profile.defaultResolution || "").trim().toLowerCase();
+}
+
+// videoDurationConfigFor 取某个分辨率档位下的时长合同，没登记就回落到顶层 duration。
+export function videoDurationConfigFor(profile: VideoCapabilityConfig, resolution: string | undefined): VideoDurationConfig {
+    const key = videoDurationKey(profile, resolution);
+    return (key && profile.durationByResolution?.[key]) || profile.duration;
+}
+
+export function videoDurationOptions(profile: VideoCapabilityConfig, resolution?: string) {
+    const duration = videoDurationConfigFor(profile, resolution);
+    if (duration.selection === "enum") return duration.values || [];
+    const min = duration.min || 1;
+    const max = duration.max || min;
+    const step = duration.step || 1;
     return Array.from({ length: Math.floor((max - min) / step) + 1 }, (_, index) => min + index * step);
 }
 
-export function videoDurationAllowed(profile: VideoCapabilityConfig, value: number) {
-    if (value === -1) return (profile.duration.values || []).includes(-1);
-    if (profile.duration.selection === "enum") return (profile.duration.values || []).includes(value);
-    const min = profile.duration.min || 1;
-    const max = profile.duration.max || min;
-    const step = profile.duration.step || 1;
+export function videoDurationAllowed(profile: VideoCapabilityConfig, value: number, resolution?: string) {
+    const duration = videoDurationConfigFor(profile, resolution);
+    if (value === -1) return (duration.values || []).includes(-1);
+    if (duration.selection === "enum") return (duration.values || []).includes(value);
+    const min = duration.min || 1;
+    const max = duration.max || min;
+    const step = duration.step || 1;
     return value >= min && value <= max && (value - min) % step === 0;
 }

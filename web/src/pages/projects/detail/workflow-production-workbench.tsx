@@ -13,7 +13,7 @@ import { Link, useNavigate } from "react-router";
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { ModelPicker } from "@/components/model-picker";
-import { modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, videoDurationOptions } from "@/lib/model-capabilities";
+import { modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, videoDurationAllowed, videoDurationConfigFor, videoDurationOptions } from "@/lib/model-capabilities";
 import { customShotTitle, formatShotOrdinal, normalizeDefaultShotTitle } from "@/lib/shot-label";
 import { modelCompatibilityError, resolveCompatibleModel, resolveModelVideoBooleanOptions, type ModelRequirements } from "@/lib/model-selection";
 import { formatVideoResolutionLabel } from "@/lib/video-generation-options";
@@ -146,6 +146,16 @@ export default function WorkflowProductionWorkbench(props: Props) {
     const routedModel = resolveCompatibleModel(effectiveConfig, selectedModel, modelRequirements) || selectedModel;
     const activeProfile = useMemo(() => modelCapabilityConfigFor(effectiveConfig, routedModel), [effectiveConfig, routedModel]);
     const videoProfile = generationCapability === "video" ? activeProfile.video : undefined;
+    // 时长可选范围跟着分辨率档位走（720p 只到 12 秒的模型不给 15 秒），没有按档位登记时
+    // 就是整份视频能力合同里的那一份。
+    const videoDuration = videoProfile ? videoDurationConfigFor(videoProfile, resolution) : undefined;
+    // 切档位时把已经不合法的镜头时长收拢到新档位的默认值，避免表单停在一个提交必被拒的秒数。
+    const changeResolution = (next: string) => {
+        setResolution(next);
+        if (videoProfile && !videoDurationAllowed(videoProfile, Number(form.getFieldValue("durationSeconds")), next)) {
+            form.setFieldValue("durationSeconds", videoDurationConfigFor(videoProfile, next).default);
+        }
+    };
     const imageProfile = generationCapability === "image" ? activeProfile.image : undefined;
     const videoBooleanOptions = useMemo(() => generationCapability === "video"
         ? resolveModelVideoBooleanOptions(effectiveConfig, routedModel, {}, {
@@ -468,13 +478,13 @@ export default function WorkflowProductionWorkbench(props: Props) {
                                     <Form.Item label="技能库"><SkillRuntimePicker profile="shortDrama" skills={availableSkills} loading={skillsLoading} value={selectedSkillIds} onChange={setSelectedSkillIds} /></Form.Item>
                                     <div className="workflow-form-grid is-three">
                                         <Form.Item name="durationSeconds" label="镜头时长（秒）">
-                                            {generationCapability === "video" && videoProfile?.duration.selection === "enum"
-                                                ? <Select options={videoDurationOptions(videoProfile).map((value) => ({ value, label: value === -1 ? "自动" : `${value} 秒` }))} />
-                                                : <InputNumber className="w-full" min={generationCapability === "video" ? videoProfile?.duration.min || 1 : 0.5} max={generationCapability === "video" ? videoProfile?.duration.max || 60 : 60} step={generationCapability === "video" ? videoProfile?.duration.step || 1 : 0.5} />}
+                                            {generationCapability === "video" && videoDuration?.selection === "enum"
+                                                ? <Select options={videoDurationOptions(videoProfile!, resolution).map((value) => ({ value, label: value === -1 ? "自动" : `${value} 秒` }))} />
+                                                : <InputNumber className="w-full" min={generationCapability === "video" ? videoDuration?.min || 1 : 0.5} max={generationCapability === "video" ? videoDuration?.max || 60 : 60} step={generationCapability === "video" ? videoDuration?.step || 1 : 0.5} />}
                                         </Form.Item>
                                         {generationCapability === "video" ? <Form.Item label="画幅"><Select value={aspectRatio} onChange={setAspectRatio} options={(videoProfile?.ratios || []).map((value) => ({value, label:value}))} /></Form.Item> : null}
                                         {generationCapability === "video" ? (
-                                            <Form.Item label="分辨率"><Select value={resolution} onChange={setResolution} options={(videoProfile?.resolutions || []).map((value) => ({ value, label: formatVideoResolutionLabel(value) }))} /></Form.Item>
+                                            <Form.Item label="分辨率"><Select value={resolution} onChange={changeResolution} options={(videoProfile?.resolutions || []).map((value) => ({ value, label: formatVideoResolutionLabel(value) }))} /></Form.Item>
                                         ) : imageProfile?.quality.supported && !imageResolutionUsesQuality(imageProfile) ? (
                                             <Form.Item label="生成画质"><Select value={imageQuality} onChange={setImageQuality} options={imageProfile.quality.values.map((value) => ({ value, label: value.toUpperCase() }))} /></Form.Item>
                                         ) : <div />}

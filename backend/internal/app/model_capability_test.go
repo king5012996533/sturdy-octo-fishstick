@@ -921,3 +921,83 @@ func TestDefaultVideoCapabilityConfigForReplicateFamilies(t *testing.T) {
 func DefaultVideoCapabilityConfigForTest(modelName string) *VideoCapabilityConfig {
 	return DefaultModelCapabilityConfigForModel("replicate-prediction-video", modelName).Video
 }
+
+// 上游按"分辨率档位"限定时长时（Seedance 2.0 mini：720p 最长 12 秒、480p 到 15 秒），
+// 合同必须能表达这件事，否则 720p 会一直把 15 秒露出去，用户选完只拿到 12 秒的成片。
+func TestVideoDurationByResolutionConstrainsEachTier(t *testing.T) {
+	profile := &VideoCapabilityConfig{
+		References: VideoReferenceConfig{PromptMaxChars: 8000, MaxImageBytes: 31457280},
+		Duration:   VideoDurationConfig{Selection: "enum", Values: []int{10, 12, 15}, Default: 15},
+		DurationByResolution: map[string]VideoDurationConfig{
+			"720p": {Selection: "enum", Values: []int{10, 12}, Default: 12},
+			"480p": {Selection: "enum", Values: []int{10, 12, 15}, Default: 15},
+		},
+		Ratios: []string{"16:9"}, DefaultRatio: "16:9",
+		Resolutions: []string{"480p", "720p"}, DefaultResolution: "720p",
+		GenerateAudio: VideoBooleanConfig{}, Watermark: VideoBooleanConfig{},
+		Operations: []string{"text_to_video"}, DefaultOperation: "text_to_video",
+	}
+	input := canvasGenerationInput{Mode: "video", Prompt: "test", Config: providerConfig{VideoSeconds: "15", Size: "16:9", VQuality: "480p"}}
+	if err := validateVideoTaskParameters(profile, input); err != nil {
+		t.Fatalf("480p 应接受 15 秒：%v", err)
+	}
+	input.Config.VQuality = "720p"
+	err := validateVideoTaskParameters(profile, input)
+	if err == nil {
+		t.Fatal("720p 接受了它拿不到的 15 秒")
+	}
+	if !strings.Contains(err.Error(), "720p") {
+		t.Fatalf("拒收原因要指出是哪个档位：%v", err)
+	}
+	input.Config.VideoSeconds = "12"
+	if err := validateVideoTaskParameters(profile, input); err != nil {
+		t.Fatalf("720p 应接受 12 秒：%v", err)
+	}
+	// auto/空分辨率走默认档位，不能因此放开到顶层枚举。
+	input.Config.VQuality = "auto"
+	input.Config.VideoSeconds = "15"
+	if err := validateVideoTaskParameters(profile, input); err == nil {
+		t.Fatal("未指定分辨率时应按默认档位（720p）判定")
+	}
+}
+
+// 没有按分辨率登记时，行为必须和引入这个字段之前完全一致。
+func TestVideoDurationWithoutResolutionOverrideKeepsLegacyBehaviour(t *testing.T) {
+	profile := &VideoCapabilityConfig{
+		References: VideoReferenceConfig{PromptMaxChars: 8000},
+		Duration:   VideoDurationConfig{Selection: "enum", Values: []int{10, 12, 15}, Default: 15},
+		Ratios:     []string{"16:9"}, DefaultRatio: "16:9",
+		Resolutions: []string{"480p", "720p"}, DefaultResolution: "720p",
+		Operations: []string{"text_to_video"}, DefaultOperation: "text_to_video",
+	}
+	for _, resolution := range []string{"480p", "720p", "auto"} {
+		input := canvasGenerationInput{Mode: "video", Prompt: "test", Config: providerConfig{VideoSeconds: "15", Size: "16:9", VQuality: resolution}}
+		if err := validateVideoTaskParameters(profile, input); err != nil {
+			t.Fatalf("%s 下 15 秒被拒：%v", resolution, err)
+		}
+	}
+}
+
+// durationByResolution 的键必须是合同声明过的分辨率，写错了应当在保存时就被拒，
+// 而不是等到用户提交才发现某个档位永远匹配不上。
+func TestCapabilityRejectsUnknownResolutionDurationKey(t *testing.T) {
+	profile := DefaultModelCapabilityConfigForModel("zongheng-video", "saedancMini2.0")
+	profile.Video.Resolutions = []string{"480p", "720p"}
+	profile.Video.DefaultResolution = "720p"
+	profile.Video.DurationByResolution = map[string]VideoDurationConfig{
+		"1080p": {Selection: "enum", Values: []int{10}, Default: 10},
+	}
+	if _, err := NormalizeModelCapabilityConfigForModel("video", "zongheng-video", "saedancMini2.0", profile); err == nil {
+		t.Fatal("未声明的分辨率档位被接受")
+	}
+	profile.Video.DurationByResolution = map[string]VideoDurationConfig{
+		"720p": {Selection: "enum", Values: []int{10, 12}, Default: 12},
+	}
+	normalized, err := NormalizeModelCapabilityConfigForModel("video", "zongheng-video", "saedancMini2.0", profile)
+	if err != nil {
+		t.Fatalf("合法的按档位时长被拒：%v", err)
+	}
+	if normalized.Video.DurationByResolution["720p"].Default != 12 {
+		t.Fatalf("按档位时长在归一化中丢失：%#v", normalized.Video.DurationByResolution)
+	}
+}

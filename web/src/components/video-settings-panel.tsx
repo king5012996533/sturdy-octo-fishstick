@@ -7,7 +7,7 @@ import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalize
 import { isVolcengineArkVideoProtocol } from "@/lib/model-protocols";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { formatVideoResolutionLabel, isVideoResolutionMatch, normalizeVideoDuration, videoDimensionsForRatioAndResolution, VIDEO_DURATION_MIN } from "@/lib/video-generation-options";
-import { isSeedance25Model, modelCapabilityConfigFor, resolveVideoRatioValue, resolveVideoResolutionValue, videoDurationOptions, type VideoCapabilityConfig } from "@/lib/model-capabilities";
+import { isSeedance25Model, modelCapabilityConfigFor, resolveVideoRatioValue, resolveVideoResolutionValue, videoDurationAllowed, videoDurationConfigFor, videoDurationOptions, type VideoCapabilityConfig } from "@/lib/model-capabilities";
 import { modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 
 const sizeOptions = [
@@ -45,6 +45,12 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     const configuredResolutions = profile.resolutions.map((value) => ({ value, label: formatVideoResolutionLabel(value) }));
     const generateAudio = boolConfig(config.videoGenerateAudio, profile.generateAudio.default);
     const watermark = boolConfig(config.videoWatermark, profile.watermark.default);
+    // 切档位后原时长可能不成立（480p 的 15 秒在 720p 上不存在），收拢到新档位的默认值，
+    // 否则界面会停在一个已经不可选的秒数上。
+    const changeResolution = (next: string) => {
+        onConfigChange("vquality", next);
+        if (!videoDurationAllowed(profile, Number(seconds), next)) onConfigChange("videoSeconds", String(videoDurationConfigFor(profile, next).default));
+    };
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -54,7 +60,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     <SettingGroup title="分辨率" color={theme.node.muted}>
                         <div className="grid grid-cols-3 gap-1.5">
                             {configuredResolutions.map((item) => (
-                                <OptionPill key={item.value} selected={isVideoResolutionMatch(resolution, item.value)} theme={theme} onClick={() => onConfigChange("vquality", item.value)}>
+                                <OptionPill key={item.value} selected={isVideoResolutionMatch(resolution, item.value)} theme={theme} onClick={() => changeResolution(item.value)}>
                                     {item.label}
                                 </OptionPill>
                             ))}
@@ -88,7 +94,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                     </SettingGroup>
                 ) : null}
                 <SettingGroup title="秒数" color={theme.node.muted}>
-                    <VideoDurationControl profile={profile} value={Number(seconds)} theme={theme} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
+                    <VideoDurationControl profile={profile} resolution={resolution} value={Number(seconds)} theme={theme} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
                 </SettingGroup>
                 {profile.generateAudio.supported || profile.watermark.supported ? (
                     <SettingGroup title="输出" color={theme.node.muted}>
@@ -135,6 +141,10 @@ function SeedanceVideoSettingsPanel({ config, profile, onConfigChange, theme, sh
     const watermark = boolConfig(config.videoWatermark, profile.watermark.default);
     const useArkPrivateAssets = boolConfig(config.videoArkPrivateAssetUpload, true);
     const isArkSeedance = isVolcengineArkVideoProtocol(resolveModelRequestConfig(config, config.model).interfaceType);
+    const changeSeedanceResolution = (next: string) => {
+        onConfigChange("vquality", next);
+        if (!videoDurationAllowed(profile, duration, next)) onConfigChange("videoSeconds", String(videoDurationConfigFor(profile, next).default));
+    };
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -150,7 +160,7 @@ function SeedanceVideoSettingsPanel({ config, profile, onConfigChange, theme, sh
                         {profile.resolutions.map((value) => {
                             const item = { value, label: value.toUpperCase() };
                             return (
-                                <OptionPill key={item.value} selected={resolution === item.value} theme={theme} onClick={() => onConfigChange("vquality", item.value)}>
+                                <OptionPill key={item.value} selected={resolution === item.value} theme={theme} onClick={() => changeSeedanceResolution(item.value)}>
                                     {item.label}
                                 </OptionPill>
                             );
@@ -181,7 +191,7 @@ function SeedanceVideoSettingsPanel({ config, profile, onConfigChange, theme, sh
                     </div>
                 </SettingGroup>
                 <SettingGroup title="时长" color={theme.node.muted}>
-                    {taskConstraints?.durationLocked ? <p className="text-sm">随原视频</p> : <VideoDurationControl profile={profile} value={duration} theme={theme} onChange={(value) => onConfigChange("videoSeconds", String(value))} />}
+                    {taskConstraints?.durationLocked ? <p className="text-sm">随原视频</p> : <VideoDurationControl profile={profile} resolution={config.vquality} value={duration} theme={theme} onChange={(value) => onConfigChange("videoSeconds", String(value))} />}
                 </SettingGroup>
                 <SettingGroup title="输出" color={theme.node.muted}>
                     <div className="grid grid-cols-2 gap-3 rounded-md px-2" style={{ background: theme.toolbar.itemHover }}>
@@ -295,12 +305,14 @@ function DurationInput({ value, min, max, theme, onChange }: { value: number; mi
     );
 }
 
-function VideoDurationControl({ profile, value, theme, disabled, onChange }: { profile: VideoCapabilityConfig; value: number; theme: CanvasTheme; disabled?: (value: number) => boolean; onChange: (value: number) => void }) {
-    if (profile.duration.selection === "range") {
-        const min = profile.duration.min || VIDEO_DURATION_MIN;
-        const max = Math.max(min, profile.duration.max || min);
-        const step = Math.max(1, profile.duration.step || 1);
-        const normalized = normalizeDurationValue(value, profile.duration.default, min, max, step);
+function VideoDurationControl({ profile, resolution, value, theme, disabled, onChange }: { profile: VideoCapabilityConfig; resolution?: string; value: number; theme: CanvasTheme; disabled?: (value: number) => boolean; onChange: (value: number) => void }) {
+    // 时长范围跟着分辨率档位走：720p 只到 12 秒的模型不能把 15 秒画成可选项。
+    const duration = videoDurationConfigFor(profile, resolution);
+    if (duration.selection === "range") {
+        const min = duration.min || VIDEO_DURATION_MIN;
+        const max = Math.max(min, duration.max || min);
+        const step = Math.max(1, duration.step || 1);
+        const normalized = normalizeDurationValue(value, duration.default, min, max, step);
         return (
             <DurationRangeControl
                 value={normalized}
@@ -315,7 +327,7 @@ function VideoDurationControl({ profile, value, theme, disabled, onChange }: { p
         );
     }
 
-    const options = videoDurationOptions(profile);
+    const options = videoDurationOptions(profile, resolution);
     return (
         <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.min(options.length, 4)}, minmax(0, 1fr))` }}>
             {options.map((option) => (

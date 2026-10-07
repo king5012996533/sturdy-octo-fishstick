@@ -726,7 +726,7 @@ export default function CreatePage() {
             releaseRetryLock();
             return;
         }
-        if (mode === "video" && !videoDurationAllowed(videoProfile, Number(seconds))) {
+        if (mode === "video" && !videoDurationAllowed(videoProfile, Number(seconds), videoQuality)) {
             toast.error("当前模型不支持所选视频时长，请重新选择");
             releaseRetryLock();
             return;

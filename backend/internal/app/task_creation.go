@@ -519,11 +519,13 @@ func applyChannelCapabilityDefaults(config map[string]any, capability string, pr
 		if profile == nil || profile.Video == nil {
 			return
 		}
-		if videoDurationSupported(profile.Video) {
-			setDefault("videoSeconds", profile.Video.Duration.Default)
-		}
 		setDefault("size", profile.Video.DefaultRatio)
 		setDefault("vquality", profile.Video.DefaultResolution)
+		if videoDurationSupported(profile.Video) {
+			// 默认时长跟着分辨率走：vquality 可能来自客户端，也可能刚被上面的默认值补上，
+			// 两处都必须以最终生效的档位取默认值，否则 720p 会拿到只属于 480p 的 15 秒。
+			setDefault("videoSeconds", videoDurationForResolution(profile.Video, videoDurationKey(profile.Video, fmt.Sprint(config["vquality"]))).Default)
+		}
 		setDefault("videoGenerateAudio", profile.Video.GenerateAudio.Default)
 		setDefault("videoWatermark", profile.Video.Watermark.Default)
 	}
