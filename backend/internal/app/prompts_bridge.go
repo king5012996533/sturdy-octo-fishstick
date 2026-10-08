@@ -33,9 +33,11 @@ type promptAdminGate struct {
 	appendAudit  func(*model.User, string, string, string, string, any) error
 }
 
+// RequireAdmin 未装配管理端口时默认拒绝，而不是放行。理由同 platformHost.RequireAdmin：
+// 忘接线不该变成静默的越权入口。
 func (g promptAdminGate) RequireAdmin(user *model.User) error {
 	if g.requireAdmin == nil {
-		return nil
+		return Forbidden("管理功能未启用")
 	}
 	return g.requireAdmin(user)
 }

@@ -37,9 +37,14 @@ type platformHost struct {
 	channelConcurrencyLimit func(string) (int, error)
 }
 
+// RequireAdmin 未装配管理端口时默认拒绝，而不是放行。
+//
+// requireAdmin 为 nil 只可能来自 service == nil 的退化装配（正常装配下它是方法值，
+// 永远非 nil）。但"忘接线"不该变成静默的越权入口，所以拿不到管理员判定就不放行，
+// 与 AGENTS.md 的默认拒绝原则一致。
 func (h platformHost) RequireAdmin(user *model.User) error {
 	if h.requireAdmin == nil {
-		return nil
+		return Forbidden("管理功能未启用")
 	}
 	return h.requireAdmin(user)
 }
