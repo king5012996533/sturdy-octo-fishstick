@@ -14,6 +14,7 @@ import { resourceFileUrl, resourceIdFromStorageKey, syncResourceToArkPrivateAsse
 import { uploadImage } from "@/services/image-storage";
 import { applyGenerationTaskResultToNodes, generationTaskMode, imageMetadata } from "@/lib/canvas/canvas-generation-task-sync";
 import { isCanvasImageSourceNode } from "@/lib/canvas/canvas-image-source";
+import { resolveCanvasMinimalPan } from "@/lib/canvas/canvas-connected-node-viewport";
 import { canOpenCanvasNodePromptPanel, isCanvasMediaResultNode } from "@/lib/canvas/canvas-node-semantics";
 import { getCachedResourceBlob } from "@/services/resource-blob-cache";
 import copyToClipboard from "copy-to-clipboard";
@@ -1064,51 +1065,40 @@ function InfiniteCanvasPage() {
     // placed to the right of its source, so without a small viewport pan it
     // can be clipped even when no dock is open. Pan only the viewport (never
     // the node) when the new node crosses the visible canvas safe area.
-    const keepConnectedNodeVisible = useCallback((node: CanvasNodeData, sourceNodeId?: string) => {
+    const keepConnectedNodeVisible = useCallback((node: CanvasNodeData, _sourceNodeId?: string) => {
         // A quick-connect can fire during the same render that first measures
         // the canvas. Fall back to the live container width so the first
         // created target is not left clipped just because React has not yet
         // committed the measured `size` state.
         const canvasWidth = size.width || containerRef.current?.clientWidth || 0;
-        if (canvasWidth <= 0) return;
+        const canvasHeight = size.height || containerRef.current?.clientHeight || 0;
+        if (canvasWidth <= 0 || canvasHeight <= 0) return;
         const current = viewportRef.current;
         const scale = Math.max(current.k, 0.05);
-        const source = nodesRef.current.find((candidate) => candidate.id === sourceNodeId && candidate.id !== node.id) || nodesRef.current
-            .filter((candidate) => candidate.id !== node.id && candidate.position.x + candidate.width <= node.position.x + 180)
-            .sort((a, b) => Math.abs((a.position.y + a.height / 2) - (node.position.y + node.height / 2)) - Math.abs((b.position.y + b.height / 2) - (node.position.y + node.height / 2)))[0];
-        const relatedIds = new Set<string>([node.id, ...(source ? [source.id] : [])]);
-        if (source) {
-            connectionsRef.current.forEach((connection) => {
-                if (connection.fromNodeId === source.id) relatedIds.add(connection.toNodeId);
-                if (connection.toNodeId === source.id) relatedIds.add(connection.fromNodeId);
-            });
-        }
-        const visibleNodes = [node, ...nodesRef.current.filter((candidate) => relatedIds.has(candidate.id) && candidate.id !== node.id)];
-        const leftWorld = Math.min(...visibleNodes.map((item) => item.position.x));
-        const rightWorld = Math.max(...visibleNodes.map((item) => item.position.x + item.width));
-        const topWorld = Math.min(...visibleNodes.map((item) => item.position.y));
-        const bottomWorld = Math.max(...visibleNodes.map((item) => item.position.y + item.height));
         const safeLeft = 24;
         const safeRight = canvasWidth - (assistantOpen ? 340 : 0) - 24;
-        const canvasHeight = size.height || containerRef.current?.clientHeight || 0;
         const safeTop = 64;
         const safeBottom = Math.max(safeTop + 1, canvasHeight - 72);
-        const worldWidth = Math.max(1, rightWorld - leftWorld);
-        const worldHeight = Math.max(1, bottomWorld - topWorld);
-        const availableWidth = Math.max(1, safeRight - safeLeft);
-        const availableHeight = Math.max(1, safeBottom - safeTop);
-        const nextScale = Math.max(0.35, Math.min(scale, availableWidth / worldWidth, availableHeight / worldHeight));
-        const centerX = (safeLeft + safeRight) / 2;
-        const centerY = (safeTop + safeBottom) / 2;
-        const next = {
-            x: centerX - ((leftWorld + rightWorld) / 2) * nextScale,
-            y: centerY - ((topWorld + bottomWorld) / 2) * nextScale,
-            k: nextScale,
-        };
-        if (Math.abs(next.x - current.x) < 1 && Math.abs(next.y - current.y) < 1 && Math.abs(next.k - current.k) < 0.01) return;
+        // 只做最小平移，不动倍率。
+        //
+        // 原先这里按「新建节点 + 源节点 + 全部关联节点」的整体包围盒重新居中并重算倍率
+        // （nextScale 最低压到 0.35）。结果是从边缘拉线新建一张卡片时，镜头会同时位移并
+        // 缩小，整块画布像被撑开一样突然跳一下，观感就是抖动。这里保持当前倍率，只在
+        // 新节点越出安全区时把它挪回来；本来就在视野内就完全不动。
+        const pan = resolveCanvasMinimalPan(
+            {
+                left: node.position.x * scale + current.x,
+                top: node.position.y * scale + current.y,
+                right: (node.position.x + node.width) * scale + current.x,
+                bottom: (node.position.y + node.height) * scale + current.y,
+            },
+            { left: safeLeft, top: safeTop, right: safeRight, bottom: safeBottom },
+        );
+        if (!pan) return;
+        const next = { x: current.x + pan.x, y: current.y + pan.y, k: current.k };
         viewportRef.current = next;
         setViewport(next);
-    }, [assistantOpen, connectionsRef, containerRef, nodesRef, setViewport, size.height, size.width, viewportRef]);
+    }, [assistantOpen, containerRef, setViewport, size.height, size.width, viewportRef]);
 
     // Opening the Agent dock reduces the usable canvas width. Keep the current
     // selection in that safe area so the right side of a node is not hidden

@@ -7,7 +7,7 @@ import type { PendingConnectionCreate } from "@/components/canvas/canvas-workspa
 import { getNodeSpec } from "@/constant/canvas";
 import { batchSourceRestriction, buildBatchConnectionCreateRequest, hasBatchConnectionCandidate, planBatchConnections, type CanvasBatchConnectionPreview } from "@/lib/canvas/canvas-batch-connection";
 import { batchReferenceHandleAtY } from "@/lib/canvas/canvas-batch-table";
-import { resolveConnectedNodePlacement } from "@/lib/canvas/canvas-connected-node-placement";
+import { resolveConnectedNodeCreatePosition } from "@/lib/canvas/canvas-connected-node-placement";
 import { canvasConnectionError } from "@/lib/canvas/canvas-connection-policy";
 import { attachNodeToStoryboardRow, createCanvasNode, getConnectionTargetAnchor, isHiddenBatchChild, normalizeConnection, storyboardHandleAtY, storyboardPromptTemplateMetadata, storyboardRowFromHandle } from "@/lib/canvas/canvas-project-domain";
 import { createCanvasDrawingFromImage } from "@/lib/canvas/canvas-drawing-storage";
@@ -284,10 +284,8 @@ export function useCanvasConnectionController({
               ? { prompt: videoPrompt, composerContent: videoPrompt, ...storyboardPromptTemplateMetadata(storyboardRow, "video"), generationMode: "video" as const, videoEditOperation: "text_to_video" as const, workflowKind: "shot" as const, workflowTitle: `镜头 ${storyboardRow.shotNumber} 视频`, shotIndex: storyboardRow.shotNumber, seconds: String(storyboardRow.durationSeconds), status: NODE_STATUS_IDLE }
               : undefined;
         const spec = getNodeSpec(nodeType);
-        // 批量连接的落点由用户拖拽决定；单条连线则锚在真实源节点上，见 resolveConnectedNodePlacement。
-        const position = batchSourceNodeIds.length
-            ? pending.position
-            : resolveConnectedNodePlacement(nodesRef.current, pending, spec);
+        // 拖拽释放落在松手处；点击快捷连接点没有落点，才锚到源节点同侧。
+        const position = resolveConnectedNodeCreatePosition(nodesRef.current, pending, spec);
         const newNode = createCanvasNode(nodeType, position, metadata);
         if (nodeType === CanvasNodeType.Config && selectedWorkflowProvider) newNode.title = "RunningHub 工作流";
         if (storyboardRow) newNode.title = `镜头 ${storyboardRow.shotNumber} · 视频`;
@@ -398,7 +396,7 @@ export function useCanvasConnectionController({
      */
     const createConnectedDirector = useCallback((pending: PendingConnectionCreate) => {
         const spec = getNodeSpec(CanvasNodeType.Director);
-        const position = resolveConnectedNodePlacement(nodesRef.current, pending, spec);
+        const position = resolveConnectedNodeCreatePosition(nodesRef.current, pending, spec);
         const directorNode = createDirectorNode?.(position);
         if (!directorNode) {
             message.warning("导演台暂时不可用，稍后再试");
