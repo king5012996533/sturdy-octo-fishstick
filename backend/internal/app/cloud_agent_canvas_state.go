@@ -38,8 +38,14 @@ func cloudAgentCanvasHash(doc map[string]any) string {
 	return creationHash(content)
 }
 
-// Generation does not depend on node positions. Keep the full canvas hash for
-// mutations and undo, which must still detect layout edits before restoring data.
+// Generation does not depend on node positions, nor on the presentation fields
+// the canvas client owns: every load re-stamps node-level createdAt/updatedAt
+// and derives nodeRole/resultOrigin from the rest of the node, and the client
+// autosaves that document seconds later. Counting those fields as a canvas
+// change made an approval recorded before the autosave impossible to confirm,
+// so the media projection ignores them while node content, media bindings and
+// connections stay guarded. The full canvas hash is kept for mutations and
+// undo, which must still detect layout edits before restoring data.
 func cloudAgentMediaContentHash(doc map[string]any) string {
 	content := make(map[string]any, len(doc))
 	for key, value := range doc {
@@ -48,16 +54,47 @@ func cloudAgentMediaContentHash(doc map[string]any) string {
 	nodes := creationMaps(doc["nodes"])
 	projected := make([]map[string]any, 0, len(nodes))
 	for _, node := range nodes {
-		item := make(map[string]any, len(node))
-		for key, value := range node {
-			if key != "position" {
-				item[key] = value
-			}
-		}
-		projected = append(projected, item)
+		projected = append(projected, cloudAgentMediaNodeContent(node))
 	}
 	content["nodes"] = projected
 	return cloudAgentCanvasHash(content)
+}
+
+// Node fields written by the canvas client on load rather than by generation.
+var cloudAgentMediaNodePresentationFields = map[string]bool{
+	"position":  true,
+	"createdAt": true,
+	"updatedAt": true,
+}
+
+// Media semantics the canvas client derives from the remaining node data.
+var cloudAgentMediaNodePresentationMetadata = map[string]bool{
+	"nodeRole":     true,
+	"resultOrigin": true,
+}
+
+func cloudAgentMediaNodeContent(node map[string]any) map[string]any {
+	item := make(map[string]any, len(node))
+	for key, value := range node {
+		if cloudAgentMediaNodePresentationFields[key] {
+			continue
+		}
+		if key == "metadata" {
+			if metadata, ok := value.(map[string]any); ok {
+				projected := make(map[string]any, len(metadata))
+				for metadataKey, metadataValue := range metadata {
+					if cloudAgentMediaNodePresentationMetadata[metadataKey] {
+						continue
+					}
+					projected[metadataKey] = metadataValue
+				}
+				item[key] = projected
+				continue
+			}
+		}
+		item[key] = value
+	}
+	return item
 }
 
 func cloudAgentCanvasState(repo *repository.Repository, userID string, doc map[string]any, offset int, ids []string, storyboardOffset int) (any, error) {
