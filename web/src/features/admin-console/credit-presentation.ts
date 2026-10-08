@@ -14,6 +14,7 @@ export const creditKindOptions = [
     { value: "", label: "全部类型" },
     { value: "TASK_CHARGE", label: "任务扣费" },
     { value: "TASK_REFUND", label: "任务退款" },
+    { value: "TASK_SETTLE", label: "文本结算" },
     { value: "TOPUP", label: "充值到账" },
     { value: "TOPUP_GIFT", label: "充值赠送" },
     { value: "ADMIN_ADJUST", label: "人工调整" },
@@ -22,6 +23,7 @@ export const creditKindOptions = [
 export const creditKindViews: Record<AdminCreditKind, { label: string; color: string }> = {
     TASK_CHARGE: { label: "任务扣费", color: "volcano" },
     TASK_REFUND: { label: "任务退款", color: "blue" },
+    TASK_SETTLE: { label: "文本结算", color: "orange" },
     TOPUP: { label: "充值到账", color: "green" },
     TOPUP_GIFT: { label: "充值赠送", color: "cyan" },
     ADMIN_ADJUST: { label: "人工调整", color: "gold" },

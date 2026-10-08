@@ -20,6 +20,7 @@ type taskTerminalCoordinator struct {
 	logger            taskLifecycleLogger
 	outputs           taskOutputLifecycle
 	refund            taskRefundLifecycle
+	settle            taskTextSettleLifecycle
 	userFacingMessage func(error) string
 	logFailedAttempt  func(model.Task, error)
 }
@@ -49,11 +50,23 @@ type taskRefundLifecycle interface {
 	refundTaskCredits(task *model.Task, taskErr error, note string)
 }
 
+// taskTextSettleLifecycle 是成功收尾后按真实 token 用量补扣文本费用的窄端口。
+//
+// 与 taskRefundLifecycle 分开而不是并成一个"资金动作"接口：退款只在失败路径发生、
+// 结算是成功路径的收尾，同一条任务不会两者都走。并成一个会让测试替身被迫同时实现
+// 两个方向，也会让"这里到底该退还是该扣"在代码里看不出答案。
+//
+// 实现为 nil 表示当前形态不计费（桌面 / 本地装载），不是"该结算但结不了"。
+type taskTextSettleLifecycle interface {
+	settleTextTaskCredits(task *model.Task)
+}
+
 type taskTerminalServiceAdapter struct {
 	finalizeReplay func(string, model.TaskStatus) error
 	writeLog       func(string, string, string, string, string) error
 	registerOutput func(model.Task) error
 	refundCredits  func(*model.Task, error, string)
+	settleCredits  func(*model.Task)
 }
 
 func (a taskTerminalServiceAdapter) finalizeTaskTextReplay(taskID string, status model.TaskStatus) error {
@@ -78,12 +91,23 @@ func (a taskTerminalServiceAdapter) refundTaskCredits(task *model.Task, taskErr 
 	a.refundCredits(task, taskErr, note)
 }
 
+// settleTextTaskCredits 是 taskTextSettleLifecycle 的适配入口。
+//
+// 与退款同理：没有计费端口就直接返回，结算缺席是当前形态的既定事实，不该报错。
+func (a taskTerminalServiceAdapter) settleTextTaskCredits(task *model.Task) {
+	if a.settleCredits == nil {
+		return
+	}
+	a.settleCredits(task)
+}
+
 func newTaskTerminalCoordinator(s *Service) *taskTerminalCoordinator {
 	adapter := taskTerminalServiceAdapter{
 		finalizeReplay: s.finalizeTaskTextReplay,
 		writeLog:       s.log,
 		registerOutput: s.RegisterTaskOutputFromTask,
 		refundCredits:  s.refundTaskCredits,
+		settleCredits:  s.settleTextTaskCredits,
 	}
 	return &taskTerminalCoordinator{
 		repo:              s.repo,
@@ -91,6 +115,7 @@ func newTaskTerminalCoordinator(s *Service) *taskTerminalCoordinator {
 		logger:            adapter,
 		outputs:           adapter,
 		refund:            adapter,
+		settle:            adapter,
 		userFacingMessage: s.UserFacingErrorMessage,
 		logFailedAttempt:  s.ensureFailedProviderAttemptLogged,
 	}
@@ -209,6 +234,11 @@ func (c *taskTerminalCoordinator) handleSuccess(task *model.Task) error {
 		}
 	}
 	_ = c.logger.log(task.UserID, task.ID, "info", "任务完成，结果已持久化", "")
+	// 结算放在最后且不参与错误返回：产物登记失败与否都不改变"上游确实烧了这些 token"，
+	// 而任务终态已经落库，这里再抛错只会让 worker 把一条成功的任务当成失败重试。
+	if c.settle != nil {
+		c.settle.settleTextTaskCredits(task)
+	}
 	return completionErr
 }
 

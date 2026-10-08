@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -54,6 +55,40 @@ type TaskChargeOutcome struct {
 	MultiplierSource string `json:"multiplierSource"`
 	// Priced 为 false 表示这个模型（或这个档位）还没定价。
 	Priced bool `json:"priced"`
+	// MinimumBalance 是这次提交需要保留的最低余额（积分），0 表示没有这条要求。
+	// 与 Credits 是两件事：Credits 是"这次扣多少"，MinimumBalance 是"余额得有这么多才
+	// 允许开始"。只有文本会给非零值，原因见 TaskCreditLedger.EnsureTextTaskBalance。
+	MinimumBalance int64 `json:"minimumBalance"`
+}
+
+// TaskTextSettleRequest 是一次文本任务按实际用量的结算入参。
+//
+// 三档用量分开传而不是只传一个总数：缓存命中价与未命中价差一个量级，压成一个数就
+// 会把大半输入按最贵的那档收。InputTokens 含 CachedTokens。
+type TaskTextSettleRequest struct {
+	UserID       string
+	TaskID       string
+	ModelKey     string
+	InputTokens  int64
+	CachedTokens int64
+	OutputTokens int64
+}
+
+// TaskTextSettleOutcome 是一次文本结算的金额与结论。
+//
+// Credits 是按实际用量算出的总价，Delta 是本次补扣额。两者都回传是为了让调用方写得出
+// "起步价 1 分 + 补扣 13 分 = 14 分"这种能自己复核的日志。
+type TaskTextSettleOutcome struct {
+	Credits int64 `json:"credits"`
+	Charged int64 `json:"charged"`
+	Delta   int64 `json:"delta"`
+	// Priced 为 false 表示这个模型没有任何文本价目，本次没有结算。
+	Priced bool `json:"priced"`
+	// MissingTiers 非空表示有档位没取到价，这次结算少收了钱，调用方必须落日志。
+	MissingTiers []string `json:"missingTiers"`
+	// Uncollected 是余额不够、这次收不回来的差额（积分）。
+	Uncollected int64  `json:"uncollected"`
+	Note        string `json:"note"`
 }
 
 // TaskCreditLedger 是任务计费端口。
@@ -63,10 +98,21 @@ type TaskChargeOutcome struct {
 //
 // QuoteTask 与 ChargeTask 收同一份入参、走同一条取价路径，区别只有一个写不写账：
 // 试算要是另走一套算价逻辑，"面板上的价"和"实扣的价"迟早会对不上。
+//
+// SettleTextTask 是提交时无法预扣足额的唯一补偿口：文本的 token 用量要等上游回执，
+// 预扣只能是起步价，成功收尾时按真实用量补差额。它必须在端口上而不是由 app 自己算，
+// 理由与 ChargeTask 相同——金额只有账号域算得对。
 type TaskCreditLedger interface {
 	ChargeTask(request TaskChargeRequest) (TaskChargeOutcome, error)
 	QuoteTask(request TaskChargeRequest) (TaskChargeOutcome, error)
 	RefundTask(userID string, taskID string, note string) (int64, bool, error)
+	SettleTextTask(request TaskTextSettleRequest) (TaskTextSettleOutcome, error)
+	// EnsureTextTaskBalance 校验文本任务的最低余额水位，余额不足返回 402。
+	//
+	// 单列一个方法而不是并进 ChargeTask，是因为"什么时候要过水位"是任务域的判断：
+	// 用户主动发起的那一次提交要过，会话进行中的续跑步骤不过（见 taskChargesTextMinimumBalance）。
+	// 计费域只回答"这个模型要多少余额"。
+	EnsureTextTaskBalance(userID string, modelKey string) error
 }
 
 // UseTaskCreditLedger 注入计费端口，只在装配期调用一次。
@@ -95,7 +141,15 @@ func (s *Service) chargeTaskCredits(task *model.Task, normalizedInput map[string
 	if s == nil || s.taskCreditLedger == nil || task == nil {
 		return nil
 	}
-	outcome, err := s.taskCreditLedger.ChargeTask(s.taskChargeRequest(task, normalizedInput))
+	request := s.taskChargeRequest(task, normalizedInput)
+	// 水位先于预扣：文本的预扣只有一个起步价，挡不住"余额 1 积分也能发起一轮长会话"。
+	// 放在这里而不是各个入口，是因为所有计费都走这一条路，漏一处就是一个可以绕开的洞。
+	if taskChargesTextMinimumBalance(*task, request.Capability) {
+		if err := s.taskCreditLedger.EnsureTextTaskBalance(request.UserID, request.ModelKey); err != nil {
+			return err
+		}
+	}
+	outcome, err := s.taskCreditLedger.ChargeTask(request)
 	if err != nil {
 		return err
 	}
@@ -105,6 +159,25 @@ func (s *Service) chargeTaskCredits(task *model.Task, normalizedInput map[string
 		_ = s.log(task.UserID, task.ID, "info", "已预扣积分 "+strconv.FormatInt(outcome.Credits, 10), "")
 	}
 	return nil
+}
+
+// taskChargesTextMinimumBalance 判断这次提交要不要先满足文本的最低余额水位。
+//
+// 只有用户主动发起的那一轮要过水位。会话进行中的续跑步骤（cloud_agent_step）与后台的
+// 记忆压缩（agent_memory_compact）不过：它们不是用户此刻按下发送产生的消费，而是已经
+// 放行的会话在继续。把水位压到它们头上，会让一条正常跑到一半的会话因为余额降到水位
+// 以下而中途断掉——那种"钱花完了所以把你的对话截断"的体验，比收不回最后一轮的钱更糟，
+// 而收不回的那部分现在有欠款清单兜底。
+func taskChargesTextMinimumBalance(task model.Task, capability string) bool {
+	if normalizeCapability(capability) != "text" {
+		return false
+	}
+	switch strings.TrimSpace(task.Operation) {
+	case "cloud_agent_step", cloudAgentMemoryCompactOp:
+		return false
+	default:
+		return true
+	}
 }
 
 // quoteTaskCredits 试算一次任务消耗，不写流水也不改余额。
@@ -170,6 +243,86 @@ func (s *Service) refundTaskCredits(task *model.Task, taskErr error, note string
 		return
 	}
 	_ = s.log(task.UserID, task.ID, "info", "已退回预扣积分 "+strconv.FormatInt(credits, 10), "")
+}
+
+// settleTextTaskCredits 在文本任务成功收尾时按上游回执的 token 用量补扣差额。
+//
+// 文本的 token 用量提交时定不了，预扣只能是一个起步价。少了这一步，一次带着几万 token
+// 上下文的 Agent 会话会按起步价成交——平台每跑一轮亏一轮，而且账面上那一行与正常扣费
+// 长得一模一样，只能靠对账发现问题。所以这里不是"优化"，是计费闭环里缺的那一半。
+//
+// 只处理成功收尾：失败与取消走退款路径，两条路径都动账会出现"退了一笔又补扣一笔"。
+// 结算本身必须幂等（任务收尾可能被重放），幂等由账号域按 (任务, 结算) 的唯一键保证。
+func (s *Service) settleTextTaskCredits(task *model.Task) {
+	if s == nil || s.taskCreditLedger == nil || s.repo == nil || task == nil {
+		return
+	}
+	inputJSON, err := s.decryptTaskInputJSON(task.InputJSON)
+	if err != nil {
+		_ = s.log(task.UserID, task.ID, "error", "文本结算无法读取任务输入："+err.Error(), "")
+		return
+	}
+	var normalizedInput map[string]any
+	if err := json.Unmarshal([]byte(inputJSON), &normalizedInput); err != nil {
+		_ = s.log(task.UserID, task.ID, "error", "文本结算无法解析任务输入："+err.Error(), "")
+		return
+	}
+	// 能力从与预扣同源的那份解析里取：预扣按 text 收的，结算就按 text 补，两边不会分叉。
+	intent := ModelRequestIntentFromTaskInput(normalizedInput, task.Type, task.Operation)
+	if normalizeCapability(intent.Capability) != "text" {
+		return
+	}
+	usage, err := s.repo.TextTaskTokenUsage(task.ID)
+	if err != nil {
+		_ = s.log(task.UserID, task.ID, "error", "文本结算读取用量失败："+err.Error(), "")
+		return
+	}
+	if usage.Calls == 0 {
+		// 没有上游调用就没有可结算的用量：文本回放草稿、未触达上游的任务都走这条路。
+		return
+	}
+	if usage.UsageCalls == 0 {
+		// 有调用却一条用量回执都没有：按 0 结算等于这次白送，必须留痕由人工核对上游账单。
+		_ = s.log(task.UserID, task.ID, "warn", "文本任务有 "+strconv.FormatInt(usage.Calls, 10)+" 次上游调用但没有任何用量回执，本次未结算", "")
+		return
+	}
+	outcome, err := s.taskCreditLedger.SettleTextTask(TaskTextSettleRequest{
+		UserID:       task.UserID,
+		TaskID:       task.ID,
+		ModelKey:     taskChargeModelKey(normalizedInput, task),
+		InputTokens:  usage.Input,
+		CachedTokens: usage.Cached,
+		OutputTokens: usage.Output,
+	})
+	if err != nil {
+		// 结算失败不影响任务终态：结果已经落库、用户已经拿到东西，这里只留可查的痕迹，
+		// 由后台按任务 ID 手工补扣。
+		_ = s.log(task.UserID, task.ID, "error", "文本积分结算失败："+err.Error(), "")
+		return
+	}
+	if !outcome.Priced {
+		_ = s.log(task.UserID, task.ID, "warn", "文本结算未取到任何价目，本次未结算", "")
+		return
+	}
+	if len(outcome.MissingTiers) > 0 {
+		_ = s.log(task.UserID, task.ID, "warn", "文本结算缺少价目档位："+strings.Join(outcome.MissingTiers, "、")+"，这部分未计费", "")
+	}
+	if outcome.Delta <= 0 {
+		// 起步价已经盖住实际用量，没有差额可补。仍然记一条 info：它回答了"为什么这次
+		// 只有 1 积分"，用户拿着短对话来问时不用去猜。
+		_ = s.log(task.UserID, task.ID, "info", "文本用量未超出起步价，按起步价成交", outcome.Note)
+		return
+	}
+	if usage.UsageCalls < usage.Calls {
+		_ = s.log(task.UserID, task.ID, "warn", "文本结算有 "+strconv.FormatInt(usage.Calls-usage.UsageCalls, 10)+" 次调用没有用量回执，本次只结算已回执部分", "")
+	}
+	if outcome.Uncollected > 0 {
+		// 余额不够，这一轮的钱收不回来。任务已经成功、结果已经给到用户，不能在日志里
+		// 含糊过去：后台要能按"未收金额"找到它，用户充值后由运维决定是补收还是核销。
+		_ = s.log(task.UserID, task.ID, "warn", "文本结算未收金额 "+strconv.FormatInt(outcome.Uncollected, 10)+" 积分（余额不足），已记入后台欠款清单", outcome.Note)
+		return
+	}
+	_ = s.log(task.UserID, task.ID, "info", "已按用量补扣积分 "+strconv.FormatInt(outcome.Delta, 10), outcome.Note)
 }
 
 // taskProviderRefundableFailures 是"上游明确回执这次生成没有产出、因而不计费"的失败类别。
@@ -279,8 +432,8 @@ func taskChargeModelKey(input map[string]any, task *model.Task) string {
 // taskChargeQuantity 从路由意图里取本次用量。
 //
 // 图片按张、视频与音频按秒、文本无法在提交时得知 token 数——返回 0 交给计费端口回退成
-// 一个单位（按次预扣）。这里刻意不猜 token：编一个数字出来只会让账单看起来精确，
-// 实际上对不上。真正的 token 级结算需要等任务侧记录用量之后再做。
+// 一个单位（按次起步价预扣）。这里刻意不猜 token：编一个数字出来只会让账单看起来精确，
+// 实际上对不上。真实用量由成功收尾时的结算补上，见 settleTextTaskCredits。
 func taskChargeQuantity(intent ModelRequestIntent) int64 {
 	switch normalizeCapability(intent.Capability) {
 	case "image":

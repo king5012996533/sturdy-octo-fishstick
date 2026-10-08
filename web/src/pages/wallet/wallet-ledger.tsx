@@ -1,5 +1,5 @@
 import { Button, Select, Skeleton } from "antd";
-import { CircleDollarSign, CreditCard, Gift, RotateCcw, SlidersHorizontal, Zap, type LucideIcon } from "lucide-react";
+import { Calculator, CircleDollarSign, CreditCard, Gift, RotateCcw, SlidersHorizontal, Zap, type LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { PaginationBar, TableSurface } from "@/components/layout/workspace-page";
@@ -19,6 +19,7 @@ import { WalletPanel, WalletSectionHead, errorMessage, formatCreditDelta, useDel
 
 const kindMeta: Record<CreditLedgerKind, { label: string; icon: LucideIcon }> = {
     TASK_CHARGE: { label: "任务扣费", icon: Zap },
+    TASK_SETTLE: { label: "文本结算", icon: Calculator },
     TASK_REFUND: { label: "任务退回", icon: RotateCcw },
     TOPUP: { label: "充值到账", icon: CreditCard },
     TOPUP_GIFT: { label: "赠送积分", icon: Gift },

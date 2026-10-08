@@ -1,5 +1,6 @@
 import type { TaskChargeEstimate } from "@/hooks/use-task-charge-quote";
 import { creditUnitRateLabel } from "@/lib/credit-price-label";
+import type { TaskChargeQuote } from "@/services/api/credit";
 import { cn } from "@/lib/utils";
 
 /**
@@ -42,8 +43,19 @@ export function CreationCreditEstimate({ estimate, className, compact = false }:
         );
     }
     const surcharge = quote.surchargeCredits ?? 0;
+    const minimum = quote.minimumBalance ?? 0;
+    // 文本的水位与"本次扣多少"是两件事：余额不到水位时用户根本发不出去。这时必须说清
+    // "要留多少"，只把起步价染红会让人以为"充值 1 积分就能继续"。
+    if (!estimate.sufficient && minimum > quote.credits) {
+        return (
+            <span className={cn("creation-credit-estimate is-error", className)} role="status" title={chargeHint(quote, surcharge)}>
+                <span className="creation-credit-estimate-label">余额不足</span>
+                <span className="creation-credit-estimate-balance">余额需 ≥ {minimum.toLocaleString("zh-CN")} 积分（当前 {(estimate.balance ?? 0).toLocaleString("zh-CN")}）</span>
+            </span>
+        );
+    }
     return (
-        <span className={cn("creation-credit-estimate", estimate.sufficient ? undefined : "is-error", className)} role="status" title={chargeHint(quote.unit, quote.sellUnitPrice, quote.quantity, surcharge)}>
+        <span className={cn("creation-credit-estimate", estimate.sufficient ? undefined : "is-error", className)} role="status" title={chargeHint(quote, surcharge)}>
             <span className="creation-credit-estimate-label">{estimate.sufficient ? "预计预扣" : "余额不足"}</span>
             <strong>{quote.credits.toLocaleString("zh-CN")}</strong>
             <span className="creation-credit-estimate-unit">积分</span>
@@ -54,15 +66,20 @@ export function CreationCreditEstimate({ estimate, className, compact = false }:
 }
 
 /** chargeHint 把"单价 × 用量"渲染成悬停可看的算式；单价文案与模型广场共用一份。 */
-function chargeHint(unit: string, sellUnitPrice: number | null, quantity: number, surchargeCredits = 0) {
-    if (sellUnitPrice === null) return "";
-    const rate = creditUnitRateLabel(unit, sellUnitPrice);
+function chargeHint(quote: TaskChargeQuote, surchargeCredits = 0) {
+    if (quote.sellUnitPrice === null) return "";
+    const rate = creditUnitRateLabel(quote.unit, quote.sellUnitPrice);
     const extra = surchargeCredits > 0 ? ` + 素材加收 ${surchargeCredits} 积分` : "";
-    switch (unit) {
+    // 文本只有起步价是确定的，真实费用收尾才结算——不写清楚，用户会把"1 积分/次"
+    // 当成这次对话的总价。
+    if (quote.minimumBalance > 0) {
+        return `${rate}（起步价，任务收尾时按实际 token 用量结算；余额需 ≥ ${quote.minimumBalance.toLocaleString("zh-CN")} 积分）${extra}`;
+    }
+    switch (quote.unit) {
         case "IMAGE":
-            return `${rate} × ${quantity} 张${extra}`;
+            return `${rate} × ${quote.quantity} 张${extra}`;
         case "SECOND":
-            return `${rate} × ${quantity} 秒${extra}`;
+            return `${rate} × ${quote.quantity} 秒${extra}`;
         case "TOKEN_1M":
             return `${rate}（起步价，不足一次调用按一次计）${extra}`;
         default:

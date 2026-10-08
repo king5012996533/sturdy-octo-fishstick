@@ -923,7 +923,7 @@ export type AdminCreditAccountPage = {
     pageSize: number;
 };
 
-export type AdminCreditKind = "TASK_CHARGE" | "TASK_REFUND" | "TOPUP" | "TOPUP_GIFT" | "ADMIN_ADJUST";
+export type AdminCreditKind = "TASK_CHARGE" | "TASK_REFUND" | "TASK_SETTLE" | "TOPUP" | "TOPUP_GIFT" | "ADMIN_ADJUST";
 
 export type AdminCreditLedgerEntry = {
     id: string;

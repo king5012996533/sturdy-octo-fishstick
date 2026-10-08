@@ -10,12 +10,15 @@ import type { CreationStatus } from "./creation-types";
  * 界面自己记一份账迟早会和用户钱包对不上。所以这里不做任何金额计算，只把流水讲清楚：
  * 花了多少、退了多少、还是根本没产生记录——最后一种不会显示成 0 积分。
  */
-export function CreationMessageCharge({ taskIds, status, className }: { taskIds: string[]; status?: CreationStatus; className?: string }) {
+export function CreationMessageCharge({ taskIds, status, expectSettle, className }: { taskIds: string[]; status?: CreationStatus; expectSettle?: boolean; className?: string }) {
     const terminal = status === "done" || status === "error" || status === "cancelled";
     const charge = useMessageCharge(taskIds, {
         // 桌面与本地没有账号库也没有计费，编译期就关掉这条通道（连同后台代码一起被摇掉）。
         enabled: __BEEFTV_HOSTED_AUTH__ && terminal,
         expectRefund: status === "error" || status === "cancelled",
+        // 文本按 token 结算，补扣流水在任务成功之后才落：不补这个窗口，界面会先把
+        // 起步价当成"本次消耗"显示出来，然后一直不再刷新。
+        expectSettle,
     });
     if (!terminal) return null;
     if (charge.error) {

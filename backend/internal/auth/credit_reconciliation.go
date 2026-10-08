@@ -31,6 +31,10 @@ const creditReconciliationChunkSize = 256
 //
 // 净额而不是"扣了多少"：退过的任务净额会变小甚至归零，这样后台不会把一笔已经退回的
 // 失败任务当成漏单继续挂着。
+//
+// 结算补扣也算进来：文本任务提交时只扣了起步价，真实费用在收尾时才补上。漏掉这一类
+// 会让后台把一笔已经扣费的文本任务显示成只值 1 积分——对账时正是它会引出"是不是漏扣了"
+// 的假警报。
 func (s *Store) TaskChargeTotalsByIDs(taskIDs []string) (map[string]int64, error) {
 	totals := make(map[string]int64, len(taskIDs))
 	for start := 0; start < len(taskIDs); start += creditReconciliationChunkSize {
@@ -45,7 +49,7 @@ func (s *Store) TaskChargeTotalsByIDs(taskIDs []string) (map[string]int64, error
 		rows := make([]row, 0, end-start)
 		if err := s.db.Model(&CreditLedgerEntry{}).
 			Select("ref_id AS ref_id, SUM(-amount) AS net").
-			Where("ref_type = ? AND kind IN ?", CreditRefTask, []string{CreditKindCharge, CreditKindRefund}).
+			Where("ref_type = ? AND kind IN ?", CreditRefTask, []string{CreditKindCharge, CreditKindRefund, CreditKindSettle}).
 			Where("ref_id IN ?", taskIDs[start:end]).
 			Group("ref_id").
 			Scan(&rows).Error; err != nil {

@@ -229,7 +229,7 @@ export function CreationMessageView({ item, shotNumber, onRetryFailure, onCreate
         {mode === "text" ? <><div className="creation-message-heading">{heading}</div>{item.reasoning ? <div className="creation-message-reasoning-wrap"><MessageReasoning reasoning={item.reasoning} isStreaming={item.status === "streaming"} /></div> : null}<div className="creation-message-content">{item.content ? <AIMessageMarkdown isStreaming={item.status === "streaming"}>{item.content}</AIMessageMarkdown> : <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><WorkingDots dotSize={5} gap={2} /><span>正在生成…</span></span>}</div></> : <GenerationToolCard status={toolStatus} heading={heading}><MediaResult item={item} onRetryFailure={onRetryFailure} onCreateVariant={onCreateVariant} onContinueCanvas={onContinueCanvas} openingCanvas={openingCanvas} /></GenerationToolCard>}
         {item.error && mode === "text" ? <div className="creation-message-error"><GenerationFailureNotice explanation={explainGenerationError(item.error)} onRetry={shouldBlockAutomaticRetry(item.error) ? undefined : onRetryFailure} /></div> : null}
         {/* 任务号是扣费的唯一凭据：没有它就没有可对账的对象，宁可不显示。 */}
-        {item.taskIds?.length ? <CreationMessageCharge taskIds={item.taskIds} status={item.status} /> : null}
+        {item.taskIds?.length ? <CreationMessageCharge taskIds={item.taskIds} status={item.status} expectSettle={mode === "text"} /> : null}
     </article>;
 }
 

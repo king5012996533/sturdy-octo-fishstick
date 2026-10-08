@@ -67,14 +67,28 @@ export type AdminTaskCharge = {
     taskError?: string;
 };
 
+/** 一条收不回来的文本结算差额。 */
+export type AdminSettleGap = {
+    taskId: string;
+    userId: string;
+    userName?: string;
+    modelKey?: string;
+    /** 这次没收上来的积分。 */
+    uncollected: number;
+    createdAt: string;
+};
+
 export type AdminResourceReconciliation = {
     /** 空串表示账号库里还没有任何扣费，此时不做漏单判定。 */
     billingStart?: string;
     untracked: number;
     uncharged: number;
     chargedWithoutResource: number;
+    /** 文本按用量结算时收不回来的积分总额（全量，不随列表长度变化）。 */
+    uncollected?: number;
     unchargedResources: AdminResource[];
     chargedTasks: AdminTaskCharge[];
+    settleGaps?: AdminSettleGap[];
 };
 
 export type AdminResourceBackfillResult = {

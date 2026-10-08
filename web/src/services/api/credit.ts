@@ -20,7 +20,7 @@ export type CreditWallet = {
     updatedAt: string;
 };
 
-export type CreditLedgerKind = "TASK_CHARGE" | "TASK_REFUND" | "TOPUP" | "TOPUP_GIFT" | "ADMIN_ADJUST";
+export type CreditLedgerKind = "TASK_CHARGE" | "TASK_REFUND" | "TASK_SETTLE" | "TOPUP" | "TOPUP_GIFT" | "ADMIN_ADJUST";
 
 export type CreditLedgerEntry = {
     id: string;
@@ -78,6 +78,14 @@ export type TaskChargeQuote = {
     multiplierBp: number;
     multiplierSource: string;
     priced: boolean;
+    /**
+     * 这次提交需要保留的最低余额（积分），0 表示没有这条要求。
+     *
+     * 只有文本会给非零值：它的真实费用要等 token 用量回执，提交时扣不动，所以放行前
+     * 要求余额够跑一轮。它与 credits 是两件事——credits 是"这次扣多少"，minimumBalance
+     * 是"余额得有这么多才允许开始"，界面不能把水位显示成价格。
+     */
+    minimumBalance: number;
 };
 
 export type TaskChargeQuoteResult = {
@@ -114,12 +122,18 @@ export async function getTaskChargeEntriesForTasks(taskIds: string[]) {
     return page.entries;
 }
 
-/** summarizeTaskCharge 把流水折成"实际扣了多少、退了多少"。 */
+/**
+ * summarizeTaskCharge 把流水折成"实际扣了多少、退了多少"。
+ *
+ * 文本的按 token 补扣（TASK_SETTLE）与预扣同向，一起算进 charged：用户问的是"这条消息
+ * 花了多少"，只认预扣那一笔会让界面显示 1 积分而钱包实际少了十几分——差出来的部分只能
+ * 靠用户自己翻流水发现。
+ */
 export function summarizeTaskCharge(entries: CreditLedgerEntry[]) {
     let charged = 0;
     let refunded = 0;
     for (const entry of entries) {
-        if (entry.kind === "TASK_CHARGE" && entry.amount < 0) charged += -entry.amount;
+        if ((entry.kind === "TASK_CHARGE" || entry.kind === "TASK_SETTLE") && entry.amount < 0) charged += -entry.amount;
         if (entry.kind === "TASK_REFUND" && entry.amount > 0) refunded += entry.amount;
     }
     return { charged, refunded, net: charged - refunded };

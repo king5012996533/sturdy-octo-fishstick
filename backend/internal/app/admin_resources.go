@@ -91,6 +91,23 @@ type AdminResourceReconciliationView struct {
 	ChargedWithoutResource int64                 `json:"chargedWithoutResource"`
 	UnchargedResources     []AdminResourceView   `json:"unchargedResources"`
 	ChargedTasks           []AdminTaskChargeView `json:"chargedTasks"`
+	// Uncollected 是文本按用量结算时收不回来的积分总额，SettleGaps 是明细。
+	//
+	// 与上面两项并列而不是塞进"扣费无产物"：那两类描述的是"产物与扣费对不上"，
+	// 这一项描述的是"该收的钱没收上来"，处置动作是催收或核销，不是补产物。
+	Uncollected int64                `json:"uncollected"`
+	SettleGaps  []AdminSettleGapView `json:"settleGaps"`
+}
+
+// AdminSettleGapView 是一条收不回来的文本结算差额。
+type AdminSettleGapView struct {
+	TaskID   string `json:"taskId"`
+	UserID   string `json:"userId"`
+	UserName string `json:"userName,omitempty"`
+	ModelKey string `json:"modelKey,omitempty"`
+	// Uncollected 是这次没收上来的积分。
+	Uncollected int64     `json:"uncollected"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 // AdminResourceTotalsView 是产物管理的顶部读数，口径恒为全量，不随筛选变化。

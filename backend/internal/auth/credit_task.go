@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -53,6 +54,13 @@ type TaskChargeQuote struct {
 	// SurchargeCredits 是总额里"单价 × 用量"之外的那部分，前端据此说明差额。
 	SurchargeCredits int64 `json:"surchargeCredits"`
 	Priced           bool  `json:"priced"`
+	// MinimumBalance 是这次提交需要保留的最低余额（积分），0 表示没有这条要求。
+	//
+	// 只有文本会给出非零值：它的真实费用要等用量回执，提交时扣不动，只能在放行前要求
+	// 余额够跑一轮。它与 Credits 是两件事——Credits 是"这次扣多少"，MinimumBalance 是
+	// "余额得有多少才允许开始"。前端要分开显示，把水位说成价格会让用户以为一次对话要花
+	// 那么多少。
+	MinimumBalance int64 `json:"minimumBalance"`
 }
 
 // pricingMissing 是模型还没定价时的对外错误。
@@ -178,12 +186,120 @@ func (s *Service) QuoteTaskCharge(input TaskChargeInput) (*TaskChargeQuote, erro
 // 详见 quoteTextStartPrice。
 const textStartPriceCredits = 1
 
+// 文本任务的"跑一轮大概要多少"估计值，用来定提交前的最低余额水位。
+//
+// 取"常规一轮"而不是"最重一轮"：水位定得太高会把余额充足、只想再问一句的用户挡在门外，
+// 而它的作用只是保证结算有东西可扣，不是给一轮会话定价。生产实测的常规一轮在 1–2 万
+// 输入、几百到几千输出之间（见 docs/credits-billing.md），这里按输入不命中缓存估——
+// 真实会话的缓存命中率不可预测，给它打折是"算少"的那一侧，水位就白设了。
+//
+// 超出一轮估计的会话由欠款清单兜底（credit_settle_gaps）：那部分收不回来时后台看得见，
+// 而不是靠把水位抬高到最坏情况来预防——那等于向所有用户预收最坏情况的钱。
+//
+// 这两个数只影响"允不允许开始"，不影响实际扣费：真实费用照旧按 token 用量结算。
+const (
+	textMinimumInputTokens  = 20_000
+	textMinimumOutputTokens = 2_000
+)
+
+// textMinimumBalance 按价目算出一轮文本会话所需的余额水位。
+//
+// 返回 nil 表示这个模型没有任何可用的文本价目：此时不给水位，未定价的模型会在预扣阶段
+// 被直接拒成 409，水位在这里既算不出来、也没有意义。
+func (s *Service) textMinimumBalance(prices map[string]*ModelPrice, rules []MarkupRule) (*int64, error) {
+	tiers := []struct {
+		tier   PriceTier
+		tokens int64
+	}{
+		{PriceTierInput, textMinimumInputTokens},
+		{PriceTierOutput, textMinimumOutputTokens},
+	}
+	total := int64(0)
+	priced := false
+	for _, item := range tiers {
+		price := prices[string(item.tier)]
+		if price == nil {
+			continue
+		}
+		resolution := ResolvePricing(PricingInput{
+			ModelKey:          price.ModelKey,
+			VendorCode:        strings.TrimSpace(price.VendorCode),
+			Capability:        string(CapabilityText),
+			PriceTier:         string(item.tier),
+			UpstreamUnitPrice: upstreamUnitPriceOf(price),
+		}, price, rules)
+		if !resolution.Priced || resolution.SellUnitPrice == nil || *resolution.SellUnitPrice <= 0 {
+			continue
+		}
+		credits, err := textTierCredits(item.tokens, *resolution.SellUnitPrice, unitOf(price, string(CapabilityText)))
+		if err != nil {
+			return nil, err
+		}
+		total += credits
+		priced = true
+	}
+	if !priced {
+		return nil, nil
+	}
+	return &total, nil
+}
+
+// TextTaskMinimumBalance 读出一个文本模型的最低余额水位，nil 表示不设水位。
+func (s *Service) TextTaskMinimumBalance(modelKey string) (*int64, error) {
+	prices, err := s.store.ModelPricesByCapability(modelKey, string(CapabilityText))
+	if err != nil {
+		return nil, internalFailure(err)
+	}
+	rules, err := s.store.MarkupRules()
+	if err != nil {
+		return nil, internalFailure(err)
+	}
+	minimum, err := s.textMinimumBalance(prices, rules)
+	if err != nil {
+		return nil, err
+	}
+	return minimum, nil
+}
+
+// EnsureTextTaskBalance 校验一次文本任务提交是否够得上最低余额水位。
+//
+// 为什么需要它：文本的预扣只是一个起步价，真实费用要等用量回执。若不加这道门，用户可以
+// 用 1 积分反复发起会话，每一轮的真实成本都由平台垫——这不是"用户欠费"，是平台在无人
+// 察觉的情况下持续漏收。水位把这件事提前到"按下发送之前"，代价是余额不足的用户会被挡
+// 住，因此文案必须说清要求多少、当前多少。
+//
+// 只补位不替代结算：通过水位的会话仍然按真实用量结算，水位不是价格。
+func (s *Service) EnsureTextTaskBalance(userID string, modelKey string) error {
+	minimum, err := s.TextTaskMinimumBalance(modelKey)
+	if err != nil {
+		return err
+	}
+	if minimum == nil || *minimum <= 0 {
+		return nil
+	}
+	account, err := s.store.CreditAccountFor(userID)
+	if err != nil {
+		return internalFailure(err)
+	}
+	balance := int64(0)
+	if account != nil {
+		balance = account.Balance
+	}
+	if balance >= *minimum {
+		return nil
+	}
+	return insufficientCredits(fmt.Sprintf(
+		"文本会话按实际用量计费，余额需保持在 %d 积分以上（当前 %d 积分），请先充值",
+		*minimum, balance,
+	))
+}
+
 // quoteTextStartPrice 给出文本任务在提交阶段的起步价预扣。
 //
 // 文本按 token 结算，而 token 用量要等上游回执，所以提交时既定不了档位也定不了用量——
 // "预扣"在这里只能是一个起步价。产品定的下限是每次 1 积分：它足以表达"这不是一次免费
-// 调用"，又不会在按 token 结算上线之前扣住用户的大额余额。按 token 的真实结算需要任务侧
-// 记录用量之后再做，届时这笔预扣由"结算退差"替换（见 docs/credits-billing.md）。
+// 调用"，又不会在拿到用量之前扣住用户的大额余额。真实费用由任务成功收尾时的按 token
+// 结算补上差额（SettleTextTaskCharge），起步价算在总额之内，见 docs/credits-billing.md。
 //
 // 起步价只在模型确实配过文本价目时生效。否则一个拼错的模型标识会变成一条永远免费的
 // 通道——"未定价不给生成"是这类系统里最该保住的一条规矩，文本不该是它的例外。
@@ -196,8 +312,16 @@ func (s *Service) quoteTextStartPrice(modelKey string, capability string, quanti
 		// 没有价目：回一个未定价的报价，由 ChargeTask 统一拒成 409。
 		return &TaskChargeQuote{Unit: unitOf(nil, capability), Quantity: quantity}, nil
 	}
+	rules, err := s.store.MarkupRules()
+	if err != nil {
+		return nil, internalFailure(err)
+	}
+	minimum, err := s.textMinimumBalance(prices, rules)
+	if err != nil {
+		return nil, err
+	}
 	startPrice := int64(textStartPriceCredits)
-	return &TaskChargeQuote{
+	quote := &TaskChargeQuote{
 		Credits:          startPrice * quantity,
 		SellUnitPrice:    &startPrice,
 		MultiplierBp:     markupBaseBp,
@@ -205,7 +329,11 @@ func (s *Service) quoteTextStartPrice(modelKey string, capability string, quanti
 		Unit:             string(UnitPerRequest),
 		Quantity:         quantity,
 		Priced:           true,
-	}, nil
+	}
+	if minimum != nil {
+		quote.MinimumBalance = *minimum
+	}
+	return quote, nil
 }
 
 // QuoteTask 试算一次任务的消耗，未定价时返回与提交相同的 409。
@@ -269,6 +397,211 @@ func (s *Service) RefundTaskCharge(userID string, taskID string, note string) (i
 		return 0, false, err
 	}
 	return credits, created, nil
+}
+
+// TextTokenUsage 是一次文本任务在上游实际消耗的 token。
+//
+// 三档与定价表的 PriceTier 一一对应：Cached 是输入里命中提示词缓存的那部分，Input 是
+// 输入总量（含命中部分），Output 是模型生成的 token。Input 减去 Cached 才是按"未命中"
+// 计费的那部分——两档价格差着一个量级，直接拿 Input 当未命中会把这笔钱按最贵的档收。
+type TextTokenUsage struct {
+	Input  int64
+	Cached int64
+	Output int64
+}
+
+// TextSettleInput 是一次文本任务的按用量结算入参。
+type TextSettleInput struct {
+	UserID   string
+	TaskID   string
+	ModelKey string
+	Usage    TextTokenUsage
+}
+
+// TextSettleQuote 是结算读数：按实际用量算出的总价、提交时已预扣的部分，以及本次补扣额。
+type TextSettleQuote struct {
+	// Credits 是按实际 token 用量算出的总价。
+	Credits int64
+	// Charged 是提交时已经预扣的起步价。
+	Charged int64
+	// Delta 是本次补扣额（恒为非负）。0 表示起步价已经盖住实际用量，不落流水。
+	Delta int64
+	// Priced 为 false 表示这个模型没有任何文本价目，无法结算。
+	Priced bool
+	// MissingTiers 是缺价的档位。非空表示这次结算少算了钱，调用方必须落日志。
+	MissingTiers []string
+	// Uncollected 是余额不够、这次收不回来的差额（积分）。非零表示已记入后台欠款清单。
+	Uncollected int64
+	Note        string
+}
+
+// SettleTextTaskCharge 按上游回执的真实 token 用量给一次文本任务结算补扣。
+//
+// 为什么预扣之外还要有这一步：文本的档位（缓存命中 / 未命中 / 输出）与用量都要等上游
+// 回执才知道，提交时只能按起步价预扣。少了结算，一次带着几十万 token 上下文的 Agent
+// 会话会按起步价成交，平台每跑一轮亏一轮，而且亏得越多越看不出来——账单上那一行与
+// 实际情况一样"正常"。
+//
+// 只补扣、不退款：预扣的那 1 积分是产品定的起步价（见 textStartPriceCredits），不是
+// 押金。差额为负时按起步价成交，这样这条路径恒为出账，与失败退款路径不会互相干扰，
+// 也不会出现"退了一笔又补扣一笔"的对账噪音。
+//
+// 幂等由 (user_id, kind=TASK_SETTLE, ref_type=TASK, ref_id=taskID) 的唯一索引保证：
+// 任务收尾可能被重放，重放时补扣只会命中已有流水。
+func (s *Service) SettleTextTaskCharge(input TextSettleInput) (*TextSettleQuote, *CreditLedgerEntryView, bool, error) {
+	userID := strings.TrimSpace(input.UserID)
+	taskID := strings.TrimSpace(input.TaskID)
+	modelKey := strings.TrimSpace(input.ModelKey)
+	if userID == "" || taskID == "" {
+		return nil, nil, false, invalidArgument("文本结算缺少账号或任务标识")
+	}
+	if modelKey == "" {
+		return nil, nil, false, invalidArgument("文本结算缺少模型标识")
+	}
+	usage := input.Usage
+	if usage.Input < 0 || usage.Cached < 0 || usage.Output < 0 {
+		return nil, nil, false, invalidArgument("文本结算的 token 用量不能为负数")
+	}
+	// 上游回执偶尔会给出 cached 大于 input 的组合（缓存统计含上一轮的提示词）。夹回
+	// 去而不是报错：报错会让整条结算路径停摆，而它本来就只是一次账面修正。
+	if usage.Cached > usage.Input {
+		usage.Cached = usage.Input
+	}
+
+	quote := &TextSettleQuote{Priced: false}
+	charge, err := s.store.CreditEntryByRef(userID, CreditKindCharge, CreditRefTask, taskID)
+	if err != nil {
+		return nil, nil, false, internalFailure(err)
+	}
+	if charge != nil && charge.Amount < 0 {
+		quote.Charged = -charge.Amount
+	}
+
+	rules, err := s.store.MarkupRules()
+	if err != nil {
+		return nil, nil, false, internalFailure(err)
+	}
+	tiers := []struct {
+		tier   PriceTier
+		tokens int64
+	}{
+		{PriceTierCache, usage.Cached},
+		{PriceTierInput, usage.Input - usage.Cached},
+		{PriceTierOutput, usage.Output},
+	}
+	credits := int64(0)
+	found := 0
+	formula := make([]string, 0, len(tiers))
+	for _, item := range tiers {
+		price, priceErr := s.store.ModelPriceByTier(modelKey, string(CapabilityText), string(item.tier))
+		if priceErr != nil && !errors.Is(priceErr, ErrNotFound) {
+			return nil, nil, false, internalFailure(priceErr)
+		}
+		if price == nil {
+			// 缺一档不能按 0 悄悄放过：那一档的钱要么由平台垫，要么会在对账时才被发现。
+			// 记进 MissingTiers 由调用方落日志，结算本身继续——把已经能算的部分算完，
+			// 比整笔不算更接近真实成本。
+			quote.MissingTiers = append(quote.MissingTiers, string(item.tier))
+			continue
+		}
+		found++
+		resolution := ResolvePricing(PricingInput{
+			ModelKey: modelKey, VendorCode: strings.TrimSpace(price.VendorCode),
+			Capability: string(CapabilityText), PriceTier: string(item.tier),
+			UpstreamUnitPrice: upstreamUnitPriceOf(price),
+		}, price, rules)
+		if !resolution.Priced || resolution.SellUnitPrice == nil {
+			quote.MissingTiers = append(quote.MissingTiers, string(item.tier))
+			continue
+		}
+		unitCredits, unitErr := textTierCredits(item.tokens, *resolution.SellUnitPrice, unitOf(price, string(CapabilityText)))
+		if unitErr != nil {
+			return nil, nil, false, unitErr
+		}
+		credits += unitCredits
+		formula = append(formula, fmt.Sprintf("%s %d×%d", textTierLabel(item.tier), item.tokens, *resolution.SellUnitPrice))
+	}
+	if found == 0 {
+		// 一条价目都没有：这个模型本来就不该走到计费，交回调用方按"未定价"处理。
+		return quote, nil, false, nil
+	}
+	quote.Priced = true
+	quote.Credits = credits
+	quote.Delta = credits - quote.Charged
+	if quote.Delta <= 0 {
+		quote.Delta = 0
+		return quote, nil, false, nil
+	}
+	quote.Note = fmt.Sprintf("文本按 token 结算：%s（分/百万token），补扣 %d 分", strings.Join(formula, " + "), quote.Delta)
+	entry, created, err := s.ApplyCreditMutations([]CreditMutation{{
+		UserID:  userID,
+		Kind:    CreditKindSettle,
+		Amount:  -quote.Delta,
+		RefType: CreditRefTask,
+		RefID:   taskID,
+		Note:    strings.TrimSpace(modelKey + " " + quote.Note),
+	}})
+	if err != nil {
+		// 余额不足不是故障，而是"这轮的钱收不回来"这个业务事实：用户已经拿到结果，
+		// 任务不会因为钱不够而被撤销。把它记进欠款清单并照常返回，让调用方能在后台看到
+		// 缺口；当成错误抛出去只会让一条已经成功的任务在日志里变成一次"结算失败"。
+		if isInsufficientCreditsError(err) {
+			quote.Uncollected = quote.Delta
+			if recordErr := s.store.RecordCreditSettleGap(CreditSettleGap{
+				UserID:      userID,
+				TaskID:      taskID,
+				ModelKey:    modelKey,
+				Uncollected: quote.Delta,
+			}); recordErr != nil {
+				return quote, nil, false, internalFailure(recordErr)
+			}
+			return quote, nil, false, nil
+		}
+		return quote, nil, false, err
+	}
+	// 补扣成功就把同一条任务的欠款记录清掉：任务收尾会被重放，第一次因余额不足记下的
+	// 缺口在用户充值后重放补扣成功时必须消失，否则后台会一直挂着一条不存在的缺口。
+	if clearErr := s.store.ClearCreditSettleGap(taskID); clearErr != nil {
+		return quote, &entry[0], created[0], internalFailure(clearErr)
+	}
+	return quote, &entry[0], created[0], nil
+}
+
+// textTierCredits 把某一档的 token 用量换算成积分，向上取整到分。
+//
+// 单位由定价行的 Unit 决定而不是写死百万：库里有历史遗留的"分 / 千 token"行，按百万
+// 换算会把它放大一千倍。向上取整发生在每一档：先求和再取整会让三档各自的小数部分
+// 互相抵消，长期下来每次结算都少收一点点。
+func textTierCredits(tokens int64, sellUnitPrice int64, unit string) (int64, error) {
+	if tokens <= 0 || sellUnitPrice <= 0 {
+		return 0, nil
+	}
+	denominator := int64(1_000_000)
+	if PriceUnit(unit) == UnitPerThousandTokens {
+		denominator = 1_000
+	}
+	if tokens > math.MaxInt64/sellUnitPrice {
+		return 0, invalidArgument("本次调用的 token 用量过大，无法结算")
+	}
+	total := tokens * sellUnitPrice
+	credits := total / denominator
+	if total%denominator != 0 {
+		credits++
+	}
+	return credits, nil
+}
+
+func textTierLabel(tier PriceTier) string {
+	switch tier {
+	case PriceTierCache:
+		return "缓存命中"
+	case PriceTierInput:
+		return "输入"
+	case PriceTierOutput:
+		return "输出"
+	default:
+		return string(tier)
+	}
 }
 
 // upstreamUnitPriceOf 取定价行上的上游成本，行不存在时返回 nil。

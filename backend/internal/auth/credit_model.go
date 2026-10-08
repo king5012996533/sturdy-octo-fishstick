@@ -27,6 +27,15 @@ const (
 	CreditKindCharge = "TASK_CHARGE"
 	// CreditKindRefund 是任务退回：只由失败/取消触发，金额恒为正数（退回即入账）。
 	CreditKindRefund = "TASK_REFUND"
+	// CreditKindSettle 是文本任务的按 token 结算补扣。
+	//
+	// 文本的 token 用量提交时定不了（要等上游回执），预扣只能是个起步价，因此成功收尾时
+	// 按实际用量补上差额。单独一个种类而不是复用 CreditKindCharge，是因为幂等键
+	// (user_id, kind, ref_type, ref_id) 里的 kind 就是这条流水的身份：复用会让补扣被
+	// 预扣那条本身顶掉（或反过来），而补扣必须能与预扣各自成立一次。
+	//
+	// 金额恒为负数：结算只补扣、不退款。差额为负时按起步价成交，见 SettleTextTaskCharge。
+	CreditKindSettle = "TASK_SETTLE"
 	// CreditKindTopUp 是充值到账，含套餐附赠；赠送另记一条 CreditKindGift，
 	// 让"我买了 100 元"和"平台送我 20 元"在流水里能分开看。
 	CreditKindTopUp = "TOPUP"
@@ -90,6 +99,9 @@ func CreditModels() []any {
 	return []any{
 		&CreditAccount{},
 		&CreditLedgerEntry{},
+		// 结算收不回来的部分单独一张表：它不能进流水（账户余额不允许为负），
+		// 但又必须能被后台看见，否则"少收了多少钱"永远查不出来。
+		&CreditSettleGap{},
 	}
 }
 
@@ -97,7 +109,7 @@ func CreditModels() []any {
 // 只会表现为"这条流水没有图标"，不会报错，所以必须在写入口就挡住。
 func validCreditKind(raw string) bool {
 	switch raw {
-	case CreditKindCharge, CreditKindRefund, CreditKindTopUp, CreditKindGift, CreditKindAdmin:
+	case CreditKindCharge, CreditKindRefund, CreditKindSettle, CreditKindTopUp, CreditKindGift, CreditKindAdmin:
 		return true
 	default:
 		return false

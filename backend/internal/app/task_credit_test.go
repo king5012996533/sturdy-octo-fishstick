@@ -18,6 +18,11 @@ type fakeCreditLedger struct {
 	refundCredits int64
 	refunded      bool
 	refundErr     error
+	settles       []TaskTextSettleRequest
+	settleResult  TaskTextSettleOutcome
+	settleErr     error
+	balanceChecks []string
+	balanceErr    error
 }
 
 func (f *fakeCreditLedger) ChargeTask(request TaskChargeRequest) (TaskChargeOutcome, error) {
@@ -44,6 +49,23 @@ func (f *fakeCreditLedger) RefundTask(userID string, taskID string, note string)
 	}
 	f.refunds = append(f.refunds, taskID+"|"+note)
 	return f.refundCredits, f.refunded, nil
+}
+
+// SettleTextTask 记录结算入参并回放用例预设的读数：结算金额由账号域决定，
+// 任务域要测的是"有没有把真实用量、正确的模型标识交出去"，不是复算一遍价。
+func (f *fakeCreditLedger) SettleTextTask(request TaskTextSettleRequest) (TaskTextSettleOutcome, error) {
+	f.settles = append(f.settles, request)
+	if f.settleErr != nil {
+		return TaskTextSettleOutcome{}, f.settleErr
+	}
+	return f.settleResult, nil
+}
+
+// EnsureTextTaskBalance 记录水位校验的入参并回放用例预设的结论：要多少余额由账号域
+// 按价目算，任务域要测的是"这一次提交到底该不该过水位"。
+func (f *fakeCreditLedger) EnsureTextTaskBalance(userID string, modelKey string) error {
+	f.balanceChecks = append(f.balanceChecks, userID+"|"+modelKey)
+	return f.balanceErr
 }
 
 // newTaskCreditTestService 建一个带计费端口的托管服务；其余依赖留空，

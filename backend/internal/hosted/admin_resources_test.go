@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"infinite-canvas/backend/internal/auth"
 	"infinite-canvas/backend/internal/bootstrap"
 	"infinite-canvas/backend/internal/model"
 
@@ -67,6 +68,13 @@ type adminResourceListBody struct {
 				Net        int64  `json:"net"`
 				TaskStatus string `json:"taskStatus"`
 			} `json:"chargedTasks"`
+			Uncollected int64 `json:"uncollected"`
+			SettleGaps  []struct {
+				TaskID      string `json:"taskId"`
+				UserName    string `json:"userName"`
+				ModelKey    string `json:"modelKey"`
+				Uncollected int64  `json:"uncollected"`
+			} `json:"settleGaps"`
 		} `json:"reconciliation"`
 	} `json:"data"`
 }
@@ -359,5 +367,50 @@ func TestHostedAdminResourceBackfillIsAdminOnly(t *testing.T) {
 	}
 	if linked.TaskID != "task-backfill" || linked.Source != "generation" {
 		t.Fatalf("回填后溯源 = %q/%q; want task-backfill/generation", linked.TaskID, linked.Source)
+	}
+}
+
+// TestHostedAdminResourceReconciliationReportsSettleGaps 覆盖后台能看见收不回来的结算差额。
+//
+// 文本按用量结算时余额不够，那笔钱不进流水（余额不允许为负），只能单独记账。这条用例
+// 盯的就是"记了但看不见"——少收了多少钱如果只在任务日志里，运营永远不会去翻。
+func TestHostedAdminResourceReconciliationReportsSettleGaps(t *testing.T) {
+	extension, router, authDB, _ := newResourceAdminRouter(t)
+	defer extension.Close()
+
+	adminCookie, adminID := registerAccount(t, router, authDB, "admin-gap@example.com")
+	promoteToAdmin(t, authDB, adminID)
+	_, ownerID := registerAccount(t, router, authDB, "gap-owner@example.com")
+
+	if err := auth.EnsureCreditSchema(authDB); err != nil {
+		t.Fatalf("初始化积分表失败: %v", err)
+	}
+	store := auth.NewStore(authDB)
+	if err := store.RecordCreditSettleGap(auth.CreditSettleGap{
+		UserID: ownerID, TaskID: "task-gap", ModelKey: "CHANNEL_000011::gpt-6-sol", Uncollected: 16,
+	}); err != nil {
+		t.Fatalf("写入欠款失败: %v", err)
+	}
+
+	recorder := perform(router, http.MethodGet, "/api/admin/resources?pageSize=10", "", adminCookie)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("读取对账列表 = %d; want 200，响应 %s", recorder.Code, recorder.Body.String())
+	}
+	var body adminResourceListBody
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("解析响应失败: %v", err)
+	}
+	reconciliation := body.Data.Reconciliation
+	if reconciliation.Uncollected != 16 {
+		t.Fatalf("未收金额合计 = %d; want 16（列表截断也不能影响合计）", reconciliation.Uncollected)
+	}
+	if len(reconciliation.SettleGaps) != 1 || reconciliation.SettleGaps[0].TaskID != "task-gap" {
+		t.Fatalf("欠款明细 = %#v; want 只含 task-gap", reconciliation.SettleGaps)
+	}
+	if reconciliation.SettleGaps[0].ModelKey != "CHANNEL_000011::gpt-6-sol" || reconciliation.SettleGaps[0].Uncollected != 16 {
+		t.Fatalf("欠款明细字段 = %#v", reconciliation.SettleGaps[0])
+	}
+	if reconciliation.SettleGaps[0].UserName == "" {
+		t.Fatal("欠款明细应带上账号昵称，否则运营还得自己去搜")
 	}
 }

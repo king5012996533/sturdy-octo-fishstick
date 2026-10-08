@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import { formatCount, formatDateTime } from "@/lib/format-usage";
 
-import { backfillAdminResourceProvenance, type AdminResourceReconciliation, type AdminTaskCharge } from "./api-resources";
+import { backfillAdminResourceProvenance, type AdminResourceReconciliation, type AdminSettleGap, type AdminTaskCharge } from "./api-resources";
 
 const chargeStateMeta: Record<string, { label: string; color: string }> = {
     untracked: { label: "未关联任务", color: "default" },
@@ -98,6 +98,7 @@ export function ResourcesReconciliation({
     ];
 
     const uncharged = reconciliation?.unchargedResources ?? [];
+    const settleGaps = reconciliation?.settleGaps ?? [];
 
     return (
         <Modal open={open} width={980} footer={null} title="对账异常与历史回填" onCancel={onClose}>
@@ -166,6 +167,51 @@ export function ResourcesReconciliation({
                         </div>
                     ) : (
                         <div className="admin-card admin-empty">没有扣费却没有产物的任务。</div>
+                    )}
+                </div>
+
+                <div>
+                    <h3 className="admin-section-title">文本结算未收 · {formatCount(reconciliation?.uncollected ?? 0)} 积分</h3>
+                    <p className="admin-section-desc">
+                        文本会话按实际用量结算，收尾时余额不够的部分收不回来，记在这里等用户充值后补收或核销。任务本身已经成功交付，不影响结果。
+                    </p>
+                    {settleGaps.length ? (
+                        <div className="admin-card">
+                            <Table<AdminSettleGap>
+                                rowKey="taskId"
+                                size="small"
+                                dataSource={settleGaps}
+                                pagination={false}
+                                scroll={{ x: 860 }}
+                                columns={[
+                                    {
+                                        title: "任务",
+                                        key: "task",
+                                        render: (_, row) => (
+                                            <div className="flex min-w-0 flex-col gap-1">
+                                                <span className="admin-user-sub admin-canvas-id">{row.taskId}</span>
+                                                <span className="admin-user-sub">{row.modelKey || "—"}</span>
+                                            </div>
+                                        ),
+                                    },
+                                    {
+                                        title: "账号",
+                                        key: "owner",
+                                        width: 190,
+                                        render: (_, row) => (
+                                            <div className="flex min-w-0 flex-col gap-1">
+                                                <span className="admin-user-name">{row.userName || row.userId}</span>
+                                                <span className="admin-user-sub">{row.userId}</span>
+                                            </div>
+                                        ),
+                                    },
+                                    { title: "未收积分", key: "uncollected", width: 110, render: (_, row) => <Tag color="orange">{formatCount(row.uncollected)} 积分</Tag> },
+                                    { title: "结算时间", dataIndex: "createdAt", key: "createdAt", width: 168, render: (value: string) => <span className="admin-user-sub">{formatDateTime(value)}</span> },
+                                ]}
+                            />
+                        </div>
+                    ) : (
+                        <div className="admin-card admin-empty">没有收不回来的结算差额。</div>
                     )}
                 </div>
             </div>

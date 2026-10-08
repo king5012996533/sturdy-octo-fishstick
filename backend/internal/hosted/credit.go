@@ -58,9 +58,25 @@ func (e *Extension) handleTaskChargeQuote(c *gin.Context) {
 		return
 	}
 	respondOK(c, gin.H{
-		"quote":  quote,
-		"wallet": gin.H{"balance": wallet.Balance, "sufficient": wallet.Balance >= quote.Credits},
+		"quote": quote,
+		// 够不够要被两条线同时管住：这次扣多少（Credits），以及文本会话的最低余额水位
+		// （MinimumBalance）。只比 Credits 会出现"面板说够、一按生成被 402 挡回"。
+		"wallet": gin.H{"balance": wallet.Balance, "sufficient": wallet.Balance >= billingRequiredBalance(quote)},
 	})
+}
+
+// billingRequiredBalance 是一次提交真正需要的最低余额。
+//
+// 取两者较大值而不是相加：水位描述的是"跑完这一轮大概要花多少"，本次预扣的钱就来自
+// 这笔余额，把它再叠加一遍会凭空翻倍。
+func billingRequiredBalance(quote *app.TaskChargeOutcome) int64 {
+	if quote == nil {
+		return 0
+	}
+	if quote.MinimumBalance > quote.Credits {
+		return quote.MinimumBalance
+	}
+	return quote.Credits
 }
 
 func (e *Extension) handleCreditWallet(c *gin.Context) {
@@ -165,7 +181,15 @@ func taskChargeOutcome(quote *auth.TaskChargeQuote) app.TaskChargeOutcome {
 		MultiplierBp:     quote.MultiplierBp,
 		MultiplierSource: quote.MultiplierSource,
 		Priced:           quote.Priced,
+		MinimumBalance:   quote.MinimumBalance,
 	}
+}
+
+// EnsureTextTaskBalance 校验文本任务的最低余额水位（余额不足返回 402）。
+//
+// 金额与口径都在账号域：这个模型要留多少余额是定价决策，任务域只决定"这一次要不要查"。
+func (a creditLedgerAdapter) EnsureTextTaskBalance(userID string, modelKey string) error {
+	return creditLedgerError(a.service.EnsureTextTaskBalance(userID, modelKey))
 }
 
 // creditLedgerError 把账号域错误翻译成任务域能识别的错误。
@@ -193,4 +217,44 @@ func creditLedgerError(err error) error {
 // RefundTask 退回一次预扣，金额由流水决定，调用方只说"这个任务没跑成"。
 func (a creditLedgerAdapter) RefundTask(userID string, taskID string, note string) (int64, bool, error) {
 	return a.service.RefundTaskCharge(userID, taskID, note)
+}
+
+// SettleTextTask 按上游回执的真实 token 用量给一次文本任务补扣差额。
+//
+// 只补扣、不退款：预扣的起步价是产品定价而不是押金，差额为负时按起步价成交（口径见
+// auth.SettleTextTaskCharge）。任务域因此不必为"要不要退差"准备第二条资金路径。
+//
+// 未取到任何价目时返回 Priced=false 而不是报错：结算发生在任务成功之后，此时把错误
+// 抛给 worker 只会把一条已经成功的任务翻成失败。少收的钱由调用方落日志、人工核对。
+func (a creditLedgerAdapter) SettleTextTask(request app.TaskTextSettleRequest) (app.TaskTextSettleOutcome, error) {
+	quote, _, _, err := a.service.SettleTextTaskCharge(auth.TextSettleInput{
+		UserID:   request.UserID,
+		TaskID:   request.TaskID,
+		ModelKey: request.ModelKey,
+		Usage: auth.TextTokenUsage{
+			Input:  request.InputTokens,
+			Cached: request.CachedTokens,
+			Output: request.OutputTokens,
+		},
+	})
+	if err != nil {
+		return app.TaskTextSettleOutcome{}, creditLedgerError(err)
+	}
+	return taskTextSettleOutcome(quote), nil
+}
+
+// taskTextSettleOutcome 把账号域的结算读数搬成任务域的形状，只搬不换算。
+func taskTextSettleOutcome(quote *auth.TextSettleQuote) app.TaskTextSettleOutcome {
+	if quote == nil {
+		return app.TaskTextSettleOutcome{}
+	}
+	return app.TaskTextSettleOutcome{
+		Credits:      quote.Credits,
+		Charged:      quote.Charged,
+		Delta:        quote.Delta,
+		Priced:       quote.Priced,
+		MissingTiers: quote.MissingTiers,
+		Uncollected:  quote.Uncollected,
+		Note:         quote.Note,
+	}
 }

@@ -58,7 +58,54 @@ func (e *Extension) enrichResourceReconciliation(view *app.AdminResourcePageView
 	e.fillResourceChargeStates(view.Resources, billingStart, hasBilling)
 	e.fillUnchargedResources(reconciliation, billingStart, hasBilling)
 	e.fillChargedWithoutResource(reconciliation)
+	e.fillSettleGaps(reconciliation)
 	view.Reconciliation = reconciliation
+}
+
+// fillSettleGaps 列出文本按用量结算时收不回来的差额。
+//
+// 这一项与另外两项并列而不是合并：产物与扣费对不上是"账目形状"的问题，欠款是"钱没
+// 收上来"的问题，处置动作完全不同（补产物 vs 催收/核销）。取不到就在这一项上留空，
+// 不让整页对账因为账号库抖动而返 500。
+func (e *Extension) fillSettleGaps(reconciliation *app.AdminResourceReconciliationView) {
+	if reconciliation == nil || e.service == nil {
+		return
+	}
+	rows, total, err := e.service.AdminRecentSettleGaps(hostedReconciliationListLimit)
+	if err != nil {
+		return
+	}
+	gaps := make([]app.AdminSettleGapView, 0, len(rows))
+	for _, row := range rows {
+		gaps = append(gaps, app.AdminSettleGapView{
+			TaskID: row.TaskID, UserID: row.UserID, ModelKey: row.ModelKey,
+			Uncollected: row.Uncollected, CreatedAt: row.CreatedAt,
+		})
+	}
+	e.mergeSettleGapOwnerNames(gaps)
+	reconciliation.Uncollected = total
+	reconciliation.SettleGaps = gaps
+}
+
+// mergeSettleGapOwnerNames 把账号昵称补到欠款列表上，理由与反向对账列表相同：
+// 只给账号 ID 时运营还得自己去账号管理里搜一遍才知道该找谁催。
+func (e *Extension) mergeSettleGapOwnerNames(rows []app.AdminSettleGapView) {
+	if len(rows) == 0 || e.service == nil {
+		return
+	}
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.UserID)
+	}
+	owners, err := e.service.AdminUsersByIDs(ids)
+	if err != nil {
+		return
+	}
+	for index := range rows {
+		if name := owners[rows[index].UserID].Name; name != "" {
+			rows[index].UserName = name
+		}
+	}
 }
 
 // fillResourceChargeStates 给当前页每一行标出扣费状态。

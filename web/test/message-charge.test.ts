@@ -52,4 +52,23 @@ describe("summarizeTaskCharge", () => {
         ]);
         expect(summary).toEqual({ charged: 900, refunded: 300, net: 600 });
     });
+
+    // 文本按 token 结算，一条消息因此会有两条出账流水：提交时的起步价，以及收尾时的补扣。
+    // 只认预扣那一笔，界面会显示"本次消耗 1 积分"而钱包实际少了十几分——用户对不上账，
+    // 而这恰恰是这次改动要解决的资损场景。
+    test("文本按 token 的补扣与预扣同向，一起算进本次消耗", () => {
+        const summary = summarizeTaskCharge([
+            entry({ id: "charge", kind: "TASK_CHARGE", amount: -1 }),
+            entry({ id: "settle", kind: "TASK_SETTLE", amount: -16, note: "文本按 token 结算" }),
+        ]);
+        expect(summary).toEqual({ charged: 17, refunded: 0, net: 17 });
+    });
+
+    test("补扣流水为 0 或反向时不该被当成退款", () => {
+        const summary = summarizeTaskCharge([
+            entry({ id: "charge", kind: "TASK_CHARGE", amount: -1 }),
+            entry({ id: "settle", kind: "TASK_SETTLE", amount: 5 }),
+        ]);
+        expect(summary).toEqual({ charged: 1, refunded: 0, net: 1 });
+    });
 });
