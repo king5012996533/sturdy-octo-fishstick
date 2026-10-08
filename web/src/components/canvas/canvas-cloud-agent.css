@@ -423,10 +423,19 @@
     white-space: nowrap;
 }
 
-/* 面板宽度包含内边距；默认 448px 面板的输入区已不足以同时容纳控制区和快捷键提示。 */
+/* 面板宽度包含内边距；默认 448px 面板的输入区已不足以同时容纳控制区和整句快捷键提示。 */
+.agent-composer-send-hint-compact {
+    display: none;
+}
+
 @container (max-width: 520px) {
     .agent-composer-send-hint {
         display: none;
+    }
+
+    /* 整句提示收起时换短标签顶上：发送键仍然可以点开切换，而不是直接消失。 */
+    .agent-composer-send-hint-compact {
+        display: inline-flex;
     }
 }
 
@@ -1423,5 +1432,73 @@
     .canvas-agent-panel [data-agent-drag-handle] {
         cursor: default;
         touch-action: auto;
+    }
+}
+
+/* 快捷键提示本身就是发送键开关：默认 Enter 发送，点击后在两种习惯间切换。 */
+.agent-composer-send-hint-toggle {
+    margin: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    line-height: inherit;
+    cursor: pointer;
+    transition: color 120ms ease;
+}
+
+.agent-composer-send-hint-toggle:hover {
+    color: color-mix(in srgb, currentColor 82%, transparent);
+}
+
+.agent-composer-send-hint-toggle:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+}
+
+/* 阅读旧消息时，流式输出不会把视口抢回底部；这个胶囊是回到最新一行的出口。 */
+.agent-jump-to-latest {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    z-index: var(--z-toolbar);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--background) 84%, transparent);
+    padding: 6px 12px;
+    color: var(--foreground);
+    font-size: var(--fs-tiny);
+    line-height: 16px;
+    white-space: nowrap;
+    cursor: pointer;
+    box-shadow: 0 10px 24px color-mix(in srgb, var(--foreground) 18%, transparent);
+    backdrop-filter: blur(8px);
+    transform: translateX(-50%);
+    transition: background-color 140ms ease, transform 140ms ease;
+}
+
+.agent-jump-to-latest:hover {
+    background: color-mix(in srgb, var(--background) 96%, transparent);
+    transform: translateX(-50%) translateY(-1px);
+}
+
+.agent-jump-to-latest:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .agent-composer-send-hint-toggle,
+    .agent-jump-to-latest {
+        transition: none;
+    }
+
+    .agent-jump-to-latest:hover {
+        transform: translateX(-50%);
     }
 }

@@ -1,3 +1,11 @@
+/**
+ * 通用完成态兜底文案。
+ *
+ * 只有没有专属摘要的工具才会用到它。状态行拿到它，说明这句话没有信息量，
+ * 调用方可以换一句更贴切的话，而不是把它端给用户。
+ */
+export const AGENT_GENERIC_TOOL_SUMMARY = "操作已完成";
+
 export const AGENT_TOOL_METADATA: Record<string, { summary: string | ((context: { pending: boolean; detail?: unknown }) => string); failureMessage: string }> = {
     canvas_list_node_types: { summary: "已读取可用节点类型", failureMessage: "获取可用节点类型失败" },
     canvas_get_state: { summary: "已读取当前画布", failureMessage: "获取画布内容失败" },
@@ -84,5 +92,5 @@ export function friendlyAgentToolSummary(toolName: string, text: string, detail?
     const metadata = AGENT_TOOL_METADATA[toolName];
     const summary = typeof metadata?.summary === "function" ? metadata.summary({ pending, detail }) : metadata?.summary;
     const failure = metadata?.failureMessage;
-    return failed ? failure || "操作未完成" : summary || (pending ? "准备执行操作" : "操作已完成");
+    return failed ? failure || "操作未完成" : summary || (pending ? "准备执行操作" : AGENT_GENERIC_TOOL_SUMMARY);
 }

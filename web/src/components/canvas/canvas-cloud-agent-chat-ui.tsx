@@ -13,7 +13,7 @@ import { CanvasResourceMentionTextarea } from "./canvas-resource-mention-textare
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import type { Skill } from "@/services/api/skills";
 import { buildSkillMentionReferences } from "@/services/skill-runtime";
-import { agentToolCategory, agentToolCategoryLabel, agentToolStatus, friendlyAgentToolSummary } from "@/lib/canvas/agent-tool-presentation";
+import { AGENT_GENERIC_TOOL_SUMMARY, agentToolCategory, agentToolCategoryLabel, agentToolStatus, friendlyAgentToolSummary } from "@/lib/canvas/agent-tool-presentation";
 
 export type CloudAgentChatAttachment = { id: string; name: string; url: string };
 type CloudAgentOperationImpact = {
@@ -46,6 +46,24 @@ export type CloudAgentChatMessage = {
 };
 
 export type CloudAgentQuickAction = { label: string; prompt: string };
+
+/**
+ * Agent 输入框的发送键偏好。
+ *
+ * 默认 Enter 发送、Shift+Enter 换行：这是聊天框的肌肉记忆，也是创作台里同一个输入组件
+ * 已经在用的规则。之前这里固定要求 ⌘/Ctrl+Enter，同一个产品里两处输入框按键不同，
+ * 用户自然会按错一次。偏好存在本地——它描述的是输入习惯，与账号无关。
+ */
+const AGENT_SEND_ON_ENTER_KEY = "canvas:agent-send-on-enter";
+
+function readAgentSendOnEnter() {
+    try {
+        return localStorage.getItem(AGENT_SEND_ON_ENTER_KEY) !== "0";
+    } catch {
+        // 浏览器禁用本地存储时按默认值走，不能因为这个偏好读不到就让输入框不可用。
+        return true;
+    }
+}
 
 /**
  * Turn the short numbered choices the Agent already emits into real UI actions.
@@ -368,6 +386,28 @@ export function AgentWorkingMessage({ theme, label = WORKING_TEXT }: { theme: (t
     );
 }
 
+/**
+ * 运行中的状态文案。
+ *
+ * 一直显示同一句话在长任务里等于没有信息：跑三分钟和跑一秒长得一样，用户只能猜是不是
+ * 卡住了。这里按最后一个真实事件描述"正在做什么"，模型没给进度时不假装有进度。
+ */
+export function agentWorkingLabel(messages: CloudAgentChatMessage[], hasApproval = false) {
+    if (hasApproval) return "等待你确认这次写入";
+    const last = messages.at(-1);
+    if (!last) return "正在准备本轮";
+    if (last.role === "tool") {
+        const toolName = agentToolName(last.title || "", last.detail);
+        // 工具事件只以"完成 / 失败"落地，所以这里描述刚发生的一步，用完成态语气。
+        // 摘要来自真实工具事件；取到通用兜底说明没有专属信息，那就只交代还在往下走。
+        const summary = friendlyAgentToolSummary(toolName, last.text, last.detail);
+        return summary && summary !== AGENT_GENERIC_TOOL_SUMMARY ? summary : "正在继续下一步";
+    }
+    if (last.reasoning) return "正在推理";
+    if (last.role === "assistant") return "正在写回复";
+    return "正在处理当前画布";
+}
+
 export function AgentPlanBar({ items, theme, minimized, onToggle }: {
     items: CloudAgentPlanItem[];
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
@@ -492,6 +532,7 @@ export function AgentChatComposer({
     const [slash, setSlash] = useState<{ start: number; query: string } | null>(null);
     const [slashIndex, setSlashIndex] = useState(0);
     const [previewAttachment, setPreviewAttachment] = useState<CloudAgentChatAttachment | null>(null);
+    const [sendOnEnter, setSendOnEnter] = useState(readAgentSendOnEnter);
     const [promptHeight, setPromptHeight] = useState(compact ? 32 : MIN_AGENT_PROMPT_HEIGHT);
     const promptResizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
     const manualPromptHeightRef = useRef<number | null>(null);
@@ -509,6 +550,19 @@ export function AgentChatComposer({
     const compactPrompt = compact && (!prompt.trim() || isSingleMentionPrompt(prompt)) && manualPromptHeightRef.current === null;
     const reducedMotion = useReducedMotion();
     const activeSlashIndex = Math.min(Math.max(slashIndex, 0), Math.max(slashCandidates.length - 1, 0));
+
+    // 切换发送键：偏好只跟输入习惯有关，写本地存储即可，不必成为账号设置。
+    const toggleSendOnEnter = () => {
+        setSendOnEnter((current) => {
+            const next = !current;
+            try {
+                localStorage.setItem(AGENT_SEND_ON_ENTER_KEY, next ? "1" : "0");
+            } catch {
+                // 存不下去也不影响本次会话里的行为。
+            }
+            return next;
+        });
+    };
 
     const handlePromptContentSizeChange = useCallback((naturalHeight: number) => {
         const nextHeight = clampAgentPromptHeight(naturalHeight);
@@ -695,7 +749,7 @@ export function AgentChatComposer({
                             value={prompt}
                             references={composerReferences}
                             includeAssetLibrary={includeAssetLibrary}
-                            sendOnEnter={false}
+                            sendOnEnter={sendOnEnter}
                             disabled={disabled}
                             onChange={handlePromptChange}
                             onSubmit={() => { if (canSubmit) onSubmit(); }}
@@ -762,7 +816,36 @@ export function AgentChatComposer({
                         {left}
                     </div>
                     <div className="agent-composer-submit flex items-center gap-2">
-                        <span className="agent-composer-send-hint">{canStop ? "运行中：发送即插话，下一步生效" : "Enter 换行 · ⌘/Ctrl+Enter 发送"}</span>
+                        <span className="agent-composer-send-hint">
+                            {canStop ? "运行中：发送即插话，下一步生效" : (
+                                <button
+                                    type="button"
+                                    className="agent-composer-send-hint-toggle"
+                                    onClick={toggleSendOnEnter}
+                                    // 点提示只是换个发送键，不该把光标从输入框里踢出去。
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    aria-label="切换发送快捷键"
+                                    title="点击切换：Enter 发送 / ⌘·Ctrl+Enter 发送"
+                                >
+                                    {sendOnEnter ? "Enter 发送 · Shift+Enter 换行" : "⌘/Ctrl+Enter 发送 · Enter 换行"}
+                                </button>
+                            )}
+                        </span>
+                        {/* 窄面板放不下整句提示，但不能因此让发送键变成不可切换：换一个短标签继续开着。 */}
+                        {!canStop ? (
+                            <span className="agent-composer-send-hint-compact">
+                                <button
+                                    type="button"
+                                    className="agent-composer-send-hint-toggle"
+                                    onClick={toggleSendOnEnter}
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    aria-label="切换发送快捷键"
+                                    title="点击切换：Enter 发送 / ⌘·Ctrl+Enter 发送"
+                                >
+                                    {sendOnEnter ? "⏎ 发送" : "⌘⏎ 发送"}
+                                </button>
+                            </span>
+                        ) : null}
                         {canStop ? <motion.button
                             type="button"
                             disabled={stopping}
@@ -782,7 +865,7 @@ export function AgentChatComposer({
                             type="button"
                             disabled={!canSubmit}
                             aria-label={sending ? "发送中" : canStop ? "插话" : "发送"}
-                            title={canStop ? "插话：Agent 下一次开口时看到它" : "点击发送；⌘/Ctrl+Enter 发送"}
+                            title={canStop ? "插话：Agent 下一次开口时看到它" : sendOnEnter ? "点击发送；Enter 发送、Shift+Enter 换行" : "点击发送；⌘/Ctrl+Enter 发送"}
                             onClick={() => onSubmit()}
                             whileHover={canSubmit && !reducedMotion ? { scale: 1.06, y: -1 } : undefined}
                             whileTap={canSubmit && !reducedMotion ? { scale: 0.9, y: 1 } : undefined}

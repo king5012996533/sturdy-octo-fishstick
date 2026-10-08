@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { Button, Dropdown, Input } from "antd";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ArrowLeft, Check, ChevronRight, CircleDot, Clock3, History, LoaderCircle, MessageSquarePlus, Minus, Puzzle, Settings2, Share2, ShieldCheck, Trash2, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowLeft, Check, ChevronRight, CircleDot, Clock3, History, LoaderCircle, MessageSquarePlus, Minus, Puzzle, Settings2, Share2, ShieldCheck, Trash2, Sparkles } from "lucide-react";
 import { agentPlanVisible, latestAgentPlanItems, pendingAgentQuestion } from "@/lib/canvas/cloud-agent-plan";
 import { nanoid } from "nanoid";
 
@@ -17,7 +17,7 @@ import { agentApprovalPresentation } from "@/lib/canvas/agent-approval-presentat
 import { agentApprovalMatchesSettings, agentImageApproval } from "@/lib/canvas/agent-media-approval";
 import type { AgentMediaSettings } from "@/services/api/agent";
 import { CanvasAgentImageApprovalSettings } from "./canvas-agent-image-approval-settings";
-import { addSkill, listAddedSkills, listSkills, type Skill, type SkillCategory } from "@/services/api/skills";
+import { addSkill, listAddedSkills, listSkills, skillIsUsable, type Skill, type SkillCategory } from "@/services/api/skills";
 import { clearCloudAgentPendingSubmission, cloudAgentConversationTitle, loadCloudAgentConversations, loadCloudAgentPendingSubmission, salvageCloudAgentConversations, saveCloudAgentConversations, saveCloudAgentPendingSubmission, type CloudAgentConversation, type CloudAgentPendingSubmission } from "@/services/cloud-agent-conversations";
 import { logicalModelIDForConfig, modelOptionName, resolveModelRequestConfig, selectableModelsByCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
@@ -26,7 +26,7 @@ import { applyAgentCanvasPatches, hasRemoteUserDataSyncSession, refreshCanvasAft
 import { isLocalWorkspaceMode } from "@/services/workspace-mode";
 import { createAgentCanvasSync } from "@/services/agent-canvas-sync";
 import { buildSkillMentionReferences, resolveSkillMentions } from "@/services/skill-runtime";
-import { AgentChatComposer, AgentChatMessage, AgentPlanBar, AgentQuestionBar, AgentWorkingMessage, type CloudAgentChatMessage, type CloudAgentPlanItem } from "./canvas-cloud-agent-chat-ui";
+import { AgentChatComposer, AgentChatMessage, AgentPlanBar, AgentQuestionBar, AgentWorkingMessage, agentWorkingLabel, type CloudAgentChatMessage, type CloudAgentPlanItem } from "./canvas-cloud-agent-chat-ui";
 import { CanvasAgentSkillLibraryModal } from "./canvas-agent-skill-library-modal";
 import { CanvasCloudAgentSettings, agentPermissionLabel, agentPermissionMenuItems, agentPermissionVisual, type AgentContextKey } from "./canvas-cloud-agent-settings";
 import { resolveAgentContextScope } from "@/lib/canvas/agent-context-scope";
@@ -164,7 +164,9 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, re
     }, [config]);
     const reasoningSupported = Boolean(modelCapabilityConfigFor(config, selectedModel).text?.thinking);
     useEffect(() => { if (!reasoningSupported && reasoningMode !== "off") setReasoningMode("off"); }, [reasoningSupported, reasoningMode]);
-    const installedSkills = useMemo(() => skills.filter((skill) => skill.isAdded), [skills]);
+    // 用 usable 而不是 isAdded：平台内置技能对所有账号默认可用，不要求先手动加入，
+    // 否则技能选择器在默认情况下是空的（线上 33 个内置技能长期 0 安装）。
+    const installedSkills = useMemo(() => skills.filter(skillIsUsable), [skills]);
     const enabledSkills = useMemo(() => installedSkills.filter((skill) => selectedSkillIds.includes(skill.skillId)), [installedSkills, selectedSkillIds]);
     const status = run?.status || "idle";
     const statusLabel = status === "waiting_approval" ? "等待审批" : status === "running" || status === "queued" ? "运行中" : status === "completed" ? "已完成" : status === "failed" ? "异常" : status === "cancelled" ? "已停止" : status === "rejected" ? "已拒绝" : "待命";
@@ -669,7 +671,8 @@ export function CanvasCloudAgentPanel({ canvasId, domainProjectId, nodeCount, re
     };
 
     const installSkill = async (skill: Skill) => {
-        if (skill.isAdded) return;
+        // 内置技能默认可用，不需要（也不该）再走一次「加入我的技能」。
+        if (skillIsUsable(skill)) return;
         try {
             const result = await addSkill(skill.skillId);
             setSkills((current) => [...current.filter((item) => item.skillId !== skill.skillId), result.skill]);
@@ -1038,12 +1041,14 @@ function AgentConversation({
     const scrollRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
     const [browserNoticeOpen, setBrowserNoticeOpen] = useState(true);
+    const [showJumpToLatest, setShowJumpToLatest] = useState(false);
     const followRef = useRef(true);
     const lastUserId = messages.findLast((item) => item.role === "user")?.id;
 
     // 自己发送时恢复跟随；阅读旧消息时不让流式输出抢走滚动位置。
     useLayoutEffect(() => {
         followRef.current = true;
+        setShowJumpToLatest(false);
     }, [lastUserId]);
     useLayoutEffect(() => {
         const element = scrollRef.current;
@@ -1061,21 +1066,43 @@ function AgentConversation({
         return () => observer.disconnect();
     }, []);
 
+    // 只从被动读取到的滚动位置推导状态：贴底时跟随，离开底部才浮出"回到最新"。
+    // 同一个值 setState 会被 React 跳过，流式输出期间不会因此额外重渲染。
+    const syncFollowState = useCallback(() => {
+        const element = scrollRef.current;
+        if (!element) return;
+        const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
+        followRef.current = nearBottom;
+        setShowJumpToLatest(!nearBottom);
+    }, []);
+    const jumpToLatest = useCallback(() => {
+        const element = scrollRef.current;
+        if (!element) return;
+        followRef.current = true;
+        setShowJumpToLatest(false);
+        element.scrollTo({ top: element.scrollHeight, behavior: "smooth" });
+    }, []);
+
     return (
-        <div ref={scrollRef} data-agent-conversation className="thin-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-5" onScroll={(event) => {
-            const element = event.currentTarget;
-            followRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
-        }}>
-            {!messages.length ? <AgentEmptyState theme={theme} nodeCount={nodeCount} recommendedSkills={recommendedSkills} browserNoticeOpen={browserNoticeOpen} onDismissNotice={() => setBrowserNoticeOpen(false)} onPrompt={onPrompt} /> : null}
-            <div ref={contentRef} className="space-y-2.5">
-                {messages.map((item) => (
-                    <AgentChatMessage key={item.id} item={item} theme={theme} references={references} onFocusNode={onFocusNode} isStreaming={busy && !approval && item.streaming === true && item === messages.at(-1)} />
-                ))}
-                {approval ? <ApprovalCard key={approval.approvalId} approval={approval} theme={theme} submitting={approvalSubmitting} onFocusNode={onFocusNode} onReasonChange={onApprovalReasonChange} onApprove={onApprove} onReject={onReject} /> : null}
-                {busy && !approval ? (
-                    <AgentWorkingMessage theme={theme} label="正在处理当前画布" />
-                ) : null}
+        <div className="relative min-h-0 flex-1">
+            <div ref={scrollRef} data-agent-conversation className="thin-scrollbar h-full overflow-y-auto px-5 py-5" onScroll={syncFollowState}>
+                {!messages.length ? <AgentEmptyState theme={theme} nodeCount={nodeCount} recommendedSkills={recommendedSkills} browserNoticeOpen={browserNoticeOpen} onDismissNotice={() => setBrowserNoticeOpen(false)} onPrompt={onPrompt} /> : null}
+                <div ref={contentRef} className="space-y-2.5">
+                    {messages.map((item) => (
+                        <AgentChatMessage key={item.id} item={item} theme={theme} references={references} onFocusNode={onFocusNode} isStreaming={busy && !approval && item.streaming === true && item === messages.at(-1)} />
+                    ))}
+                    {approval ? <ApprovalCard key={approval.approvalId} approval={approval} theme={theme} submitting={approvalSubmitting} onFocusNode={onFocusNode} onReasonChange={onApprovalReasonChange} onApprove={onApprove} onReject={onReject} /> : null}
+                    {busy && !approval ? (
+                        <AgentWorkingMessage theme={theme} label={agentWorkingLabel(messages, false)} />
+                    ) : null}
+                </div>
             </div>
+            {showJumpToLatest ? (
+                <button type="button" className="agent-jump-to-latest" onClick={jumpToLatest}>
+                    <ArrowDown className="size-3.5" aria-hidden="true" />
+                    回到最新
+                </button>
+            ) : null}
         </div>
     );
 }
