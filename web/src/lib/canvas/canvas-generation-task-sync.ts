@@ -142,13 +142,21 @@ export type GenerationResultMediaIO = {
     fetchBlob: (url: string) => Promise<Blob>;
 };
 
-const defaultGenerationResultMediaIO: GenerationResultMediaIO = {
+/** 默认的媒体读写实现。导出是为了让测试能只替换存储侧、保留真实的下载与状态检查。 */
+export const defaultGenerationResultMediaIO: GenerationResultMediaIO = {
     resolveImageUrl,
     uploadImage,
     resolveMediaUrl,
     storeGeneratedVideo,
     storeGeneratedAudio,
-    fetchBlob: async (url) => (await fetch(url)).blob(),
+    fetchBlob: async (url) => {
+        const response = await fetch(url);
+        // 结果地址往往是上游/CDN 的直链，404 或 5xx 会返回一页 HTML 错误页。
+        // 不检查 ok 的话，这页 HTML 会被当成音频字节存进素材库，用户拿到一个
+        // 永远放不出声的"音频"节点，而且事后很难看出问题出在哪一步。
+        if (!response.ok) throw new Error(`生成结果下载失败（HTTP ${response.status}）`);
+        return response.blob();
+    },
 };
 
 export async function buildGenerationTaskNodeResult(node: CanvasNodeData, task: GenerationTask, nodes: CanvasNodeData[] = [node], mediaIO: GenerationResultMediaIO = defaultGenerationResultMediaIO): Promise<CanvasNodeData> {

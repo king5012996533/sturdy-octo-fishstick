@@ -1,6 +1,6 @@
 import { getActiveUserScope } from "@/lib/user-scope";
 import { isLocalRuntimeMode } from "@/lib/runtime-mode";
-import { http, apiClient, apiBaseURL, ApiError } from "@/services/api/request";
+import { http, apiBaseURL, ApiError } from "@/services/api/request";
 
 export type RemoteResource = {
     id: string;
@@ -315,12 +315,14 @@ export async function getResourceBlob(storageKey: string) {
     // first be downloaded through this authenticated path and exposed as a
     // local object URL by resource-blob-cache.
     try {
-        const response = await apiClient.get<Blob>(`/resources/${encodeURIComponent(id)}/file?proxy=1`, {
-            responseType: "blob",
-        });
+        const response = await http.raw<Blob>({ method: "get", url: `/resources/${encodeURIComponent(id)}/file?proxy=1`, responseType: "blob" });
         return response.data instanceof Blob ? response.data : new Blob([response.data]);
-    } catch {
-        return null;
+    } catch (error) {
+        // 资源不存在是正常分支：调用方把 null 当作"这份素材没有可物化的字节"。
+        // 鉴权、权限和服务端错误必须抛出去——以前这里 catch 成 null，会话过期会被
+        // 误报成"素材不见了"，用户看到的是空缩略图而不是登录失效。
+        if (error instanceof ApiError && error.status === 404) return null;
+        throw error;
     }
 }
 
