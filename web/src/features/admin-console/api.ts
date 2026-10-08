@@ -575,7 +575,7 @@ export type AdminAppearanceSetting = {
     authVideoResourceId: string;
     authVideoPosterResourceId: string;
     authVideoAutoplay: boolean;
-    /** 充值页收款二维码的资源 ID；留空表示不展示。 */
+    /** 充值支付弹窗收款二维码的资源 ID；留空表示弹窗里不展示二维码。 */
     paymentQrResourceId: string;
     skinId: string;
     skinThemes: AdminAppearanceSkinTheme[];

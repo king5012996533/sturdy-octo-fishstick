@@ -6,7 +6,7 @@ import { PaginationBar } from "@/components/layout/workspace-page";
 import { WorkspaceErrorState, WorkspaceLoadingState, WorkspaceState } from "@/components/layout/workspace-state";
 import type { CalloutTone } from "@/components/ui/product/callout";
 import { formatDateTime } from "@/lib/format-usage";
-import { cancelBillingOrder, formatMoneyFen, listMyBillingOrders, payBillingOrder, type BillingOrder, type BillingOrderStatus } from "@/services/api/billing";
+import { cancelBillingOrder, formatMoneyFen, listMyBillingOrders, type BillingOrder, type BillingOrderStatus } from "@/services/api/billing";
 
 import { WalletPanel, WalletSectionHead, errorMessage, useDelayedLoading } from "./wallet-kit";
 
@@ -65,7 +65,7 @@ function OrderRow({ order, busy, onContinuePay, onCancel }: { order: BillingOrde
     );
 }
 
-export function CreditOrdersSection({ revision, onNotice }: { revision: number; onNotice: (notice: { tone: CalloutTone; text: string }) => void }) {
+export function CreditOrdersSection({ revision, onNotice, onOpenPayment }: { revision: number; onNotice: (notice: { tone: CalloutTone; text: string }) => void; onOpenPayment: (order: BillingOrder) => void }) {
     const [orders, setOrders] = useState<BillingOrder[]>([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
@@ -102,29 +102,11 @@ export function CreditOrdersSection({ revision, onNotice }: { revision: number; 
 
     const reload = useCallback(() => setReloadKey((value) => value + 1), []);
 
-    /**
-     * 发起支付的结果只有两种：有收银台地址就跳转，没有就交给运营确认。
-     * 两种都不算失败——下单本身已经成功，此时说"支付失败"会让人重复付款。
-     */
-    const continuePay = async (order: BillingOrder) => {
+    // 继续支付与充值区走同一个支付弹窗：二维码、金额、订单号只有一套实现，
+    // 否则"从订单区继续支付"看到的界面会和刚下单时不一样。
+    const continuePay = (order: BillingOrder) => {
         if (busyId) return;
-        setBusyId(order.id);
-        try {
-            const launch = await payBillingOrder(order.id);
-            if (launch.payUrl) {
-                window.open(launch.payUrl, "_blank", "noopener,noreferrer");
-                onNotice({ tone: "info", text: "已打开收银台，支付完成后积分自动入账，可稍后回到本页刷新。" });
-            } else {
-                onNotice({
-                    tone: "warning",
-                    text: launch.provider === "MANUAL" ? "订单已创建，本渠道由运营人工确认到账，确认后积分自动入账。" : "暂未获取到收银台地址，可稍后重试。",
-                });
-            }
-        } catch (cause) {
-            onNotice({ tone: "error", text: errorMessage(cause, "发起支付失败，请稍后重试。") });
-        } finally {
-            setBusyId("");
-        }
+        onOpenPayment(order);
     };
 
     const cancelOrder = async (order: BillingOrder) => {
@@ -173,7 +155,7 @@ export function CreditOrdersSection({ revision, onNotice }: { revision: number; 
                 <>
                     <div className="mt-4 flex flex-col gap-2">
                         {orders.map((order) => (
-                            <OrderRow key={order.id} order={order} busy={busyId === order.id} onContinuePay={(target) => void continuePay(target)} onCancel={(target) => void cancelOrder(target)} />
+                            <OrderRow key={order.id} order={order} busy={busyId === order.id} onContinuePay={continuePay} onCancel={(target) => void cancelOrder(target)} />
                         ))}
                     </div>
                     <PaginationBar

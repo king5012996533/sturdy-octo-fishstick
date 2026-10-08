@@ -40,7 +40,9 @@ describe("积分中心", () => {
     test("订单区承接充值凭据：待支付才能继续支付或取消", () => {
         const orders = read("src/pages/wallet/wallet-orders.tsx");
         expect(orders).toContain("listMyBillingOrders(");
-        expect(orders).toContain("payBillingOrder(");
+        // 继续支付必须走页面级支付弹窗：订单区再实现一遍收银台，就会出现两套二维码与两套轮询。
+        expect(orders).toContain("onOpenPayment(");
+        expect(orders).not.toContain("payBillingOrder(");
         expect(orders).toContain("cancelBillingOrder(");
         expect(orders).toContain("继续支付");
         expect(orders).toContain("取消订单");
@@ -74,9 +76,39 @@ describe("积分中心", () => {
         expect(page).toContain('from "./wallet-balance"');
         // 余额卡曾经整段写在页面文件里：页面既是编排又是实现，改一处排版要通读四种数据流。
         expect(page).not.toContain("wallet-metric");
-        for (const file of ["index", "wallet-balance", "wallet-top-up", "wallet-orders", "wallet-ledger"]) {
+        for (const file of ["index", "wallet-balance", "wallet-top-up", "wallet-orders", "wallet-ledger", "wallet-pay-dialog"]) {
             expect(lines(`src/pages/wallet/${file}.tsx`)).toBeLessThan(400);
         }
+    });
+
+    test("收款码不再常驻充值区，改由点击「立即充值」后的支付弹窗承接", () => {
+        const topUp = read("src/pages/wallet/wallet-top-up.tsx");
+        expect(topUp).not.toContain("TopUpPaymentQR");
+        expect(topUp).toContain("onOpenPayment(order)");
+        // 弹窗挂在页面级：档位卡只负责下单，付款界面只有一份实现。
+        const page = read("src/pages/wallet/index.tsx");
+        expect(page).toContain("<WalletPayDialog");
+        expect(page).toContain("onOpenPayment={setPayOrder}");
+    });
+
+    test("支付弹窗把订单号、金额、收款码、到账轮询放在一处", () => {
+        const dialog = read("src/pages/wallet/wallet-pay-dialog.tsx");
+        for (const label of ["订单号", "应付金额", "扫码付款", "刷新支付状态", "取消订单", "已复制"]) {
+            expect(dialog).toContain(label);
+        }
+        expect(dialog).toContain("payBillingOrder(");
+        expect(dialog).toContain("getBillingOrder(");
+        expect(dialog).toContain("cancelBillingOrder(");
+        // 备注订单号是手工渠道唯一的对账依据，付款界面必须把它讲明白。
+        expect(dialog).toContain("备注里填订单号");
+        expect(dialog).toContain("window.setInterval");
+    });
+
+    test("同一档位已有待支付订单时不再新开一单", () => {
+        const topUp = read("src/pages/wallet/wallet-top-up.tsx");
+        expect(topUp).toContain("listMyBillingOrders(");
+        expect(topUp).toContain('order.status === "PENDING"');
+        expect(topUp).toContain("onOpenPayment(pending)");
     });
 
     test("余额卡是一张卡，卡里不再套第二个盒子", () => {

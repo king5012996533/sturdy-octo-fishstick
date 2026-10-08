@@ -27,7 +27,7 @@ const assetSlots: Array<{ slot: AdminAppearanceAssetSlot; label: string; hint: s
     { slot: "logo-dark", label: "深色模式 Logo", hint: "留空则沿用浅色 Logo", accept: "image/png,image/jpeg,image/webp", kind: "image", field: "darkLogoResourceId" },
     { slot: "poster", label: "视频封面", hint: "PNG / JPEG / WebP，10MB 以内", accept: "image/png,image/jpeg,image/webp", kind: "image", field: "authVideoPosterResourceId" },
     { slot: "video", label: "登录页品牌视频", hint: "MP4 / WebM，256MB 以内", accept: "video/mp4,video/webm", kind: "video", field: "authVideoResourceId" },
-    { slot: "payment-qr", label: "充值收款二维码", hint: "PNG / JPEG / WebP，5MB 以内。配置后展示在用户端积分中心的充值区，供支付渠道接通前扫码付款、运营手工补单", accept: "image/png,image/jpeg,image/webp", kind: "image", field: "paymentQrResourceId" },
+    { slot: "payment-qr", label: "充值收款二维码", hint: "PNG / JPEG / WebP，5MB 以内。配置后展示在用户端积分中心点「立即充值」弹出的支付弹窗里，供支付渠道接通前扫码付款、运营手工补单", accept: "image/png,image/jpeg,image/webp", kind: "image", field: "paymentQrResourceId" },
 ];
 
 /** Go 的 time.Time 零值会序列化成 0001-01-01，展示成"1/1/1"比留空更让人困惑。 */

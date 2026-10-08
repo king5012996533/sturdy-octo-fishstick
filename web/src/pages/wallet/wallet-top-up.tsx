@@ -8,17 +8,17 @@ import { WorkspaceErrorState } from "@/components/layout/workspace-state";
 import type { CalloutTone } from "@/components/ui/product/callout";
 import { formatCount } from "@/lib/format-usage";
 import { cn } from "@/lib/utils";
-import { createBillingOrder, formatMoneyFen, payBillingOrder, type BillingPaymentLaunch } from "@/services/api/billing";
+import { createBillingOrder, formatMoneyFen, listMyBillingOrders, type BillingOrder } from "@/services/api/billing";
 import { getCreditTopUpPlans, type CreditTopUpPlan } from "@/services/api/credit";
 
 import { WalletPanel, WalletSectionHead, errorMessage, errorNotice, useDelayedLoading } from "./wallet-kit";
-import { TopUpPaymentQR } from "./wallet-pay-qr";
 
 /**
  * Zone B —— 充值区。
  *
- * 商品卡只负责"哪一档"，下单与发起支付放在网格之下的结算条：把决策和付款分成两层，
- * 避免用户把"点一下卡"误当成"已经付钱"。
+ * 商品卡只负责"哪一档"，下单放在网格之下的结算条：把决策和付款分成两层，避免用户把
+ * "点一下卡"误当成"已经付钱"。真正的付款动作在结算条点击之后，由页面级的支付弹窗
+ * （WalletPayDialog）承接——收款码不在本区常驻，只有付某一单的时候才出现。
  *
  * 档位是单选语义（radiogroup）：方向键在档位间移动并选中，Tab 只进出整个组一次；
  * 卡片内部不放第二个可聚焦元素，键盘操作不会在卡内迷路。
@@ -35,7 +35,7 @@ function planUnitRate(plan: CreditTopUpPlan) {
     return plan.priceFen > 0 ? Math.round(((plan.credits + plan.giftCredits) * 100) / plan.priceFen) : 0;
 }
 
-export function CreditTopUpSection({ revision, onNotice, onSettled }: { revision: number; onNotice: (notice: { tone: CalloutTone; text: string }) => void; onSettled: () => void }) {
+export function CreditTopUpSection({ revision, onNotice, onSettled, onOpenPayment }: { revision: number; onNotice: (notice: { tone: CalloutTone; text: string }) => void; onSettled: () => void; onOpenPayment: (order: BillingOrder) => void }) {
     const [plans, setPlans] = useState<CreditTopUpPlan[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -112,30 +112,26 @@ export function CreditTopUpSection({ revision, onNotice, onSettled }: { revision
         }
     };
 
-    /**
-     * 发起支付的结果只有两种：有收银台地址就跳转，没有就交给运营确认。
-     * 两种都不算失败——下单本身已经成功，此时说"支付失败"会让人重复付款。
-     */
-    const launchPayment = (launch: BillingPaymentLaunch) => {
-        if (launch.payUrl) {
-            window.open(launch.payUrl, "_blank", "noopener,noreferrer");
-            onNotice({ tone: "info", text: "已打开收银台，支付完成后积分会自动入账，可稍后回到本页刷新。" });
-            return;
-        }
-        onNotice({
-            tone: "warning",
-            text: launch.provider === "MANUAL" ? "订单已创建，本渠道由运营人工确认到账，确认后积分自动入账。" : "订单已创建，但暂未获取到收银台地址，可在下方「充值订单」里继续支付。",
-        });
-    };
-
     const handleCheckout = async () => {
         if (!selectedPlan || checkoutBusy) return;
         setCheckoutBusy(true);
         try {
+            // 同一档位已经有一笔待支付订单时复用它：点一次没看到反馈就再点一次的人，
+            // 会在这里拿到同一笔订单，而不是在后台又多一条待支付记录。
+            // 只复用还没过期的：过期订单的「继续支付」会被服务端拒掉，复用等于把用户卡在一个
+            // 打不开的收银台上，还不如直接下一笔新单。
+            const existing = await listMyBillingOrders({ page: 1, pageSize: 20 });
+            const now = Date.now();
+            const pending = (existing.orders || []).find((order) => order.status === "PENDING" && order.planCode === selectedPlan.code && (!order.expiresAt || new Date(order.expiresAt).getTime() > now));
+            if (pending) {
+                onNotice({ tone: "info", text: `已有一笔「${selectedPlan.name}」待支付订单，已为你打开，完成付款即可。` });
+                onOpenPayment(pending);
+                return;
+            }
             const order = await createBillingOrder({ planCode: selectedPlan.code, couponCode: couponCode.trim() || undefined });
-            const launch = await payBillingOrder(order.id);
-            launchPayment(launch);
             setCouponCode("");
+            onOpenPayment(order);
+            // 订单已经落库，订单区要立刻显示这条待支付记录，否则用户会以为没下单成功。
             onSettled();
         } catch (cause) {
             onNotice(errorNotice(cause, "下单失败，请稍后重试。"));
@@ -149,11 +145,8 @@ export function CreditTopUpSection({ revision, onNotice, onSettled }: { revision
             <WalletSectionHead
                 eyebrow="Top up"
                 title="充值积分"
-                note={unitRate > 0 ? `充值后积分立即到账，按当前档位约 1 元 = ${formatCount(unitRate)} 积分（含赠送）。` : "充值后积分立即到账，可直接用于平台模型生成。"}
+                note={unitRate > 0 ? `选好档位后点「立即充值」，弹窗里扫码付款；积分到账后按约 1 元 = ${formatCount(unitRate)} 积分（含赠送）。` : "选好档位后点「立即充值」，弹窗里扫码付款，积分到账后可直接用于平台模型生成。"}
             />
-
-            {/* 收款码与货架无关：支付渠道没接通时它才是主路径，所以放在档位之前，不用先下单才看得到。 */}
-            <TopUpPaymentQR />
 
             {showSkeleton && !plans.length ? (
                 <CollectionGrid>

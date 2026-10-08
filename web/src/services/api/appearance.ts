@@ -13,7 +13,7 @@ export type PublicAppearance = {
     authVideoUrl: string;
     authVideoPosterUrl: string;
     authVideoAutoplay: boolean;
-    /** 充值页的收款二维码。未配置时为空串，充值页据此整块隐藏。 */
+    /** 充值支付弹窗里的收款二维码。未配置时为空串，弹窗据此退化成纯人工确认文案。 */
     paymentQrUrl: string;
     skinId: string;
     activeSkin: SkinDefinition;

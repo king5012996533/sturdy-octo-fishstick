@@ -6,11 +6,13 @@ import { WorkspacePage } from "@/components/layout/workspace-page";
 import { Callout, type CalloutTone } from "@/components/ui/product/callout";
 import { cn } from "@/lib/utils";
 import { getCreditWallet, type CreditWallet } from "@/services/api/credit";
+import type { BillingOrder } from "@/services/api/billing";
 import { useUserStore } from "@/stores/use-user-store";
 
 import { BalanceCard } from "./wallet-balance";
 import { CreditLedgerSection } from "./wallet-ledger";
 import { CreditOrdersSection } from "./wallet-orders";
+import { WalletPayDialog } from "./wallet-pay-dialog";
 import { CreditTopUpSection } from "./wallet-top-up";
 import { WalletSectionHead, errorMessage } from "./wallet-kit";
 
@@ -32,6 +34,8 @@ export function WalletPage() {
     const [notice, setNotice] = useState<{ tone: CalloutTone; text: string } | null>(null);
     // 一个计数器驱动三个 Zone：刷新、充值成功后余额/档位/流水一起重取，读数不会互相矛盾。
     const [revision, setRevision] = useState(0);
+    // 支付弹窗挂在页面级：充值区下单和订单区「继续支付」进的是同一个弹窗，收款码只有一份实现。
+    const [payOrder, setPayOrder] = useState<BillingOrder | null>(null);
     const topUpRef = useRef<HTMLDivElement | null>(null);
     const ledgerRef = useRef<HTMLDivElement | null>(null);
 
@@ -98,14 +102,15 @@ export function WalletPage() {
             </section>
 
             <div ref={topUpRef} className="scroll-mt-16">
-                <CreditTopUpSection revision={revision} onNotice={setNotice} onSettled={reloadAll} />
+                <CreditTopUpSection revision={revision} onNotice={setNotice} onSettled={reloadAll} onOpenPayment={setPayOrder} />
             </div>
 
-            <CreditOrdersSection revision={revision} onNotice={setNotice} />
+            <CreditOrdersSection revision={revision} onNotice={setNotice} onOpenPayment={setPayOrder} />
 
             <div ref={ledgerRef} className="scroll-mt-16">
                 <CreditLedgerSection revision={revision} onTopUp={scrollToTopUp} />
             </div>
+            {payOrder ? <WalletPayDialog order={payOrder} onClose={() => setPayOrder(null)} onSettled={reloadAll} onNotice={setNotice} /> : null}
         </WorkspacePage>
     );
 }
