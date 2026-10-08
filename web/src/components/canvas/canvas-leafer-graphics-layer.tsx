@@ -24,6 +24,14 @@ type CanvasLeaferGraphicsLayerProps = {
     mouseWorld: Position;
     connectionTargetNodeId: string | null;
     connectionTargetAnchorRatio?: number;
+    /**
+     * 注册连线草稿的逐帧更新入口。
+     *
+     * 草稿线由 Leafer 直接绘制，React 只是它的输入通道。拖拽期间鼠标位置每帧都在变，
+     * 若走 setState，整个画布页面（含全部节点）会被每帧重渲染一次；这里让调用方拿到
+     * 一个命令式入口，逐帧只重画 Leafer 覆盖层，不惊动 React。
+     */
+    registerConnectionDraft?: (update: ((point: Position) => void) | null) => void;
     nodeById: Map<string, CanvasNodeData>;
     selectionBox: SelectionBox | null;
     selectedNodeBounds: NodeBounds;
@@ -73,6 +81,7 @@ export function CanvasLeaferGraphicsLayer(props: CanvasLeaferGraphicsLayerProps)
     const containerSizeRef = useRef({ width: 1, height: 1 });
     const propsRef = useRef(props);
     propsRef.current = props;
+    const connectionDraftRef = useRef<Position | null>(null);
 
     useLayoutEffect(() => {
         const underlayHost = underlayHostRef.current;
@@ -151,8 +160,26 @@ export function CanvasLeaferGraphicsLayer(props: CanvasLeaferGraphicsLayerProps)
     useLayoutEffect(() => {
         const overlay = overlayRef.current;
         if (!overlay) return;
-        syncOverlayContent(overlay, props, viewportRef.current.k);
+        // 拖拽期间鼠标位置由命令式入口逐帧写入；React 因目标节点变化而重渲染时，
+        // 必须沿用那个实时值，否则草稿线会被过期的 props.mouseWorld 拽回去。
+        const live = connectionDraftRef.current;
+        syncOverlayContent(overlay, live ? { ...props, mouseWorld: live } : props, viewportRef.current.k);
     }, [props.batchConnectionPreview, props.connectingParams, props.connectionTargetAnchorRatio, props.connectionTargetNodeId, props.mouseWorld, props.nodeById, props.scriptScrollTopById, props.selectedNodeBounds, props.selectionBox, props.theme]);
+
+    useLayoutEffect(() => {
+        const register = props.registerConnectionDraft;
+        if (!register) return;
+        register((point: Position) => {
+            connectionDraftRef.current = point;
+            const overlay = overlayRef.current;
+            if (!overlay) return;
+            syncOverlayContent(overlay, { ...propsRef.current, mouseWorld: point }, viewportRef.current.k);
+        });
+        return () => {
+            connectionDraftRef.current = null;
+            register(null);
+        };
+    }, [props.registerConnectionDraft]);
 
     useLayoutEffect(() => {
         const underlay = underlayRef.current;

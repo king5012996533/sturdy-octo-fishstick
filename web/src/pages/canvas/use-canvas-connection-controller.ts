@@ -106,7 +106,16 @@ export function useCanvasConnectionController({
     const [connectionReplaceHover, setConnectionReplaceHover] = useState<ConnectionReplaceHover | null>(null);
     const [pendingConnectionCreate, setPendingConnectionCreate] = useState<PendingConnectionCreate | null>(null);
     const [batchConnectionPreview, setBatchConnectionPreview] = useState<CanvasBatchConnectionPreview | null>(null);
+    /**
+     * 草稿线的起点快照。
+     *
+     * 拖拽期间鼠标位置每帧都在变，但它只驱动 Leafer 覆盖层上的那条草稿线。逐帧
+     * setState 会让整个画布页面（含全部节点）每帧重渲染一次，实测一次拖拽掉 4 帧。
+     * 所以逐帧走 connectionDraftRef 的命令式入口，这个 state 只在拖拽开始时写入，
+     * 作为首帧与外部读取者的种子值。
+     */
     const [mouseWorld, setMouseWorld] = useState<Position>({ x: 0, y: 0 });
+    const connectionDraftRef = useRef<((point: Position) => void) | null>(null);
     const connectingParamsRef = useRef(connectingParams);
     const connectingPointerIdRef = useRef<number | null>(null);
     const connectingPointerStartRef = useRef<Position | null>(null);
@@ -117,6 +126,11 @@ export function useCanvasConnectionController({
     const pointerMoveFrameRef = useRef<number | null>(null);
     const latestPointerMoveRef = useRef<PointerEvent | null>(null);
     const hoveredReplaceElRef = useRef<HTMLElement | null>(null);
+
+    /** 交给 Leafer 图层注册逐帧草稿更新入口；未挂载时静默降级为无草稿线。 */
+    const registerConnectionDraft = useCallback((update: ((point: Position) => void) | null) => {
+        connectionDraftRef.current = update;
+    }, []);
 
     const updateConnectionReplaceHover = useCallback((element: HTMLElement | null, clientX = 0, clientY = 0) => {
         if (hoveredReplaceElRef.current === element) {
@@ -776,7 +790,10 @@ export function useCanvasConnectionController({
             setConnectionApproach((previous) => latchCanvasConnectionApproach(previous, dropTarget.nodeId, point));
             setConnectionTargetNodeId(dropTarget.nodeId);
             setConnectionTargetAnchorRatio(dropTarget.anchorRatio);
-            setMouseWorld(point);
+            // 逐帧只重画 Leafer 覆盖层，不进 React。上面两个 setState 在值没变时 React 会
+            // 自行 bail out，而鼠标位置每帧都是新对象——走 state 就等于每帧把整个画布页面
+            // （含全部节点）重渲染一次，实测一次拖拽因此掉 4 帧。
+            connectionDraftRef.current?.(point);
         };
         const handlePointerMove = (event: PointerEvent) => {
             // Pointer events can arrive faster than the canvas can paint. Keep
@@ -872,6 +889,7 @@ export function useCanvasConnectionController({
         startBatchConnection,
         mouseWorld,
         pendingConnectionCreate,
+        registerConnectionDraft,
         setConnecting,
     };
 }

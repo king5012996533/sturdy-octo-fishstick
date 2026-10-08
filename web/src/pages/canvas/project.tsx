@@ -1633,6 +1633,7 @@ function InfiniteCanvasPage() {
         startBatchConnection,
         mouseWorld,
         pendingConnectionCreate,
+        registerConnectionDraft,
         setConnecting,
     } = useCanvasConnectionController({
         projectId,
@@ -3175,6 +3176,7 @@ function InfiniteCanvasPage() {
                                             selectionBox={selectionBox}
                                             selectedNodeBounds={selectedNodeBounds}
                                             alignmentGuides={alignmentGuides}
+                                            registerConnectionDraft={registerConnectionDraft}
                                         />
                                     }
                                     onViewportChange={handleViewportChange}
@@ -3201,8 +3203,6 @@ function InfiniteCanvasPage() {
                                                 selectedConnectionId={selectedConnectionId}
                                                 relatedConnectionIds={relatedHighlight.connectionIds}
                                                 scriptScrollTopById={scriptScrollTopById}
-                                                connectingParams={connectingParams}
-                                                mouseWorld={mouseWorld}
                                                 connectionTargetNodeId={connectionTargetNodeId}
                                                 nodeById={nodeById}
                                                 visibleNodes={visibleNodes}

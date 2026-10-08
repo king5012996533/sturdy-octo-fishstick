@@ -14,7 +14,7 @@ import { sortCanvasNodesByStackOrder, type CanvasNodeStackOrder } from "@/lib/ca
 import { canvasNodeScaleBucket } from "@/lib/canvas/canvas-node-scale-bucket";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { isFrameNode } from "@/lib/canvas/canvas-frame";
-import type { CanvasDisplayConnection, CanvasFolderStyle, CanvasFolderTheme, CanvasNodeData, ConnectionHandle, Position, SelectionBox } from "@/types/canvas";
+import type { CanvasDisplayConnection, CanvasFolderStyle, CanvasFolderTheme, CanvasNodeData, Position, SelectionBox } from "@/types/canvas";
 
 type DragPreview = { x: number; y: number; nodeIds: Set<string> } | null;
 type NodeBounds = { left: number; top: number; width: number; height: number; count: number } | null;
@@ -27,8 +27,6 @@ type CanvasProjectWorldLayersProps = {
     selectedConnectionId: string | null;
     relatedConnectionIds: Set<string>;
     scriptScrollTopById: Record<string, number>;
-    connectingParams: ConnectionHandle | null;
-    mouseWorld: Position;
     connectionTargetNodeId: string | null;
     connectionApproach: CanvasConnectionApproach;
     nodeById: Map<string, CanvasNodeData>;
