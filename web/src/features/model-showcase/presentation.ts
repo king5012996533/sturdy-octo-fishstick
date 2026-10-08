@@ -63,7 +63,15 @@ export function specRows(spec: ShowcaseSpec, capability: string): SpecRow[] {
     if (spec.ratios.length) rows.push({ label: "画面比例", value: spec.ratios.join(" / ") });
     if (spec.resolutions.length) rows.push({ label: "分辨率", value: spec.resolutions.join(" / ") });
     if (spec.qualityTiers.length) rows.push({ label: "画质档位", value: spec.qualityTiers.join(" / ") });
-    if (spec.durations.length) rows.push({ label: "可选时长", value: `${spec.durations.join(" / ")} 秒` });
+    // 档位之间有差异时逐档渲染：只写顶层那一行会把"720p 最高 12 秒"吞掉，
+    // 用户照着顶层的 10 / 12 / 15 选 720p，故障点会落到生成失败上。
+    if (spec.resolutionDurations?.length) {
+        for (const tier of spec.resolutionDurations) {
+            rows.push({ label: `可选时长（${tier.resolution}）`, value: `${tier.durations.join(" / ")} 秒` });
+        }
+    } else if (spec.durations.length) {
+        rows.push({ label: "可选时长", value: `${spec.durations.join(" / ")} 秒` });
+    }
     if (spec.range && spec.range.max > 0) {
         const step = spec.range.step > 0 ? `，${spec.range.step} 秒步进` : "";
         rows.push({ label: "时长范围", value: `${spec.range.min}–${spec.range.max} 秒${step}` });

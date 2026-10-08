@@ -22,11 +22,18 @@ export type ShowcaseDurationRange = {
     value: number;
 };
 
+/** 某个分辨率档位下实际生效的时长档位（只有档位之间不一致时后端才下发）。 */
+export type ShowcaseResolutionDuration = {
+    resolution: string;
+    durations: number[];
+};
+
 export type ShowcaseSpec = {
     ratios: string[];
     qualityTiers: string[];
     resolutions: string[];
     durations: number[];
+    resolutionDurations?: ShowcaseResolutionDuration[];
     range?: ShowcaseDurationRange;
     generateAudio: boolean;
     maxOutputs: number;

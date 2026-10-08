@@ -120,6 +120,32 @@ describe("模型广场读模型", () => {
         expect(specRows(buildModel().spec, "image")).toEqual([]);
     });
 
+    test("按分辨率分档的时长逐档渲染，不退回顶层列表", () => {
+        const tiered = buildModel({
+            capability: "video",
+            spec: {
+                ...buildModel().spec,
+                resolutions: ["480p", "720p"],
+                durations: [10, 12, 15],
+                resolutionDurations: [
+                    { resolution: "480p", durations: [10, 12, 15] },
+                    { resolution: "720p", durations: [10, 12] },
+                ],
+            },
+        });
+        expect(specRows(tiered.spec, tiered.capability)).toEqual([
+            { label: "分辨率", value: "480p / 720p" },
+            { label: "可选时长（480p）", value: "10 / 12 / 15 秒" },
+            { label: "可选时长（720p）", value: "10 / 12 秒" },
+        ]);
+        // 后端只在档位有差异时才下发 resolutionDurations，没有它就得维持从前那一行。
+        const plain = buildModel({ capability: "video", spec: { ...buildModel().spec, resolutions: ["480p", "720p"], durations: [10, 12, 15] } });
+        expect(specRows(plain.spec, plain.capability)).toEqual([
+            { label: "分辨率", value: "480p / 720p" },
+            { label: "可选时长", value: "10 / 12 / 15 秒" },
+        ]);
+    });
+
     test("视频参数：枚举时长与区间时长分开渲染，参考视频是段不是张", () => {
         const enumed = buildModel({ capability: "video", spec: { ...buildModel().spec, durations: [5, 10], generateAudio: true, maxReferenceVideos: 3 } });
         expect(specRows(enumed.spec, enumed.capability)).toEqual([

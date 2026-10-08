@@ -268,3 +268,58 @@ func TestShowcaseSpecKeepsMediaLimits(t *testing.T) {
 		t.Fatalf("图片参数表翻译不正确：%+v", image)
 	}
 }
+
+// TestShowcaseSpecSplitsDurationsByResolution 锁住"按分辨率分档的时长"的投影边界。
+func TestShowcaseSpecSplitsDurationsByResolution(t *testing.T) {
+	config := map[string]any{
+		"version": 1,
+		"video": map[string]any{
+			"resolutions": []any{"480p", "720p"},
+			"duration":    map[string]any{"selection": "enum", "values": []any{10, 12, 15}, "default": 12},
+			"durationByResolution": map[string]any{
+				"720p": map[string]any{"selection": "enum", "values": []any{10, 12}, "default": 12},
+			},
+		},
+	}
+	spec := showcaseSpecOf("video", config)
+	if len(spec.ResolutionDurations) != 2 {
+		t.Fatalf("应按分辨率给出两档时长：%+v", spec.ResolutionDurations)
+	}
+	// 没登记过的分辨率回落到顶层时长，而不是从参数表里消失。
+	if spec.ResolutionDurations[0].Resolution != "480p" || len(spec.ResolutionDurations[0].Durations) != 3 {
+		t.Fatalf("480p 应回落到顶层 10 / 12 / 15：%+v", spec.ResolutionDurations[0])
+	}
+	if spec.ResolutionDurations[1].Resolution != "720p" || len(spec.ResolutionDurations[1].Durations) != 2 {
+		t.Fatalf("720p 应取登记过的 10 / 12：%+v", spec.ResolutionDurations[1])
+	}
+
+	// 每档与顶层一致时不能拆：那只是把同一句话重复 N 遍。
+	same := map[string]any{
+		"version": 1,
+		"video": map[string]any{
+			"resolutions": []any{"480p", "720p"},
+			"duration":    map[string]any{"selection": "enum", "values": []any{10, 12}},
+			"durationByResolution": map[string]any{
+				"720p": map[string]any{"selection": "enum", "values": []any{10, 12}},
+			},
+		},
+	}
+	if spec := showcaseSpecOf("video", same); spec.ResolutionDurations != nil {
+		t.Fatalf("档位一致时不该拆分：%+v", spec.ResolutionDurations)
+	}
+
+	// 顶层是区间时不拆：区间在"标签 + 值"的行模型里没有位置。
+	ranged := map[string]any{
+		"version": 1,
+		"video": map[string]any{
+			"resolutions": []any{"720p"},
+			"duration":    map[string]any{"selection": "range", "min": 4, "max": 12, "step": 1, "default": 6},
+			"durationByResolution": map[string]any{
+				"720p": map[string]any{"selection": "enum", "values": []any{5, 10}},
+			},
+		},
+	}
+	if spec := showcaseSpecOf("video", ranged); spec.ResolutionDurations != nil {
+		t.Fatalf("顶层是区间时不该拆分：%+v", spec.ResolutionDurations)
+	}
+}

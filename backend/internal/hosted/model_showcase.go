@@ -44,6 +44,12 @@ type showcaseDurationRange struct {
 	Value int `json:"value"`
 }
 
+// showcaseResolutionDuration 是某个分辨率档位下实际生效的时长档位。
+type showcaseResolutionDuration struct {
+	Resolution string `json:"resolution"`
+	Durations  []int  `json:"durations"`
+}
+
 // showcaseSpec 是参数表的读模型：字段都取自已发布的能力合同，不是另写一份宣传口径。
 type showcaseSpec struct {
 	Ratios        []string               `json:"ratios"`
@@ -52,6 +58,10 @@ type showcaseSpec struct {
 	Durations     []int                  `json:"durations"`
 	Range         *showcaseDurationRange `json:"range,omitempty"`
 	GenerateAudio bool                   `json:"generateAudio"`
+	// ResolutionDurations 只在个别分辨率档位的时长与顶层不一致时出现（见
+	// resolutionDurations）。少写这一节，广场页就只剩顶层的 10 / 12 / 15，
+	// 用户照着给只出 12 秒的 720p 选 15 秒，故障点会落到生成失败上。
+	ResolutionDurations []showcaseResolutionDuration `json:"resolutionDurations,omitempty"`
 	showcaseMediaLimits
 }
 
@@ -384,6 +394,9 @@ func showcaseSpecOf(capability string, config map[string]any) showcaseSpec {
 		switch strings.TrimSpace(toStringValue(duration["selection"])) {
 		case "enum":
 			spec.Durations = intList(duration["values"])
+			// 顶层是枚举才做按分辨率的拆分：顶层区间 + 按档位枚举这种混搭，
+			// 一张"标签 + 值"的行渲染不出来，宁可退回顶层那一行。
+			spec.ResolutionDurations = resolutionDurations(video, spec.Durations)
 		case "range":
 			spec.Range = &showcaseDurationRange{
 				Min:   intValue(duration["min"]),
@@ -394,6 +407,64 @@ func showcaseSpecOf(capability string, config map[string]any) showcaseSpec {
 		}
 	}
 	return spec
+}
+
+// resolutionDurations 把 video.durationByResolution 投影成"每个分辨率一行"的时长档位。
+//
+// 三种情况都返回 nil，让广场页维持从前那一行「可选时长」：
+//   - 没有按分辨率登记过时长；
+//   - 登记过但每个档位与顶层完全一致（重复列 N 行只让参数表变长）；
+//   - 顶层没有可用的枚举档位。
+//
+// 其余情况逐档给出实际生效的时长，包含回落到顶层 duration 的分辨率。
+func resolutionDurations(video map[string]any, topLevel []int) []showcaseResolutionDuration {
+	if len(topLevel) == 0 {
+		return nil
+	}
+	byResolution := childMap(video, "durationByResolution")
+	if len(byResolution) == 0 {
+		return nil
+	}
+	resolutions := stringList(video["resolutions"])
+	if len(resolutions) == 0 {
+		return nil
+	}
+	tiers := make([]showcaseResolutionDuration, 0, len(resolutions))
+	differs := false
+	for _, resolution := range resolutions {
+		values := topLevel
+		if raw, registered := byResolution[strings.ToLower(strings.TrimSpace(resolution))]; registered {
+			config, _ := raw.(map[string]any)
+			// 区间时长在行模型里没有位置：整节作废，而不是写出半句话。
+			if strings.TrimSpace(toStringValue(config["selection"])) != "enum" {
+				return nil
+			}
+			values = intList(config["values"])
+			if len(values) == 0 {
+				return nil
+			}
+		}
+		if !sameIntList(values, topLevel) {
+			differs = true
+		}
+		tiers = append(tiers, showcaseResolutionDuration{Resolution: resolution, Durations: values})
+	}
+	if !differs {
+		return nil
+	}
+	return tiers
+}
+
+func sameIntList(left, right []int) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func childMap(source map[string]any, key string) map[string]any {
