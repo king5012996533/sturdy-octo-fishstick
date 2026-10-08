@@ -9,7 +9,9 @@ export type VideoTransport = {
     postForm: <T>(upstreamUrl: string, body: FormData, options?: RequestOptions) => Promise<T>;
     get: <T>(upstreamUrl: string, options?: RequestOptions) => Promise<T>;
     getBlob: (upstreamUrl: string, options?: RequestOptions) => Promise<Blob>;
-    getExternalBlob: (url: string, headers: Record<string, string>, options?: RequestOptions) => Promise<Blob>;
+    // headers 可选：结果地址可能落在渠道之外的第三方主机上，那种情况必须不带渠道
+    // 凭据去取（见 video-provider-gemini 的 geminiVeoDownloadHeaders）。
+    getExternalBlob: (url: string, headers?: Record<string, string>, options?: RequestOptions) => Promise<Blob>;
 };
 
 /**

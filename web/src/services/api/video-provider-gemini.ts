@@ -1,4 +1,5 @@
 import { imageToDataUrl } from "@/services/image-storage";
+import { isSameUpstreamHost } from "@/lib/upstream-host";
 import { modelOptionName } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -49,7 +50,7 @@ export async function pollGeminiVeoTask(deps: VideoProviderDeps, config: Resolve
         if (!operation.done) return { status: "pending" };
         const url = findGeminiVideoURL(operation.response);
         if (!url) return { status: "failed", error: "Gemini Veo 任务已完成但没有返回视频地址" };
-        const blob = await deps.transport.getExternalBlob(url, geminiVeoHeaders(config), options);
+        const blob = await deps.transport.getExternalBlob(url, geminiVeoDownloadHeaders(config, url), options);
         await deps.response.assertVideoBlob(blob);
         return { status: "completed", result: { blob } };
     } catch (error) {
@@ -72,6 +73,19 @@ function geminiVeoBaseUrl(config: ResolvedAiConfig) {
 
 function geminiVeoHeaders(config: ResolvedAiConfig) {
     return { "x-goog-api-key": config.apiKey };
+}
+
+/**
+ * 下载成片时的请求头。
+ *
+ * 成片地址来自上游响应（findGeminiVideoURL 从 operation.response 里挖出来的任意 uri）。
+ * 密钥只发给渠道自己配置的那个端点（协议 + 主机 + 端口都一致，见 isSameUpstreamHost）：
+ * 正常 Gemini/Gemini 兼容渠道返回的 files/... 地址与 API 同源，仍然带密钥；第三方地址、明文
+ * 降级或同主机的另一个端口都不带——否则自定义渠道只要回一条构造的 uri，就能把用户的
+ * x-goog-api-key 骗到自己的服务器上。
+ */
+function geminiVeoDownloadHeaders(config: ResolvedAiConfig, url: string) {
+    return isSameUpstreamHost(config.baseUrl, url) ? geminiVeoHeaders(config) : undefined;
 }
 
 function findGeminiVideoURL(value: unknown): string {
