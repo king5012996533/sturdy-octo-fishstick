@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { agentApprovalMatchesSettings, agentApprovalModel, agentApprovalModelSelection, agentImageApproval } from "../src/lib/canvas/agent-media-approval";
+import { agentApprovalMatchesSettings, agentApprovalModel, agentApprovalModelSelection, agentImageApproval, createAgentApprovalSettingsDraft } from "../src/lib/canvas/agent-media-approval";
 import { createModelChannel, defaultConfig, encodeChannelModel } from "../src/stores/use-config-store";
 
 describe("image generation approval settings", () => {
@@ -36,5 +36,14 @@ describe("image generation approval settings", () => {
         expect(agentApprovalModel(config, { ...channel, size: args.size, quality: args.quality })).toBe(encodeChannelModel("platform", profile.model));
         expect(() => agentApprovalModelSelection(config, encodeChannelModel("personal", profile.model))).toThrow("平台模型");
         expect(agentApprovalModel(config, { logicalModelId: "removed", size: args.size, quality: args.quality })).toBe("");
+    });
+    it("一次点击里的尺寸与画质提交不会互相覆盖", () => {
+        const draft = createAgentApprovalSettingsDraft({ logicalModelId: "", channelId: "platform", channelModelKey: "gpt-image-2", size: "1:1", quality: "" });
+        draft.commit({ size: "16:9" });
+        const merged = draft.commit({ quality: "low" });
+        expect(merged).toEqual({ logicalModelId: "", channelId: "platform", channelModelKey: "gpt-image-2", size: "16:9", quality: "low" });
+        draft.sync({ logicalModelId: "", channelId: "platform", channelModelKey: "gpt-image-2", size: "4:3", quality: "high" });
+        expect(draft.commit({ size: "9:16" }).size).toBe("9:16");
+        expect(draft.current().quality).toBe("high");
     });
 });

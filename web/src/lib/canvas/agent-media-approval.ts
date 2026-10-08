@@ -43,3 +43,27 @@ export function agentApprovalModelSelection(config: AiConfig, model: string): Pi
     if (channel.scope !== "system") throw new Error("Agent 生成仅支持平台模型");
     return { channelId: channel.id, channelModelKey: modelOptionName(model) };
 }
+
+/**
+ * 审批卡规格编辑的提交基准。
+ *
+ * 一次交互可能拆成多次提交：改比例会先提交尺寸、再提交画质。父级是 React 状态，
+ * 每次提交都从 props 里读快照，同一个事件里的第二次调用读到的仍是点击前的那份，
+ * 于是后一次会把前一次的选择覆盖回去（表现就是"点了比例没反应"）。
+ * 这里维护一份同 tick 内同步推进的基准，保证多次提交按顺序落在最新设置上。
+ */
+export function createAgentApprovalSettingsDraft(initial: AgentMediaSettings) {
+    let current = initial;
+    return {
+        current: () => current,
+        // 父级状态是唯一展示来源：重新渲染后把基准拉回父级真值，
+        // 避免提交被拒绝时基准和界面不一致。
+        sync: (next: AgentMediaSettings) => {
+            current = next;
+        },
+        commit: (patch: Partial<AgentMediaSettings>) => {
+            current = { ...current, ...patch };
+            return current;
+        },
+    };
+}
