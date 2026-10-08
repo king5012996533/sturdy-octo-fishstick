@@ -2,6 +2,20 @@ import { useEffect, type Dispatch, type SetStateAction } from "react";
 
 import type { CanvasNodeData, ContextMenuState } from "@/types/canvas";
 
+/**
+ * 画布快捷键必须让开的浮层。
+ *
+ * 画布快捷键挂在 window 上，浮层里的按键会冒泡到这里。AntD 的 Drawer 尤其容易漏：
+ * 它的内容不在 .ant-modal-wrap 里，用户在抽屉里以为焦点在自己手上，按 Delete 删掉的
+ * 却是画布上选中的节点。
+ */
+export const CANVAS_SHORTCUT_OVERLAY_SELECTOR = ".ant-modal-wrap, .ant-drawer, .ant-dropdown, .ant-popover, .ant-select-dropdown, .ant-picker-dropdown";
+
+/** 当前按键目标是否落在浮层内（浮层内的按键不应被画布快捷键消费）。 */
+export function isCanvasShortcutOverlayTarget(target: Element | null | undefined): boolean {
+    return Boolean(target?.closest(CANVAS_SHORTCUT_OVERLAY_SELECTOR));
+}
+
 type UseCanvasKeyboardOptions = {
     enabled?: boolean;
     nodesRef: { current: CanvasNodeData[] };
@@ -122,7 +136,7 @@ export function useCanvasKeyboard({
                 return;
             }
             if (isModifierShortcut && !event.altKey && key === "f") {
-                if (target?.closest(".ant-modal-wrap, .ant-dropdown, .ant-popover")) return;
+                if (isCanvasShortcutOverlayTarget(target)) return;
                 event.preventDefault();
                 event.stopPropagation();
                 if (!event.repeat) {
@@ -135,7 +149,7 @@ export function useCanvasKeyboard({
             const isCanvasControlTarget = Boolean(target?.closest("[data-canvas-no-zoom]"));
             if (isCanvasControlTarget && !(isModifierShortcut && !event.altKey && (key === "c" || key === "v"))) return;
             if (event.altKey && event.shiftKey && !isModifierShortcut && key === "f") {
-                if (target?.closest(".ant-modal-wrap, .ant-dropdown, .ant-popover")) return;
+                if (isCanvasShortcutOverlayTarget(target)) return;
                 event.preventDefault();
                 if (!event.repeat) autoArrangeCanvasNodes();
                 return;
@@ -194,6 +208,10 @@ export function useCanvasKeyboard({
                 return;
             }
             if (event.key === "Delete" || event.key === "Backspace") {
+                // 浮层（抽屉/弹窗/下拉）里的 Delete 属于浮层，不是画布：不拦截事件、
+                // 更不删节点。此前这里没有任何浮层守卫，在抽屉里按 Delete 会直接删掉
+                // 画布上选中的节点。
+                if (isCanvasShortcutOverlayTarget(target)) return;
                 // Backspace has a browser-level history action when it is not
                 // consumed. Once the canvas handles deletion, do not let the
                 // same key continue to other listeners or navigate away from
@@ -210,7 +228,7 @@ export function useCanvasKeyboard({
             }
             if (event.key === "Escape") {
                 // 沉浸专注：无选中且无弹窗/下拉/右键菜单时，Esc 退出专注；否则保留原有取消选择行为。
-                const hasFocusOverlay = Boolean(document.querySelector(".ant-modal-wrap, .ant-dropdown, .ant-select-dropdown, .ant-popover, [data-canvas-context-menu]"));
+                const hasFocusOverlay = Boolean(document.querySelector(`${CANVAS_SHORTCUT_OVERLAY_SELECTOR}, [data-canvas-context-menu]`));
                 if (focusMode && !selectedNodeIdsRef.current.size && !hasFocusOverlay) {
                     event.stopPropagation();
                     exitFocusMode();
