@@ -109,13 +109,15 @@ export const CanvasProjectWorldLayers = memo(function CanvasProjectWorldLayers(p
         ...props.visibleNodes.filter(isFrameNode),
         ...sortCanvasNodesByStackOrder(props.visibleNodes.filter((node) => !isFrameNode(node)), props.nodeStackOrder),
     ], [props.nodeStackOrder, props.visibleNodes]);
-    const batchPreviews = useMemo(() => new Map(props.visibleNodes.filter((node) => node.metadata?.isBatchRoot).map((node) => [
+    // 依赖 nodeById（节点数据变化才换新身份）而不是 visibleNodes：后者每个视口节拍都会重建，
+    // 会让批处理根节点在平移时被无谓重渲染。按 id 取用的消费方只关心已渲染节点，覆盖面扩大无副作用。
+    const batchPreviews = useMemo(() => new Map([...props.nodeById.values()].filter((node) => node.metadata?.isBatchRoot).map((node) => [
         node.id,
         (node.metadata?.batchChildIds || []).filter((id) => id !== node.metadata?.primaryImageId)
             .map((id) => props.nodeById.get(id))
             .filter((child): child is CanvasNodeData => Boolean(child && child.metadata?.batchRootId === node.id))
             .slice(0, 5),
-    ])), [props.visibleNodes, props.nodeById]);
+    ])), [props.nodeById]);
     const framePreviewNodes = (node: CanvasNodeData) => {
         const assetFolderId = node.metadata?.folder?.assetFolderId;
         if (assetFolderId) return props.linkedFolderPreviewNodesById.get(assetFolderId) || EMPTY_CANVAS_NODES;

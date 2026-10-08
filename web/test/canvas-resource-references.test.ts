@@ -489,3 +489,40 @@ describe("replace canvas reference mentions", () => {
         expect(replaced).toBe("@图片2 的画风结合 @新封面 的色调");
     });
 });
+
+// useCanvasRenderModel 用 semanticNodes（语义变化才换新身份）而不是 visibleNodes（每个视口
+// 节拍都重建）来承载这些映射。这条约束成立的前提是：单个节点 id 的取值只由 nodes+connections
+// 决定，targetNodes 只决定「输出哪些 id」。若哪天取值开始依赖 targetNodes，下面的断言会失败，
+// 提醒画布不能再用全量节点集当依赖，否则平移时最多 720 个节点会被整棵重渲染。
+describe("canvas mention reference map scope", () => {
+    test("单个节点 id 的取值不随 targetNodes 覆盖面变化", () => {
+        const image = imageNode("image-a");
+        const audio = audioNode("audio-a");
+        const target = imageNode("target");
+        const config: CanvasNodeData = { id: "config", type: CanvasNodeType.Config, title: "config", position: { x: 0, y: 0 }, width: 100, height: 100, metadata: {} };
+        const nodes = [image, audio, target, config];
+        const connections = [connection(image.id, target.id), connection(target.id, config.id), connection(audio.id, config.id)];
+
+        const full = buildCanvasNodeMentionReferenceMap(nodes, connections);
+        const subset = buildCanvasNodeMentionReferenceMap(nodes, connections, [target, config]);
+
+        for (const node of [target, config]) {
+            expect(subset.get(node.id)).toEqual(full.get(node.id));
+        }
+        // 覆盖面只在子集里：全量输出必然包含子集输出。
+        for (const [nodeId, references] of subset) {
+            expect(full.get(nodeId)).toEqual(references);
+        }
+    });
+
+    test("全量覆盖下的条目与逐个节点单独求解一致", () => {
+        const image = imageNode("image-b");
+        const target = imageNode("target-b");
+        const nodes = [image, target];
+        const connections = [connection(image.id, target.id)];
+
+        const full = buildCanvasNodeMentionReferenceMap(nodes, connections);
+        expect(full.get(target.id)).toEqual(buildCanvasNodeMentionReferenceMap(nodes, connections, [target]).get(target.id));
+        expect(full.get(image.id)).toEqual(buildCanvasNodeMentionReferenceMap(nodes, connections, [image]).get(image.id));
+    });
+});

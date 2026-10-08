@@ -317,10 +317,14 @@ export function useCanvasRenderModel({
         });
     }, [connectionSpatialIndex, dragPreview, renderBounds]);
 
+    // 依赖 semanticNodes（语义变化才换新身份）而不是 visibleNodes：视口平移每 64ms
+    // 重建一次 visibleNodes，若拿它当依赖，下面两个映射会跟着每帧换新身份，再顺着
+    // renderCanvasNodeContent 传进每个节点的 memo 比较，导致最多 720 个节点整棵重渲染。
+    // 取值只按节点 id 查，覆盖面扩大到全部节点不改变任何单个 id 的结果。
     const configInputsById = useMemo(() => {
         const map = new Map<string, NodeGenerationInput[]>();
         const configNodeIds = new Set<string>();
-        visibleNodes.forEach((node) => {
+        semanticNodes.forEach((node) => {
             if (node.type === CanvasNodeType.Config) configNodeIds.add(node.id);
         });
         selectedNodeIds.forEach((nodeId) => {
@@ -329,32 +333,23 @@ export function useCanvasRenderModel({
         if (dialogNodeId && nodeById.get(dialogNodeId)?.type === CanvasNodeType.Config) configNodeIds.add(dialogNodeId);
         configNodeIds.forEach((nodeId) => map.set(nodeId, buildNodeGenerationInputs(nodeId, semanticNodes, connections)));
         return map;
-    }, [connections, dialogNodeId, nodeById, selectedNodeIds, semanticNodes, visibleNodes]);
+    }, [connections, dialogNodeId, nodeById, selectedNodeIds, semanticNodes]);
     const activeDirectorNode = useMemo(() => semanticNodes.find((node) => node.id === directorNodeId) || null, [directorNodeId, semanticNodes]);
     const activeStylePresetId = useMemo(() => semanticNodes.find((node) => node.metadata?.workflowKind === "styleboard")?.metadata?.stylePresetId, [semanticNodes]);
     const activeScriptNode = useMemo(() => semanticNodes.find((node) => node.id === scriptEditorNodeId && node.type === CanvasNodeType.Script) || null, [scriptEditorNodeId, semanticNodes]);
     const activeDirectorScene = useMemo(() => directorScenes?.find((scene) => scene.id === activeDirectorNode?.metadata?.directorSceneId) || null, [activeDirectorNode?.metadata?.directorSceneId, directorScenes]);
-    const resourceReferenceTargetNodes = useMemo(() => {
-        const targetNodes = [...visibleNodes];
-        const activeId = dialogNodeId || activeNodeId;
-        if (activeId) {
-            const activeNode = nodeById.get(activeId);
-            if (activeNode) targetNodes.push(activeNode);
-        }
-        return targetNodes;
-    }, [activeNodeId, dialogNodeId, nodeById, visibleNodes]);
     const canvasResourceReferences = useMemo(
-        () => buildCanvasResourceReferences(semanticNodes, connections, dialogNodeId || activeNodeId, resourceReferenceTargetNodes),
-        [activeNodeId, connections, dialogNodeId, resourceReferenceTargetNodes, semanticNodes],
+        () => buildCanvasResourceReferences(semanticNodes, connections, dialogNodeId || activeNodeId),
+        [activeNodeId, connections, dialogNodeId, semanticNodes],
     );
     const resourceReferenceByNodeId = useMemo(() => new Map(canvasResourceReferences.map((reference) => [reference.nodeId, reference])), [canvasResourceReferences]);
     const skillMentionReferences = useMemo(() => buildSkillMentionReferences(addedSkills), [addedSkills]);
     const mentionReferencesByNodeId = useMemo(() => {
-        const map = buildCanvasNodeMentionReferenceMap(semanticNodes, connections, visibleNodes);
+        const map = buildCanvasNodeMentionReferenceMap(semanticNodes, connections);
         if (!skillMentionReferences.length) return map;
         map.forEach((references, nodeId) => map.set(nodeId, [...references, ...skillMentionReferences]));
         return map;
-    }, [connections, semanticNodes, skillMentionReferences, visibleNodes]);
+    }, [connections, semanticNodes, skillMentionReferences]);
 
     return {
         activeDirectorNode,
