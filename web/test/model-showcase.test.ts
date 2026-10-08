@@ -84,7 +84,7 @@ describe("积分单价文案", () => {
 
     test("创作台与广场共用同一份单价文案", () => {
         const estimate = read("src/pages/create/creation-credit-estimate.tsx");
-        expect(estimate).toContain("creditUnitRateLabel(unit, sellUnitPrice)");
+        expect(estimate).toContain("creditUnitRateLabel(quote.unit, quote.sellUnitPrice)");
         expect(estimate).not.toContain("积分/张");
     });
 });
