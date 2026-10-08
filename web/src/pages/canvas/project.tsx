@@ -15,6 +15,7 @@ import { uploadImage } from "@/services/image-storage";
 import { applyGenerationTaskResultToNodes, generationTaskMode, imageMetadata } from "@/lib/canvas/canvas-generation-task-sync";
 import { isCanvasImageSourceNode } from "@/lib/canvas/canvas-image-source";
 import { resolveCanvasMinimalPan } from "@/lib/canvas/canvas-connected-node-viewport";
+import { canvasNodeScaleBucket } from "@/lib/canvas/canvas-node-scale-bucket";
 import { canOpenCanvasNodePromptPanel, isCanvasMediaResultNode } from "@/lib/canvas/canvas-node-semantics";
 import { getCachedResourceBlob } from "@/services/resource-blob-cache";
 import copyToClipboard from "copy-to-clipboard";
@@ -93,6 +94,9 @@ import {
 import { CanvasConnectionCreateMenu, CanvasNodePanelOverlay, type PendingConnectionCreate } from "@/components/canvas/canvas-workspace-overlays";
 import { CanvasOverlayLayerContainer, CanvasOverlayLayerProvider } from "@/components/canvas/canvas-overlay-layer";
 import { CanvasLeaferGraphicsLayer } from "@/components/canvas/canvas-leafer-graphics-layer";
+import type { CanvasImageCropRect } from "@/components/canvas/canvas-node-crop-dialog";
+import type { CanvasImageMaskEditPayload } from "@/components/canvas/canvas-node-mask-edit-dialog";
+import type { CanvasVideoCropRect } from "@/components/canvas/canvas-video-crop-dialog";
 import { CanvasFreeformEmptyState, CanvasLinkedProjectEmptyState, CanvasShortDramaEmptyState, CanvasShortDramaGuide, CanvasStoryInputNodeContent, CanvasStylePlaceholderNodeContent } from "@/components/canvas/canvas-short-drama-entry";
 import { resolveCanvasEmptyStateKind } from "@/lib/canvas/canvas-starter";
 import { failedImageBatchChildren, markImageBatchRetrying, reconcileImageBatchRoot, restoreUnsubmittedImageBatchChild } from "@/lib/canvas/canvas-image-batch-retry";
@@ -377,6 +381,10 @@ function InfiniteCanvasPage() {
     const [chatSessions, setChatSessions] = useState<CanvasAssistantSession[]>([]);
     const [activeChatId, setActiveChatId] = useState<string | null>(null);
     const [viewport, setViewport] = useState<ViewportTransform>({ x: 0, y: 0, k: 1 });
+    // 节点渲染与节点内容工厂用分档倍率：原始 viewport.k 每个虚拟化节拍（64ms）都变，
+    // 直接进依赖会让 renderCanvasNodeContent 每拍换身份，进而让每个节点逐帧重渲染。
+    // 连续变化的视觉量（外置标题宽度）已改由 CSS 实时变量驱动。
+    const nodeScaleBucket = canvasNodeScaleBucket(viewport.k);
     const [size, setSize] = useState({ width: 1200, height: 720 });
     const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
     const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
@@ -2756,7 +2764,7 @@ function InfiniteCanvasPage() {
                         nodes={nodesRef.current}
                         batch={visibleGenerationBatch(contentNode)}
                         pipeline={pipeline}
-                        scale={viewport.k}
+                        scale={nodeScaleBucket}
                         mentionReferences={mentionReferencesByNodeId.get(contentNode.id) || EMPTY_RESOURCE_REFERENCES}
                         onOpen={() => setScriptEditorNodeId(contentNode.id)}
                         onCreateImageNodes={() => createScriptImageNodes(contentNode.id)}
@@ -2854,7 +2862,7 @@ function InfiniteCanvasPage() {
             theme,
             updateBatchRow,
             updateScriptRow,
-            viewport.k,
+            nodeScaleBucket,
             workspaceMode,
         ],
     );
@@ -2912,6 +2920,36 @@ function InfiniteCanvasPage() {
     );
     const openCanvasNodeVersions = useCallback((node: CanvasNodeData) => setVersionCompareRootId(node.metadata?.versionOfNodeId || node.id), []);
     const viewCanvasNodeImage = useCallback((node: CanvasNodeData) => setPreviewNodeId(node.id), []);
+    /**
+     * 下面这组回调原先直接写成 JSX 内联箭头函数，每次页面渲染都会换新身份，再透传给每个
+     * 节点，节点的 memo 比较于是每拍失败。实测一次缩放下 72 个节点因此多渲染 8 次/节点
+     * （13 次 vs 分档后的 5 次）——比 scale 本身影响大得多。收敛成 useCallback 后，
+     * 节点只在跨缩放档位时才重渲染。
+     */
+    const cancelImageCrop = useCallback(() => setCropNodeId(null), []);
+    const confirmImageCrop = useCallback((target: CanvasNodeData, crop: CanvasImageCropRect) => cropImageNode(target, crop), [cropImageNode]);
+    const cancelAnnotation = useCallback(() => setAnnotationNodeId(null), []);
+    const confirmAnnotation = useCallback(
+        async (target: CanvasNodeData, dataUrl: string) => {
+            await saveAnnotatedImageNode(target, dataUrl);
+            setAnnotationNodeId(null);
+        },
+        [saveAnnotatedImageNode],
+    );
+    const cancelMaskEdit = useCallback(() => setMaskEditNodeId(null), []);
+    const confirmMaskEdit = useCallback((target: CanvasNodeData, payload: CanvasImageMaskEditPayload) => maskEditImageNode(target, payload), [maskEditImageNode]);
+    const cancelVideoCrop = useCallback(() => setVideoCropNodeId(null), []);
+    const confirmVideoCrop = useCallback(
+        (target: CanvasNodeData, crop: CanvasVideoCropRect, sourceDimensions: { width: number; height: number }) => cropVideoNode(target, crop, sourceDimensions),
+        [cropVideoNode],
+    );
+    const cancelNodeTask = useCallback(
+        (target: CanvasNodeData) => {
+            const task = activeTasks.find((item) => item.id === target.metadata?.taskId);
+            if (task) cancelCanvasTask(task);
+        },
+        [activeTasks, cancelCanvasTask],
+    );
     const locateProjectStyleNode = useCallback(() => {
         const styleNode = nodesRef.current.find((node) => node.type === CanvasNodeType.Text && node.metadata?.workflowKind === "styleboard");
         if (!styleNode) {
@@ -3221,10 +3259,7 @@ function InfiniteCanvasPage() {
                                                 onRetry={retryCanvasNode}
                                                 onReloadResource={reloadCanvasNodeResource}
                                                 onOpenTaskDetails={openCanvasNodeTaskDetails}
-                                                onCancelTask={(node) => {
-                                                    const task = activeTasks.find((item) => item.id === node.metadata?.taskId);
-                                                    if (task) cancelCanvasTask(task);
-                                                }}
+                                                onCancelTask={cancelNodeTask}
                                                 onOpenVersions={openCanvasNodeVersions}
                                                 onViewImage={viewCanvasNodeImage}
                                                 onReplaceMedia={replaceCanvasNodeMedia}
@@ -3232,18 +3267,18 @@ function InfiniteCanvasPage() {
                                                 onOpenDrawing={openDrawingNode}
                                                 onStartBatchConnection={startBatchConnection}
                                                 imageCropNodeId={cropNodeId}
-                                                onCancelImageCrop={() => setCropNodeId(null)}
-                                                onConfirmImageCrop={(node, crop) => cropImageNode(node, crop)}
+                                                onCancelImageCrop={cancelImageCrop}
+                                                onConfirmImageCrop={confirmImageCrop}
                                                 annotationNodeId={annotationNodeId}
-                                                onCancelAnnotation={() => setAnnotationNodeId(null)}
-                                                onConfirmAnnotation={async (node, dataUrl) => { await saveAnnotatedImageNode(node, dataUrl); setAnnotationNodeId(null); }}
+                                                onCancelAnnotation={cancelAnnotation}
+                                                onConfirmAnnotation={confirmAnnotation}
                                                 maskEditNodeId={maskEditNodeId}
                                                 maskEditConfig={maskEditNode ? { ...effectiveConfig, model: maskEditNode.metadata?.model || effectiveConfig.model, imageModel: maskEditNode.metadata?.model || effectiveConfig.imageModel, size: maskEditNode.metadata?.size || effectiveConfig.size, quality: maskEditNode.metadata?.quality || effectiveConfig.quality, count: String(maskEditNode.metadata?.count || effectiveConfig.count) } : effectiveConfig}
-                                                onCancelMaskEdit={() => setMaskEditNodeId(null)}
-                                                onConfirmMaskEdit={(node, payload) => maskEditImageNode(node, payload)}
+                                                onCancelMaskEdit={cancelMaskEdit}
+                                                onConfirmMaskEdit={confirmMaskEdit}
                                                 videoCropNodeId={videoCropNodeId}
-                                                onCancelVideoCrop={() => setVideoCropNodeId(null)}
-                                                onConfirmVideoCrop={(node, crop, sourceDimensions) => cropVideoNode(node, crop, sourceDimensions)}
+                                                onCancelVideoCrop={cancelVideoCrop}
+                                                onConfirmVideoCrop={confirmVideoCrop}
                                             />
                                         </CanvasNodeGraphContext.Provider>
                                     </CanvasNodeActionContext.Provider>

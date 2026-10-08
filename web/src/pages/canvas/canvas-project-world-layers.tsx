@@ -11,6 +11,7 @@ import type { AiConfig } from "@/stores/use-config-store";
 import type { CanvasConnectionApproach } from "@/lib/canvas/canvas-connection-tilt";
 import type { CanvasBatchConnectionPreview } from "@/lib/canvas/canvas-batch-connection";
 import { sortCanvasNodesByStackOrder, type CanvasNodeStackOrder } from "@/lib/canvas/canvas-node-stack-order";
+import { canvasNodeScaleBucket } from "@/lib/canvas/canvas-node-scale-bucket";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { isFrameNode } from "@/lib/canvas/canvas-frame";
 import type { CanvasDisplayConnection, CanvasFolderStyle, CanvasFolderTheme, CanvasNodeData, ConnectionHandle, Position, SelectionBox } from "@/types/canvas";
@@ -101,6 +102,9 @@ const EMPTY_CANVAS_NODES: CanvasNodeData[] = [];
 
 export const CanvasProjectWorldLayers = memo(function CanvasProjectWorldLayers(props: CanvasProjectWorldLayersProps) {
     const { viewportScale } = props;
+    // 节点只接收分档倍率：原始倍率每个虚拟化节拍（64ms）都变，会让每个节点的 memo 比较
+    // 全部失败，缩放时整层节点逐帧重渲染。连续变化的标题宽度改由 CSS 实时变量驱动。
+    const nodeScale = canvasNodeScaleBucket(viewportScale);
     const [activeMediaNodeId, setActiveMediaNodeId] = useState<string | null>(null);
     useEffect(() => {
         if (activeMediaNodeId && !props.nodeById.has(activeMediaNodeId)) setActiveMediaNodeId(null);
@@ -173,7 +177,7 @@ export const CanvasProjectWorldLayers = memo(function CanvasProjectWorldLayers(p
                         key={node.id}
                         data={node}
                         dragOffset={props.dragPreview?.nodeIds.has(node.id) ? props.dragPreview : undefined}
-                        scale={viewportScale}
+                        scale={nodeScale}
                         isSelected={props.selectedNodeIds.has(node.id)}
                         mediaActive={activeMediaNodeId === node.id}
                         onMediaPlayRequest={setActiveMediaNodeId}

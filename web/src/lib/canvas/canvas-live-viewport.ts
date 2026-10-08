@@ -63,6 +63,30 @@ export function registerCanvasLiveScaleTarget(element: HTMLElement | null) {
     };
 }
 
+/**
+ * 解析 CSS 变量里的实时倍率数值；缺失、非法或非正数时回退。
+ */
+export function canvasLiveScaleValue(raw: string | null | undefined, fallback: number): number {
+    const parsed = Number.parseFloat(String(raw ?? ""));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * 读取元素当前生效的实时倍率 / 逆倍率（自定义属性会继承，所以读元素自己的计算样式即可）。
+ *
+ * 节点拿到的 scale 是分档值（见 canvas-node-scale-bucket），只够做可见性判定；凡是需要真实
+ * 倍率做尺寸数学的地方（手柄尺寸与偏移、缩放拖拽换算）都从这里读，避免跨档时跳一格。
+ */
+export function readCanvasLiveScale(element: Element | null | undefined, fallback: number): number {
+    if (!element) return fallback;
+    return canvasLiveScaleValue(getComputedStyle(element).getPropertyValue("--canvas-live-scale"), fallback);
+}
+
+export function readCanvasLiveInverseScale(element: Element | null | undefined, fallback: number): number {
+    if (!element) return fallback;
+    return canvasLiveScaleValue(getComputedStyle(element).getPropertyValue("--canvas-live-inverse-scale"), fallback);
+}
+
 export type CanvasLiveViewportOptions = {
     /** 通知浮层 / 小地图等订阅方，按 32ms 节流而非每帧。 */
     notify?: boolean;
@@ -101,11 +125,15 @@ export function applyCanvasLiveViewport(container: HTMLDivElement | null, viewpo
     // 交互期提交路径拿到的 React 视口最多滞后一次虚拟化刷新（64ms），
     // 用它覆盖逐帧值会让标题在缩放中途突然跳大小；此时交给逐帧写入。
     const interacting = container.dataset.canvasViewportInteracting === "true";
+    const liveScale = String(viewport.k);
     const targets = liveScaleTargets.get(container);
     if (targets && !(commit && interacting)) {
         for (const target of targets) {
             if (!target.isConnected) continue;
             target.style.setProperty("--canvas-live-inverse-scale", inverseScale);
+            // 外置标题的最大宽度用 calc(节点宽度 × 实时倍率) 跟随缩放，因此节点层不必
+            // 为每一档缩放重渲染（节点收到的倍率已分档，见 canvas-node-scale-bucket）。
+            target.style.setProperty("--canvas-live-scale", liveScale);
         }
     }
     // Keep the live camera coordinates observable to overlays and automation

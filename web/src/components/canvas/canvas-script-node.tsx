@@ -863,14 +863,21 @@ function RowHandle({
     onPointerDown: (event: ReactPointerEvent) => void;
 }) {
     const color = tone === "loading" ? theme.accent.primary : tone === "error" ? theme.accent.danger : tone === "success" ? theme.node.activeStroke : theme.node.muted;
-    const inverseHitScale = 1 / Math.max(scale, 0.05);
+    // 命中区同样按实时逆倍率算：行手柄只用来点，尺寸不可见，但沿用分档倍率会让命中区在跨档时
+    // 跳一格，也没有理由让同一个画布里的两处手柄用两套倍率。
+    const fallbackInverseHitScale = 1 / Math.max(scale, 0.05);
     return (
         <button
             type="button"
             aria-label={title || `${side === "left" ? "输入" : "输出"}连接点`}
             title={title || `${side === "left" ? "引入参考" : "连接到图片、视频或生成节点"}`}
             className={`canvas-connection-handle absolute z-[var(--node-z-handle)] flex -translate-y-1/2 cursor-pointer items-center justify-center rounded-full outline-none focus-visible:ring-2 ${side === "left" ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2"}`}
-            style={{ top, width: 32 * inverseHitScale, height: 32 * inverseHitScale, "--tw-ring-color": theme.accent.primary } as CSSProperties}
+            style={{
+                top,
+                width: `calc(32px * var(--canvas-live-inverse-scale, ${fallbackInverseHitScale}))`,
+                height: `calc(32px * var(--canvas-live-inverse-scale, ${fallbackInverseHitScale}))`,
+                "--tw-ring-color": theme.accent.primary,
+            } as CSSProperties}
             onPointerDown={onPointerDown}
         >
             <span className="block size-2.5 rounded-full border-2 shadow-sm transition-transform hover:scale-110" style={{ boxSizing: "border-box", borderColor: theme.node.panel, background: color }} />

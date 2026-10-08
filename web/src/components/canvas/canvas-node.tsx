@@ -13,7 +13,7 @@ import { CanvasNodeType, type CanvasNodeData, type CanvasNodeTypeId, type Positi
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { ART_CRITIQUE_NODE_TYPE } from "@/lib/art-critique/contracts";
 import { getNodeDefinition, getNodeMinSize, shouldKeepAspectRatio } from "@/lib/canvas/node-registry";
-import { registerCanvasLiveScaleTarget } from "@/lib/canvas/canvas-live-viewport";
+import { readCanvasLiveInverseScale, readCanvasLiveScale, registerCanvasLiveScaleTarget } from "@/lib/canvas/canvas-live-viewport";
 import { CanvasNodeContent } from "./canvas-node-content";
 import { CanvasVideoCropEditor, type CanvasVideoCropRect } from "./canvas-video-crop-dialog";
 import { CanvasImageCropEditor, type CanvasImageCropRect } from "./canvas-node-crop-dialog";
@@ -165,6 +165,7 @@ export const CanvasNode = React.memo(function CanvasNode({
     const resizeRef = useRef({
         isResizing: false,
         corner: "bottom-right" as ResizeCorner,
+        scale: 1,
         startX: 0,
         startY: 0,
         startLeft: 0,
@@ -214,8 +215,8 @@ export const CanvasNode = React.memo(function CanvasNode({
         (event: MouseEvent) => {
             if (!resizeRef.current.isResizing) return;
 
-            const dx = (event.clientX - resizeRef.current.startX) / scale;
-            const dy = (event.clientY - resizeRef.current.startY) / scale;
+            const dx = (event.clientX - resizeRef.current.startX) / resizeRef.current.scale;
+            const dy = (event.clientY - resizeRef.current.startY) / resizeRef.current.scale;
             const minSize = getNodeMinSize(data.type);
             const minWidth = minSize.width;
             // 分镜脚本的高度由表格内容动态撑开，覆盖注册表里的静态下限。
@@ -250,7 +251,7 @@ export const CanvasNode = React.memo(function CanvasNode({
                 y: fromTop ? startBottom - height : resizeRef.current.startTop,
             });
         },
-        [data.id, data.type, onResize, scale, scriptMinHeight],
+        [data.id, data.type, onResize, scriptMinHeight],
     );
 
     const handleResizeUp = useCallback(() => {
@@ -265,6 +266,9 @@ export const CanvasNode = React.memo(function CanvasNode({
         resizeRef.current = {
             isResizing: true,
             corner,
+            // 节点收到的 scale 是分档值（见 canvas-node-scale-bucket），拿来换算屏幕位移
+            // 会算错节点大小。这里按当帧真实倍率快照一次，整个拖拽过程都用它。
+            scale: readCanvasLiveScale(event.currentTarget, scale),
             startX: event.clientX,
             startY: event.clientY,
             startLeft: data.position.x,
@@ -729,7 +733,9 @@ function NodeExternalHeader({ node, scale, dimensionLabel, active, editable, edi
     const inverseScale = 1 / Math.max(scale, 0.05);
     const isDirectorNode = node.type === CanvasNodeType.Director || Boolean(node.metadata?.directorSceneId);
     const Icon = isDirectorNode ? Move3d : nodeTypeIcon(node.type);
-    const maxHeaderWidth = Math.min(240, node.width * scale);
+    // 原来这里是 Math.min(240, node.width * scale)。节点拿到的倍率现在是分档值，
+    // 用它算宽度会让标题在缩放中跳档，所以改由 CSS 实时变量驱动，保持连续。
+    const headerMaxWidth = "min(240px, calc(var(--canvas-node-width) * var(--canvas-live-scale, 1)))";
 
     return (
         <div
@@ -737,7 +743,7 @@ function NodeExternalHeader({ node, scale, dimensionLabel, active, editable, edi
             className="canvas-node-external-header absolute bottom-full left-0 z-[var(--node-z-overlay)] flex h-6 items-center gap-1 overflow-hidden"
             style={{
                 width: dimensionLabel ? "calc(var(--canvas-node-width) * var(--canvas-live-scale, 1))" : undefined,
-                maxWidth: dimensionLabel ? undefined : maxHeaderWidth,
+                maxWidth: dimensionLabel ? undefined : headerMaxWidth,
                 "--canvas-node-width": `${node.width}px`,
                 borderRadius: "var(--r-sm)",
                 background: "transparent",
@@ -759,7 +765,7 @@ function NodeExternalHeader({ node, scale, dimensionLabel, active, editable, edi
                 event.stopPropagation();
             }}
         >
-            <div className="flex min-w-0 items-center gap-1" style={{ maxWidth: maxHeaderWidth }}>
+            <div className="flex min-w-0 items-center gap-1" style={{ maxWidth: headerMaxWidth }}>
                 <button
                     type="button"
                     // LibTV 标题行只展示节点类型图标；保留无障碍拖动按钮，但不额外绘制抓手，
@@ -863,11 +869,17 @@ function NodeStatusBadge({ status }: { status: "loading" | "success" | "error" }
 function ConnectionSideRail({ side, scale, theme, visible = false, onPointerDown }: { side: "left" | "right"; scale: number; theme: CanvasTheme; visible?: boolean; onPointerDown: (event: React.PointerEvent, anchorRatio: number) => void }) {
     const handleRef = useRef<HTMLSpanElement>(null);
     const [railHovered, setRailHovered] = useState(false);
-    const inverseScale = 1 / Math.max(scale, 0.05);
+    const railVisible = visible || railHovered;
+    // 只在手柄真的可见时注册逐帧实时倍率：live viewport 每帧都会给注册过的元素写一次变量，
+    // 把所有节点的隐藏手柄都注册进去等于白白翻一倍每帧写样式的开销。
+    useLayoutEffect(() => registerCanvasLiveScaleTarget(railVisible ? handleRef.current : null), [railVisible]);
+    const fallbackInverseScale = 1 / Math.max(scale, 0.05);
     const railSize = 80;
     // Keep the control responsive to zoom, but avoid sub-pixel circles and
     // strokes at far zoom levels where the plus sign appears visually off-center.
-    const handleSize = Math.max(20, 8 * inverseScale);
+    // 逆倍率必须取实时值而不是节点拿到的分档倍率：分档值在原倍率下方取整，直接相乘会让
+    // 手柄最多偏大约 19%，并在跨档时跳一格。尺寸由 CSS 变量驱动，逐帧跟随且不触发重渲染。
+    const handleSize = `max(20px, calc(8px * var(--canvas-live-inverse-scale, ${fallbackInverseScale})))`;
     // LibTV centers the visual quick-add icon in an approximately 80px
     // circular hit zone, then offsets it toward the node edge. Keep that
     // visual layer separate from the real centered connection anchor.
@@ -891,6 +903,7 @@ function ConnectionSideRail({ side, scale, theme, visible = false, onPointerDown
         // While the pointer is inside the rail LibTV uses the rail center as
         // the origin. The side-specific +/-25px offset is only the resting
         // position used after leaving the rail.
+        const inverseScale = readCanvasLiveInverseScale(handleRef.current, fallbackInverseScale);
         const offsetX = offsetScreenX * inverseScale;
         const offsetY = offsetScreenY * inverseScale;
         if (handleRef.current) handleRef.current.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${focus})`;
@@ -918,29 +931,30 @@ function ConnectionSideRail({ side, scale, theme, visible = false, onPointerDown
                 ref={handleRef}
                 className="absolute left-1/2 top-1/2 block transition-transform duration-[80ms] ease-out group-hover:brightness-125 group-focus-visible:brightness-125"
                 style={{
-                    width: handleSize,
-                    height: handleSize,
-                    marginLeft: -handleSize / 2,
-                    marginTop: -handleSize / 2,
+                    "--connection-handle-size": handleSize,
+                    width: "var(--connection-handle-size)",
+                    height: "var(--connection-handle-size)",
+                    marginLeft: "calc(var(--connection-handle-size) / -2)",
+                    marginTop: "calc(var(--connection-handle-size) / -2)",
                     transform: `translate(${sideOffset}px, 0) scale(1)`,
                     transition: "transform 80ms ease-out",
                     transformOrigin: "center",
                     willChange: "transform",
-                }}
+                } as React.CSSProperties}
             >
                 <svg
                     aria-hidden="true"
                     className="block"
-                    width={handleSize}
-                    height={handleSize}
                     viewBox="0 0 20 20"
                     fill="none"
                     style={{
                         position: "absolute",
                         left: "50%",
                         top: "50%",
-                        marginLeft: -handleSize / 2,
-                        marginTop: -handleSize / 2,
+                        width: "var(--connection-handle-size)",
+                        height: "var(--connection-handle-size)",
+                        marginLeft: "calc(var(--connection-handle-size) / -2)",
+                        marginTop: "calc(var(--connection-handle-size) / -2)",
                     }}
                 >
                     <circle cx="10" cy="10" r="9.35" fill={theme.spatial.elevated} />
