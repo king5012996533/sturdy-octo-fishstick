@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/gorm"
 	"infinite-canvas/backend/internal/beefapi"
+	canvasdomain "infinite-canvas/backend/internal/canvas"
 	"infinite-canvas/backend/internal/model"
 	"infinite-canvas/backend/internal/repository"
 )
@@ -744,6 +745,14 @@ func completeCloudAgentMediaNode(repo *repository.Repository, userID, canvasID, 
 			}
 			meta["content"], meta["storageKey"], meta["status"] = resourceFileURL(id), "resource:"+id, "success"
 			meta["naturalWidth"], meta["naturalHeight"] = resource.Width, resource.Height
+			// 画布媒体必须通过本人素材记录引用资源：少了这条绑定，这份画布之后既保存不了，
+			// 也不能再被 Agent 当参考图引用。客户端生成是自己登记素材的，Agent 生成在服务端回写，
+			// 所以这里补上同一条记录并绑定，和前端走同一种素材形状。
+			mediaAsset, assetErr := cloudAgentMediaAsset(repo, userID, node, *resource)
+			if assetErr != nil {
+				return stringValue(node["id"]), &cloudAgentMediaWritebackError{error: assetErr, reason: "media_asset_unavailable"}
+			}
+			meta["assetId"] = mediaAsset.ID
 			if resource.Width > 0 && resource.Height > 0 {
 				if width, ok := node["width"].(float64); ok && width > 0 {
 					node["height"] = width * float64(resource.Height) / float64(resource.Width)
@@ -754,4 +763,29 @@ func completeCloudAgentMediaNode(repo *repository.Repository, userID, canvasID, 
 		return stringValue(node["id"]), saveCloudAgentDocument(repo, canvas, doc, policy)
 	}
 	return "", &cloudAgentMediaWritebackError{error: creationConflict("目标生成节点不存在，未重建节点；任务记录仍保留在任务中心"), reason: "target_node_missing"}
+}
+
+// cloudAgentMediaAsset 返回该资源在素材库里的记录，缺少时按前端素材合同补建。
+// 复用 canvas 包的确定性 ID，同一份资源反复回写只会得到一条素材。
+func cloudAgentMediaAsset(repo *repository.Repository, userID string, node map[string]any, resource model.Resource) (*model.Asset, error) {
+	assetID := canvasdomain.MediaAssetIDForResource(userID, resource.ID)
+	existing, err := repo.AssetForUser(userID, assetID)
+	if err == nil && existing != nil {
+		return existing, nil
+	}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	payload, err := canvasdomain.CanvasMediaAssetDocument(assetID, stringValue(node["title"]), resource.Kind, resource)
+	if err != nil {
+		return nil, err
+	}
+	asset, err := canvasdomain.AssetFromJSON(userID, payload)
+	if err != nil {
+		return nil, err
+	}
+	if err := repo.UpsertAsset(&asset); err != nil {
+		return nil, err
+	}
+	return &asset, nil
 }

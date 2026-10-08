@@ -404,6 +404,21 @@ func (s *Service) upsertUserCanvasProjectWithAssets(userID string, raw json.RawM
 	var audit CanvasSaveAudit
 	createdAssets := 0
 	err = s.host.WithStorageLock(func() error {
+		// 指向本人已就绪资源、却没有素材记录的引用，先补建素材再落库。
+		// 这类画布以前只能整份拒绝保存（Agent 回写、历史数据都会留下这种状态），
+		// 用户看到的是"画布存不上、素材也用不了"，而缺失的只是一条可以确定的素材记录。
+		adopted, adoptErr := s.adoptCanvasMediaAssets(userID, raw, candidateAssets)
+		if adoptErr != nil {
+			return adoptErr
+		}
+		if len(adopted) > 0 {
+			bound, bindErr := bindCanvasMediaAssetIDs(raw, adopted)
+			if bindErr != nil {
+				return bindErr
+			}
+			raw = bound
+			candidateAssets = append(candidateAssets, adopted...)
+		}
 		if err := s.validateCanvasMediaAssetsWithCandidates(userID, raw, candidateAssets); err != nil {
 			return err
 		}

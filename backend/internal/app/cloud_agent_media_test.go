@@ -169,6 +169,18 @@ func TestCloudAgentMediaApprovalCreatesNodeReferencesAndResult(t *testing.T) {
 	if meta["status"] != "success" || meta["storageKey"] != "resource:output" {
 		t.Fatalf("result not persisted: %+v", meta)
 	}
+	// 画布媒体必须落在本人素材记录里，否则这份画布之后保存会被拒、也不能再被引用。
+	assetID, _ := meta["assetId"].(string)
+	if assetID == "" {
+		t.Fatalf("生成结果没有登记素材: %+v", meta)
+	}
+	storedAsset, err := s.repo.AssetForUser("user", assetID)
+	if err != nil || storedAsset == nil {
+		t.Fatalf("素材记录不存在: %v", err)
+	}
+	if !strings.Contains(storedAsset.PayloadJSON, "resource:output") {
+		t.Fatalf("素材没有指向生成资源: %s", storedAsset.PayloadJSON)
+	}
 	run, _ = s.repo.CloudAgent("user", run.ID)
 	state, _ = cloudAgentDecode(run)
 	found := false
