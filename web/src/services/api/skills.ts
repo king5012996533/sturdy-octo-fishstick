@@ -53,8 +53,24 @@ export type Skill = {
     isTest: boolean;
     extraInfo: string;
     isAdded: boolean;
+    /**
+     * 当前账号在创作时能不能直接选它。
+     *
+     * 与 isAdded 分开：isAdded 只表示用户手动把它加进了「我的技能」，而平台内置技能
+     * 默认就可用。选择器要按 usable 过滤，否则内置技能永远进不了 Agent 的技能清单。
+     */
+    isUsable: boolean;
     isOwner: boolean;
 };
+
+/** skillIsUsable 兜住老后端：没有 isUsable 字段时退回 isAdded 的语义。 */
+export function skillIsUsable(skill: Skill) {
+    return Boolean(skill.isUsable) || Boolean(skill.isAdded);
+}
+
+export function usableSkills(skills: Skill[]) {
+    return skills.filter(skillIsUsable);
+}
 
 export type SkillCategory = { value: string; label: string };
 

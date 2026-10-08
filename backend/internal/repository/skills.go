@@ -30,8 +30,13 @@ func (r *Repository) Skills(filter SkillListFilter) ([]model.Skill, int64, error
 	query := r.db.Model(&model.Skill{}).Where("skills.status = ?", 1)
 	switch filter.Scope {
 	case "mine":
+		// 「我的技能」= 自己建的 + 手动加入的 + 平台内置。
+		//
+		// 内置技能不要求先「加入」才出现：它们本来就是平台给所有账号的能力，而要求
+		// 手动加入的实际后果是 Agent 的技能选择器在默认情况下是空的——线上 33 个内置
+		// 技能长期 0 安装，就是因为这一步没人做。
 		query = query.Joins("LEFT JOIN user_skill_states ON user_skill_states.skill_id = skills.id AND user_skill_states.user_id = ?", filter.UserID).
-			Where("skills.owner_id = ? OR (user_skill_states.added = ? AND skills.is_private = ?)", filter.UserID, true, false)
+			Where("skills.owner_id = ? OR (skills.is_private = ? AND (user_skill_states.added = ? OR skills.source_type = ?))", filter.UserID, false, true, "builtin")
 	case "created":
 		query = query.Where("skills.owner_id = ?", filter.UserID)
 	case "favorites":

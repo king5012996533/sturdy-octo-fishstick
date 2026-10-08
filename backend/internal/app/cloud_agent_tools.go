@@ -49,8 +49,9 @@ func (s *Service) cloudAgentSkills(userID string, ids []string) ([]cloudAgentSki
 		if err != nil {
 			return nil, err
 		}
-		if !skill.IsAdded || skill.Status != 1 {
-			return nil, BadAuthRequest("只能使用用户技能库中已安装且启用的技能")
+		// IsUsable 而不是 IsAdded：内置技能对所有账号默认可用，不要求先手动加入。
+		if !skill.IsUsable || skill.Status != 1 {
+			return nil, BadAuthRequest("只能使用当前账号可用的技能（自己创建的、已加入的，或平台内置的）")
 		}
 		// Skill content is loaded only after the model explicitly calls
 		// skill_read_file; keep the run context to stable metadata and paths.
@@ -449,7 +450,7 @@ func cloudAgentReadTool(repo *repository.Repository, userID string, state *cloud
 					if err != nil {
 						return nil, err
 					}
-					if !detail.IsAdded || detail.Status != 1 || detail.VersionID != skill.Version || detail.ContentHash != skill.Hash {
+					if !detail.IsUsable || detail.Status != 1 || detail.VersionID != skill.Version || detail.ContentHash != skill.Hash {
 						return nil, creationConflict("技能已更新或不可用，请重试")
 					}
 					if args.Path == cloudAgentSkillEntryPath {
@@ -469,7 +470,7 @@ func cloudAgentReadTool(repo *repository.Repository, userID string, state *cloud
 					if err != nil {
 						return nil, err
 					}
-					if !latest.IsAdded || latest.Status != 1 || latest.VersionID != skill.Version || latest.ContentHash != skill.Hash {
+					if !latest.IsUsable || latest.Status != 1 || latest.VersionID != skill.Version || latest.ContentHash != skill.Hash {
 						return nil, creationConflict("技能已更新或不可用，请重试")
 					}
 					return cloudAgentSkillPage(skill.Version, args.Path, file.Content, args.Offset)

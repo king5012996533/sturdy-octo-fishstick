@@ -2,6 +2,8 @@ import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-refer
 import {
     getSkillFile,
     listSkillFiles,
+    skillIsUsable,
+    usableSkills,
     type Skill,
     type SkillPackageFile,
 } from "@/services/api/skills";
@@ -91,7 +93,9 @@ const TEXT_FILE_EXTENSIONS = new Set([".md", ".mdx", ".txt", ".json", ".yaml", "
 const EMPTY_PROVENANCE: SkillRuntimeProvenance = { skillIds: [], skillVersions: [], skillFiles: [] };
 
 export function resolveSkillMentions(prompt: string, skills: Skill[], selectedSkillIds?: string[]) {
-    const activeSkills = skills.filter((skill) => skill.isAdded);
+    // 按 usable 而不是 isAdded 过滤：调用方传进来的清单已经包含平台内置技能，这里再按
+    // 「手动加入」筛一遍会把内置技能全部丢掉，@ 提了技能名也解析不出来。
+    const activeSkills = usableSkills(skills);
     if (!activeSkills.length) return [];
     if (selectedSkillIds) {
         const byId = new Map(activeSkills.map((skill) => [skill.skillId, skill]));
@@ -111,7 +115,7 @@ export function resolveSkillMentions(prompt: string, skills: Skill[], selectedSk
 
 export function buildSkillMentionReferences(skills: Skill[]): CanvasResourceReference[] {
     return skills
-        .filter((skill) => skill.isAdded)
+        .filter(skillIsUsable)
         .map((skill) => ({
             id: `skill:${skill.skillId}`,
             nodeId: `skill:${skill.skillId}`,

@@ -20,6 +20,12 @@ import (
 const (
 	skillStatusEnabled = 1
 	skillSourceUser    = 1
+	// skillSourceTypeBuiltin 是平台内置技能的来源标记，由 EnsureSkillPackages 写入。
+	//
+	// 内置技能（随二进制分发的 33 个）是平台能力的一部分，不是某个账号的私有资产：
+	// 它们对所有账号默认可用，用户不需要先点一次「加入我的技能」。这条区分必须落在
+	// 来源上而不是「谁建的」——内置技能的 owner_id 是内容作者，不是登录用户。
+	skillSourceTypeBuiltin = "builtin"
 )
 
 var skillCategoryLabels = map[string]string{
@@ -80,7 +86,13 @@ type SkillItem struct {
 	IsTest          bool                 `json:"isTest"`
 	ExtraInfo       string               `json:"extraInfo"`
 	IsAdded         bool                 `json:"isAdded"`
-	IsOwner         bool                 `json:"isOwner"`
+	// IsUsable 是「当前账号在创作时能不能直接选它」。
+	//
+	// 与 IsAdded 分开而不是复用它：IsAdded 只表示用户手动把它加进了「我的技能」，
+	// 而内置技能默认就该可用。若把内置技能也标成 isAdded，卸载就变成一个说不通的
+	// 操作（点掉之后它还在），也会让「我的技能」分不清哪些是自己收进来的。
+	IsUsable bool `json:"isUsable"`
+	IsOwner  bool `json:"isOwner"`
 }
 
 type SkillCategory struct {
@@ -312,9 +324,18 @@ func (s *Service) skillItems(userID string, skills []model.Skill, includeInstruc
 			LikeCount: metric.LikeCount, IsLike: state.Liked, OwnerUID: skill.OwnerID,
 			EffectiveUser: SkillEffectiveUser{Name: ownerName, AvatarURL: ownerAvatarURL, UID: skill.OwnerID}, ShowcaseMedia: showcaseMedia,
 			AddedCount: metric.AddedCount, ExtraInfo: skill.ExtraInfo, IsAdded: state.Added || skill.OwnerID == userID, IsOwner: skill.OwnerID == userID,
+			IsUsable: state.Added || skill.OwnerID == userID || skillIsBuiltin(skill),
 		})
 	}
 	return items, nil
+}
+
+// skillIsBuiltin 判断一个技能是不是平台内置。
+//
+// 只看来源标记，不看 owner_id：内置技能的 owner_id 是内容作者（几个非登录用户的 ID），
+// 拿它判断会把「作者本人」和「所有用户」混为一谈。
+func skillIsBuiltin(skill model.Skill) bool {
+	return skill.SourceType == skillSourceTypeBuiltin
 }
 
 // 所有详情和关系写入都先经过同一可见性边界，避免私有技能通过加入、收藏或画布接口泄露正文。

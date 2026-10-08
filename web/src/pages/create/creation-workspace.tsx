@@ -11,7 +11,6 @@ import { AppModal } from "@/components/ui/product/app-modal";
 import { useWorkspaceTopBarMount } from "@/components/layout/workspace-top-bar-extension";
 import { Tooltip } from "@/components/ui/base/tooltip";
 import { Reorder, motion } from "motion/react";
-import { useNavigate } from "react-router";
 import { ArrowDown, ArrowUp, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, Copy, Download, FileText, Film, History, Image as ImageIcon, LoaderCircle, Maximize2, MessageSquareText, Minimize2, MoreHorizontal, Music2, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Sparkles, Trash2, UserRound, WandSparkles, Waves, X } from "lucide-react";
 
 import { AIMessageMarkdown } from "@/components/ai/ai-message-markdown";
@@ -36,7 +35,7 @@ import { useCopyText } from "@/hooks/use-copy-text";
 import { buildImageResolutionOptions, formatImageResolutionSize, supportsImageResolutionPresets } from "@/lib/image-resolution-tiers";
 import { modelCapabilityConfigFor, normalizeVideoValue, videoDurationConfigFor, videoDurationOptions, type ImageCapabilityConfig, type VideoCapabilityConfig } from "@/lib/model-capabilities";
 import { mergedImageCapabilityConfig, type ModelRequirements } from "@/lib/model-selection";
-import { listAddedSkills, type Skill } from "@/services/api/skills";
+import { listAddedSkills, usableSkills, type Skill } from "@/services/api/skills";
 import { resolveResourceUrl } from "@/services/api/resources";
 import { resolveMediaUrl } from "@/services/file-storage";
 import { modelOptionName, resolveModelChannel, type AiConfig } from "@/stores/use-config-store";
@@ -764,14 +763,6 @@ function DurationMenu({ profile, resolution, seconds, onChange }: { profile: Vid
     </Popover>;
 }
 
-const creationSkillWorks = [
-    { title: "东方巨构美学短剧", description: "一站式生成东方巨构美学短剧", image: "/short-drama-styles/ink-narrative.jpg", prompt: "@xianxia-drama-planner 规划一个东方巨构美学短剧的第一幕", author: "鲍鱼chill", uses: "4.4k" },
-    { title: "仙侠氛围美学短片", description: "仙侠氛围美学短片", image: "/short-drama-styles/fantasy-3d.jpg", prompt: "@oriental-aesthetic-film 设计一段仙侠氛围美学短片", author: "鲍鱼chill", uses: "2.3k" },
-    { title: "梦核美学", description: "从概念到成片一体化创作梦核视觉短片", image: "/short-drama-styles/nature-healing.jpg", prompt: "@dreamcore-generator 创作一段梦核视觉短片", author: "鲍鱼chill", uses: "1.3k" },
-    { title: "A24电影美学", description: "高级怪诞电影美学，以作者视角，用粗粝真实的镜头语言", image: "/short-drama-styles/real-life.jpg", prompt: "@a24-cinematic-aesthetic 设计一段 A24 电影美学镜头", author: "鲍鱼chill", uses: "1.4k" },
-    { title: "POP MV", description: "一句话生成国际流行音乐 MV 创作方案", image: "/short-drama-styles/cyberpunk-neon.jpg", prompt: "@pop-music-video 设计一支 POP MV", author: "鲍鱼chill", uses: "2.6k" },
-    { title: "真实感美妆UGC产品种草", description: "把美妆卖点变成可见证据与自然口播", image: "/short-drama-styles/urban-live-action.jpg", prompt: "@beauty-blogger-reviewer 设计一支美妆 UGC", author: "刘不住Wa...", uses: "2.1k" },
-];
 /**
  * onStartPrompt 只搬提示词，给 Skill 卡片用（它的 prompt 本来就是自包含的一段指令）；
  * onUseInspiration 会把"复刻配方"（参考图、时长比例）一起带进创作台，见
@@ -779,12 +770,11 @@ const creationSkillWorks = [
  * 在调用点上就看得出一处只搬文字、另一处要搬素材。
  */
 export function CreationFeaturedWorks({ onStartPrompt, onUseInspiration }: { onStartPrompt: (mode: CreationMode, prompt: string) => void; onUseInspiration: (item: CreationInspiration) => void }) {
-    const navigate = useNavigate();
     const [filter, setFilter] = useState<"all" | CreationMode>("all");
     const [collection, setCollection] = useState<"inspiration" | "skill">("inspiration");
     const [skillSection, setSkillSection] = useState<"recommended" | "mine">("recommended");
-    const [mySkills, setMySkills] = useState<Skill[]>([]);
-    const [mySkillsLoaded, setMySkillsLoaded] = useState(false);
+    const [skillCatalog, setSkillCatalog] = useState<Skill[]>([]);
+    const [skillsLoaded, setSkillsLoaded] = useState(false);
     const [remoteInspirations, setRemoteInspirations] = useState<CreationInspiration[] | null>(null);
     // 正在播放的作品。成片留在上游、动辄几百兆，只有这里为真时才会创建 <video>，
     // 关闭即销毁 —— 广场列表本身永远不挂播放器。
@@ -802,24 +792,23 @@ export function CreationFeaturedWorks({ onStartPrompt, onUseInspiration }: { onS
             .catch(() => {});
         return () => { cancelled = true; };
     }, []);
+    // 技能清单来自真实技能库，不再是一份写死的 slug 列表：写死的卡片点下去只会把
+    // @不存在的技能名 填进输入框，既解析不到技能，也让人以为点了就等于用了技能。
     useEffect(() => {
-        if (!isSkill || skillSection !== "mine" || mySkillsLoaded) return;
+        if (!isSkill || skillsLoaded) return;
         let cancelled = false;
         void listAddedSkills()
-            .then(({ skills }) => { if (!cancelled) setMySkills(skills); })
-            .catch(() => { if (!cancelled) setMySkills([]); })
-            .finally(() => { if (!cancelled) setMySkillsLoaded(true); });
+            .then(({ skills }) => { if (!cancelled) setSkillCatalog(usableSkills(skills)); })
+            .catch(() => { if (!cancelled) setSkillCatalog([]); })
+            .finally(() => { if (!cancelled) setSkillsLoaded(true); });
         return () => { cancelled = true; };
-    }, [isSkill, mySkillsLoaded, skillSection]);
-    const installedSkillWorks = mySkills.map((skill) => ({
-        title: skill.skillName,
-        description: skill.description || "已安装到本地工作区",
-        image: skill.showcaseMedia[0]?.showcaseUrl || "/short-drama-styles/urban-live-action.jpg",
-        prompt: `@${skill.skillName} `,
-        author: skill.effectiveUser?.name || "本地 Skill",
-        uses: skill.version || "已安装",
-    }));
-    const visibleSkills = skillSection === "mine" ? installedSkillWorks : creationSkillWorks;
+    }, [isSkill, skillsLoaded]);
+    const recommendedSkills = useMemo(() => {
+        const builtin = skillCatalog.filter((skill) => skill.sourceType === "builtin");
+        return (builtin.length ? builtin : skillCatalog).slice(0, 6);
+    }, [skillCatalog]);
+    const mySkills = useMemo(() => skillCatalog.filter((skill) => skill.isAdded), [skillCatalog]);
+    const visibleSkills = skillSection === "mine" ? mySkills : recommendedSkills;
     return <section className="creation-featured-works" aria-labelledby="creation-featured-title">
         <div className="creation-featured-heading">
             {/* 这一行照抄参考页的字卡节奏：栏目名 + 全大写小标。 */}
@@ -844,16 +833,15 @@ export function CreationFeaturedWorks({ onStartPrompt, onUseInspiration }: { onS
                 <button type="button" role="tab" aria-selected={skillSection === "recommended"} onClick={() => setSkillSection("recommended")}>推荐</button>
                 <button type="button" role="tab" aria-selected={skillSection === "mine"} onClick={() => setSkillSection("mine")}>我的</button>
             </div>
-            {skillSection === "mine" ? <button type="button" className="creation-skill-create" onClick={() => navigate("/skills?create=1")}><Plus size={16} />创建 Skill</button> : null}
         </div> : null}
         <div className={`creation-featured-layout ${isSkill ? "creation-skill-grid" : ""}`}>
-                {isSkill ? visibleSkills.map((item) => <button key={item.title} type="button" className="product-collection-card creation-featured-card creation-skill-card" onClick={() => onStartPrompt("video", item.prompt)}>
-                    <span className="creation-featured-media"><img src={item.image} alt="" loading="lazy" /><span className="creation-skill-type">视频</span><span className="creation-skill-hover-use"><Sparkles />使用</span></span>
-                    <span className="creation-featured-copy"><strong>{item.title}</strong><span>{item.description}</span><em><Sparkles />{item.author} · {item.uses}</em>
+                {isSkill ? visibleSkills.map((skill) => <button key={skill.skillId} type="button" className="product-collection-card creation-featured-card creation-skill-card" onClick={() => onStartPrompt("text", `@${skill.skillName} `)}>
+                    <span className="creation-featured-media"><img src={skill.showcaseMedia[0]?.showcaseUrl || "/short-drama-styles/urban-live-action.jpg"} alt="" loading="lazy" /><span className="creation-skill-type">Skill</span><span className="creation-skill-hover-use"><Sparkles />使用</span></span>
+                    <span className="creation-featured-copy"><strong>{skill.skillName}</strong><span>{skill.description || "暂无技能说明"}</span><em><Sparkles />{skill.effectiveUser?.name || "KinoTV"} · v{skill.version || "1"}</em>
                     </span>
                 </button>) : filtered.map((item, index) => <CreationInspirationCard key={item.title} item={item} hero={index === 0} onStart={() => onUseInspiration(item)} onPlay={item.videoUrl ? () => setPlayingInspiration(item) : undefined} />)}
         </div>
-        {isSkill && skillSection === "mine" && mySkillsLoaded && !visibleSkills.length ? <div className="creation-skill-empty"><Sparkles /><strong>还没有安装 Skill</strong><span>上传、安装或创建一个 Skill 后，它会显示在这里。</span></div> : null}
+        {isSkill && skillsLoaded && !visibleSkills.length ? <div className="creation-skill-empty"><Sparkles /><strong>{skillSection === "mine" ? "还没有加入 Skill" : "技能库暂时为空"}</strong><span>{skillSection === "mine" ? "在画布 Agent 的「Skills 技能库」里加入技能后，它会显示在这里。" : "技能库随版本发布，稍后再试。"}</span></div> : null}
         <CreationInspirationFooter count={isSkill ? visibleSkills.length : filtered.length} unit={isSkill ? "个 Skill" : "个创意"} />
         {playingInspiration ? <CreationInspirationPlayer
             item={playingInspiration}

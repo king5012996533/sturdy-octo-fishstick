@@ -88,7 +88,7 @@ export function CanvasAgentSkillLibraryModal({
         return [{ value: "all", label: "全部" }, ...unique.values()];
     }, [categories]);
 
-    const emptyText = tab === "enabled" ? "本轮还没有启用 Skill，可在“已加入”中选择" : tab === "installed" ? "还没有匹配的已加入 Skill，可前往“发现 Skills”添加" : "没有匹配的公开 Skill，换个关键词或分类试试";
+    const emptyText = tab === "enabled" ? "本轮还没有启用 Skill，可在“可用”中选择" : tab === "installed" ? "没有匹配的可用 Skill，可前往“发现 Skills”添加" : "没有匹配的公开 Skill，换个关键词或分类试试";
 
     return (
         <AppModal rootClassName="canvas-agent-skill-library-modal" open={open} title={null} footer={null} centered width="min(1180px, calc(100vw - 24px))" onCancel={onClose} flush>
@@ -111,7 +111,8 @@ export function CanvasAgentSkillLibraryModal({
                 <div className="canvas-agent-skill-library-toolbar">
                     <div className="canvas-agent-skill-library-tabs" role="tablist" aria-label="Skills 视图">
                         <SkillTab active={tab === "enabled"} label="已启用" count={selectedCount} onClick={() => setTab("enabled")} />
-                        <SkillTab active={tab === "installed"} label="已加入" count={installedSkills.length} onClick={() => setTab("installed")} />
+                        {/* 「可用」= 平台内置 + 自己加入的：内置技能不该要求用户先手动加入一次。 */}
+                        <SkillTab active={tab === "installed"} label="可用" count={installedSkills.length} onClick={() => setTab("installed")} />
                         <SkillTab active={tab === "market"} label="发现 Skills" onClick={() => setTab("market")} />
                     </div>
                     <Input
@@ -254,7 +255,7 @@ function SkillLibraryCard({
                 </div>
             </div>
             <div className="canvas-agent-skill-card-action">
-                {skill.isAdded ? (
+                {skill.isUsable ? (
                     <Button
                         size="small"
                         type="default"

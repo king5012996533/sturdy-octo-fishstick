@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Select } from "antd";
 
-import { listAddedSkills, type Skill } from "@/services/api/skills";
+import { listAddedSkills, usableSkills, type Skill } from "@/services/api/skills";
 import { SKILL_RUNTIME_PROFILES, type SkillRuntimeProfile } from "@/services/skill-runtime";
 
 export function useSkillRuntimeCatalog() {
@@ -12,7 +12,7 @@ export function useSkillRuntimeCatalog() {
         let cancelled = false;
         listAddedSkills()
             .then((result) => {
-                if (!cancelled) setSkills(result.skills.filter((skill) => skill.isAdded));
+                if (!cancelled) setSkills(usableSkills(result.skills));
             })
             .catch(() => {
                 if (!cancelled) setSkills([]);
