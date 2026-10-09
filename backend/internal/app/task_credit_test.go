@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 	"testing"
+	"time"
 
 	"infinite-canvas/backend/internal/model"
 )
@@ -358,6 +359,12 @@ func TestTaskRefundVerdictFollowsUpstreamSubmissionEvidence(t *testing.T) {
 			wantRefund: false,
 		},
 		{
+			name:       "失败发生在出站请求之前：上游连请求都没收到",
+			task:       &model.Task{ID: "task-d2", UserID: "user-1"},
+			attempts:   []model.RouteAttempt{{DispatchState: "failed_before_send"}},
+			wantRefund: true,
+		},
+		{
 			name:       "已经拿到上游任务 ID",
 			task:       &model.Task{ID: "task-e", UserID: "user-1", ProviderRequestID: "pred-1"},
 			wantRefund: false,
@@ -443,5 +450,99 @@ func TestRefundTaskCreditsRefundsBeforeAnyDispatch(t *testing.T) {
 	svc.refundTaskCredits(&model.Task{ID: "task-10", UserID: "user-1"}, nil, "任务取消退回预扣")
 	if len(ledger.refunds) != 1 || ledger.refunds[0] != "task-10|任务取消退回预扣" {
 		t.Fatalf("请求未发出时应退回预扣，实际 %v", ledger.refunds)
+	}
+}
+
+// TestFinishTaskRouteAttemptSeparatesNeverSentFromLostReceipt 覆盖失败定责。
+//
+// 同样是"失败且没有上游任务 ID"，本地预检失败和把请求发出去却丢了回执对退款的含义完全相反：
+// 前者上游不可能建任务、不可能计费；后者很可能已经受理。定责错了，要么用户白付，要么平台
+// 替上游买单。
+func TestFinishTaskRouteAttemptSeparatesNeverSentFromLostReceipt(t *testing.T) {
+	cases := []struct {
+		name         string
+		providerID   string
+		issued       bool
+		taskErr      error
+		wantDispatch string
+		wantRefund   bool
+	}{
+		{
+			name:         "请求从未发出",
+			taskErr:      errors.New("任务输入解析失败：json: cannot unmarshal bool into Go struct field providerConfig.config.videoGenerateAudio of type string"),
+			wantDispatch: "failed_before_send",
+			wantRefund:   true,
+		},
+		{
+			name:         "发出去但丢了回执",
+			issued:       true,
+			taskErr:      errors.New("上游连接被重置"),
+			wantDispatch: "submission_unknown",
+			wantRefund:   false,
+		},
+		{
+			name:         "上游明确拒绝且没建任务",
+			issued:       true,
+			taskErr:      providerHTTPError{StatusCode: 403, Status: "403 Forbidden", Body: `{"error":"forbidden"}`},
+			wantDispatch: "rejected_no_job",
+			wantRefund:   true,
+		},
+		{
+			name:         "已经拿到上游任务 ID",
+			providerID:   "pred-1",
+			issued:       true,
+			taskErr:      errors.New("轮询超时"),
+			wantDispatch: "accepted",
+			wantRefund:   false,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			svc, _ := newTaskCreditTestService(t)
+			task := &model.Task{ID: "task-dispatch", UserID: "user-1", RouteRun: 1, ProviderRequestID: testCase.providerID}
+			attempt := &model.RouteAttempt{ID: "ATTEMPT1", TaskID: task.ID, RouteRun: task.RouteRun, AttemptNumber: 1, Status: "dispatching", DispatchState: "submission_unknown", StartedAt: time.Now()}
+			if err := svc.repo.CreateRouteAttempt(attempt); err != nil {
+				t.Fatalf("写入提交记录失败: %v", err)
+			}
+			svc.finishTaskRouteAttempt(attempt, task, testCase.taskErr, testCase.issued)
+
+			attempts, err := svc.repo.RouteAttempts(task.ID, task.RouteRun)
+			if err != nil {
+				t.Fatalf("读取提交记录失败: %v", err)
+			}
+			if len(attempts) != 1 {
+				t.Fatalf("提交记录条数 = %d", len(attempts))
+			}
+			if got := attempts[0].DispatchState; got != testCase.wantDispatch {
+				t.Fatalf("提交状态 = %q，期望 %q", got, testCase.wantDispatch)
+			}
+			refundable, _ := svc.taskRefundVerdict(task, testCase.taskErr)
+			if refundable != testCase.wantRefund {
+				t.Fatalf("退款判定 = %v，期望 %v", refundable, testCase.wantRefund)
+			}
+		})
+	}
+}
+
+// TestProviderDispatchRecordTracksOutboundRequest 覆盖"请求到底有没有发出去"的标记。
+//
+// 这个标记只在进程内有效，但它是 failed_before_send 与 submission_unknown 的唯一区分依据，
+// 所以必须能穿过 context 传到出站收口点。
+func TestProviderDispatchRecordTracksOutboundRequest(t *testing.T) {
+	record := &providerDispatchRecord{}
+	ctx := withProviderDispatchRecord(context.Background(), record)
+	if record.requestIssued() {
+		t.Fatal("还没发请求就不该标记为已发出")
+	}
+	markProviderRequestIssued(ctx)
+	if !record.requestIssued() {
+		t.Fatal("出站后必须标记为已发出")
+	}
+	// 没有挂记录时不能 panic：轮询、下载等路径也会经过同一个收口点。
+	markProviderRequestIssued(context.Background())
+	var nilRecord *providerDispatchRecord
+	if nilRecord.requestIssued() {
+		t.Fatal("空记录必须报告未发出")
 	}
 }

@@ -326,6 +326,9 @@ func doBinaryWithConsumer(req *http.Request, onChunk func(string, []byte)) ([]by
 	}
 	ApplyDefaultOutboundHeaders(req)
 	client := OutboundHTTPClient(requestTimeout)
+	// 出站唯一收口点：任务失败定责要用"这次尝试到底有没有发出请求"（见
+	// Service.finishTaskRouteAttempt / taskDispatchedToProvider）。
+	markProviderRequestIssued(req.Context())
 	resp, err := client.Do(req)
 	if err != nil {
 		if runtimeService != nil {

@@ -40,7 +40,7 @@ func (p *taskRouteExecutionPortStub) refreshTaskProviderState(*model.Task) error
 	return nil
 }
 
-func (p *taskRouteExecutionPortStub) finishTaskRouteAttempt(attempt *model.RouteAttempt, _ *model.Task, taskErr error) {
+func (p *taskRouteExecutionPortStub) finishTaskRouteAttempt(attempt *model.RouteAttempt, _ *model.Task, taskErr error, _ bool) {
 	if taskErr == nil {
 		p.finished = append(p.finished, attempt.RouteID+":succeeded")
 		return

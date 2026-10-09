@@ -16,7 +16,7 @@ type taskRouteExecutionPort interface {
 	markRouteAttemptDispatching(attempt *model.RouteAttempt) error
 	processTask(ctx context.Context, task model.Task) (map[string]interface{}, []map[string]interface{}, error)
 	refreshTaskProviderState(task *model.Task) error
-	finishTaskRouteAttempt(attempt *model.RouteAttempt, task *model.Task, taskErr error)
+	finishTaskRouteAttempt(attempt *model.RouteAttempt, task *model.Task, taskErr error, providerRequestIssued bool)
 	nextRouteAttemptAfterFailure(task *model.Task, attempt *model.RouteAttempt, taskErr error) (*model.RouteAttempt, error)
 	log(userID string, taskID string, level string, message string, payload string) error
 }
@@ -32,7 +32,7 @@ type taskRouteServiceAdapter struct {
 	markDispatching  func(*model.RouteAttempt) error
 	process          func(context.Context, model.Task) (map[string]interface{}, []map[string]interface{}, error)
 	refreshState     func(*model.Task) error
-	finishAttempt    func(*model.RouteAttempt, *model.Task, error)
+	finishAttempt    func(*model.RouteAttempt, *model.Task, error, bool)
 	nextAfterFailure func(*model.Task, *model.RouteAttempt, error) (*model.RouteAttempt, error)
 	writeLog         func(string, string, string, string, string) error
 }
@@ -49,8 +49,8 @@ func (a taskRouteServiceAdapter) refreshTaskProviderState(task *model.Task) erro
 	return a.refreshState(task)
 }
 
-func (a taskRouteServiceAdapter) finishTaskRouteAttempt(attempt *model.RouteAttempt, task *model.Task, taskErr error) {
-	a.finishAttempt(attempt, task, taskErr)
+func (a taskRouteServiceAdapter) finishTaskRouteAttempt(attempt *model.RouteAttempt, task *model.Task, taskErr error, providerRequestIssued bool) {
+	a.finishAttempt(attempt, task, taskErr, providerRequestIssued)
 }
 
 func (a taskRouteServiceAdapter) nextRouteAttemptAfterFailure(task *model.Task, attempt *model.RouteAttempt, taskErr error) (*model.RouteAttempt, error) {
@@ -84,11 +84,12 @@ func (e *taskRouteExecutor) execute(ctx context.Context, task *model.Task, attem
 			execution.err = dispatchErr
 			break
 		}
-		execution.result, execution.canvasOps, execution.err = e.port.processTask(withProviderSubmissionKey(ctx, attempt), *task)
+		dispatch := &providerDispatchRecord{}
+		execution.result, execution.canvasOps, execution.err = e.port.processTask(withProviderDispatchRecord(withProviderSubmissionKey(ctx, attempt), dispatch), *task)
 		if stateErr := e.port.refreshTaskProviderState(task); stateErr != nil {
 			return taskRouteExecutionResult{}, stateErr
 		}
-		e.port.finishTaskRouteAttempt(attempt, task, execution.err)
+		e.port.finishTaskRouteAttempt(attempt, task, execution.err, dispatch.requestIssued())
 		if execution.err == nil {
 			break
 		}

@@ -1257,7 +1257,7 @@ func (s *Service) resolveArchivedTaskRoute(task *model.Task, intent ModelRequest
 	return &RoutedModel{LogicalModel: *logicalModel, Revision: *revision, Route: *route, ChannelModel: *channelModel, Defaults: defaults}, nil
 }
 
-func (s *Service) finishTaskRouteAttempt(attempt *model.RouteAttempt, task *model.Task, taskErr error) {
+func (s *Service) finishTaskRouteAttempt(attempt *model.RouteAttempt, task *model.Task, taskErr error, providerRequestIssued bool) {
 	if attempt == nil {
 		return
 	}
@@ -1277,6 +1277,11 @@ func (s *Service) finishTaskRouteAttempt(attempt *model.RouteAttempt, task *mode
 			attempt.DispatchState = "accepted"
 		} else if safeRouteRejection(taskErr) {
 			attempt.DispatchState = "rejected_no_job"
+		} else if !providerRequestIssued {
+			// 失败发生在出站请求之前（本地预检、任务输入解析、请求体构建等）。上游连请求
+			// 都没收到，不可能建任务，也就不可能计费；如实记成"未提交"，退款判据才能把
+			// 它与"发出去了但没拿到回执"的 submission_unknown 区分开。
+			attempt.DispatchState = "failed_before_send"
 		} else {
 			attempt.DispatchState = "submission_unknown"
 		}

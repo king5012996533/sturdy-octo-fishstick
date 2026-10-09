@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,6 +34,35 @@ func uncertainVideoSubmission(ctx context.Context, err error) error {
 		return providerSubmissionUnknownError{Cause: err}
 	}
 	return err
+}
+
+// providerDispatchRecord 记录"这次尝试是否真的向上游发出过请求"。
+//
+// 退款判据（Service.taskRefundVerdict）只认"能不能证明上游没有受理这次请求"。提交记录停在
+// submission_unknown 时，请求可能已经出去、也可能根本没出去：本地预检、任务输入解析、
+// 请求体构建这些失败都发生在发出请求之前。有了这个进程内标记，就能把"从未发出"和"发出去了
+// 但没拿到回执"分开——前者上游不可能建任务，也就不可能计费。
+type providerDispatchRecord struct{ issued atomic.Bool }
+
+type providerDispatchRecordContext struct{}
+
+func withProviderDispatchRecord(ctx context.Context, record *providerDispatchRecord) context.Context {
+	if record == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, providerDispatchRecordContext{}, record)
+}
+
+// markProviderRequestIssued 在真正发起出站请求之前调用。它只表示"我们已经尝试发出"，
+// 因此连接层面的失败仍算已发出——那种情况下上游可能已经受理并计费。
+func markProviderRequestIssued(ctx context.Context) {
+	if record, _ := ctx.Value(providerDispatchRecordContext{}).(*providerDispatchRecord); record != nil {
+		record.issued.Store(true)
+	}
+}
+
+func (r *providerDispatchRecord) requestIssued() bool {
+	return r != nil && r.issued.Load()
 }
 
 func withProviderSubmissionKey(ctx context.Context, attempt *model.RouteAttempt) context.Context {
