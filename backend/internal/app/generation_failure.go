@@ -16,6 +16,10 @@ func classifyTaskFailure(err error) generation.Failure {
 	if err == nil {
 		return generation.ClassifyError(nil)
 	}
+	var providerTaskFailed providerTaskFailedError
+	if errors.As(err, &providerTaskFailed) {
+		return applyAppFailureWrappers(err, classifyProtocolTaskFailure(providerTaskFailed))
+	}
 	var httpErr providerHTTPError
 	if errors.As(err, &httpErr) {
 		failure := classifyProviderHTTP(httpErr)
@@ -40,6 +44,20 @@ func classifyTaskFailure(err error) generation.Failure {
 		return applyAppFailureWrappers(err, failure)
 	}
 	return applyAppFailureWrappers(err, generation.ClassifyError(err))
+}
+
+// classifyProtocolTaskFailure 处理"上游已经给出终态结论"的失败。
+//
+// 上游原话先过一遍通用规则：审核驳回、参数非法、额度不足这些本来就有专属文案和退款口径，
+// 不能被"异步任务失败"这个更粗的类目盖掉。都不认领时才按 async_failed 归：上游明确说这次
+// 生成没有产出，既不会再有结果，也不该让用户付钱。
+func classifyProtocolTaskFailure(failed providerTaskFailedError) generation.Failure {
+	if message := strings.TrimSpace(failed.Message); message != "" {
+		if failure := generation.ClassifyText(message); failure.Category != generation.CategoryUnknown {
+			return failure
+		}
+	}
+	return generation.AsyncFailedFailure(failed.Message)
 }
 
 func applyAppFailureWrappers(err error, failure generation.Failure) generation.Failure {

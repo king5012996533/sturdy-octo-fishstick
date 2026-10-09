@@ -979,15 +979,29 @@ func retryableProtocolMediaDownload(err error) bool {
 	return false
 }
 
-func protocolResultError(message, taskID string) error {
-	message = strings.TrimSpace(message)
+// providerTaskFailedError 表示上游用响应正文明确回执这次生成没有产出（failed / cancelled / timeout）。
+//
+// 它与"请求发出去了但没拿到回执"正好相反：上游已经给出终态结论，既不会再有结果，也就不该
+// 让用户为它付钱（见 Service.taskRefundVerdict）。Message 保留上游原话，便于定责与展示；
+// Error() 里的包装只给日志和排查用，不能整段丢给用户。
+type providerTaskFailedError struct {
+	Message string
+	TaskID  string
+}
+
+func (e providerTaskFailedError) Error() string {
+	message := strings.TrimSpace(e.Message)
 	if message == "" {
 		message = "上游返回失败状态"
 	}
-	if taskID == "" {
-		return errors.New(message)
+	if strings.TrimSpace(e.TaskID) == "" {
+		return message
 	}
-	return fmt.Errorf("声明式协议任务失败（任务 %s）：%s", taskID, message)
+	return fmt.Sprintf("声明式协议任务失败（任务 %s）：%s", strings.TrimSpace(e.TaskID), message)
+}
+
+func protocolResultError(message, taskID string) error {
+	return providerTaskFailedError{Message: strings.TrimSpace(message), TaskID: strings.TrimSpace(taskID)}
 }
 
 func validateGenerationInterface(mode string, interfaceType string) error {

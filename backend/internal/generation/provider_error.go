@@ -72,6 +72,18 @@ type Failure struct {
 	FromCode        bool
 }
 
+// AsyncFailedFailure 把"上游明确回执这次生成没有产出"归成 async_failed。
+//
+// 上游已经用响应正文给出了终态结论（failed / cancelled / timeout），既不会再有结果，也不该
+// 让用户为它付钱。上游原话可用时直接展示，用户至少知道发生了什么；没有原话时退回类目文案。
+func AsyncFailedFailure(providerMessage string) Failure {
+	failure := Failure{Category: CategoryAsyncFailed}
+	if message := sanitizeProviderText(providerMessage); message != "" {
+		failure.Reason = message
+	}
+	return normalizeFailure(failure)
+}
+
 type categoryCopy struct {
 	Reason string
 	Action string

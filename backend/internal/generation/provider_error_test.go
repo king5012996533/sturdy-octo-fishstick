@@ -523,3 +523,34 @@ func TestUpstreamRejectionsKeepTheirOwnReason(t *testing.T) {
 		})
 	}
 }
+
+// AsyncFailedFailure 是"上游明确回执这次生成没有产出"的归类入口。
+//
+// 它必须落在可退费类目上（见 auth/task_credit.go 的白名单），并且把上游原话带给用户：
+// 只说「生成失败」用户看不懂，也分不清该不该重试。
+func TestAsyncFailedFailureKeepsProviderMessage(t *testing.T) {
+	withMessage := generation.AsyncFailedFailure("视频生成未成功，请稍后重试；若多次失败请更换素材或提示词。")
+	if withMessage.Category != generation.CategoryAsyncFailed {
+		t.Fatalf("类目 = %q", withMessage.Category)
+	}
+	if withMessage.Reason != "视频生成未成功，请稍后重试；若多次失败请更换素材或提示词。" {
+		t.Fatalf("原因 = %q", withMessage.Reason)
+	}
+	if !strings.Contains(withMessage.UserMessage(), "视频生成未成功") {
+		t.Fatalf("用户看不到上游原话：%q", withMessage.UserMessage())
+	}
+
+	empty := generation.AsyncFailedFailure("   ")
+	if empty.Category != generation.CategoryAsyncFailed {
+		t.Fatalf("类目 = %q", empty.Category)
+	}
+	if empty.Reason != "生成任务没有完成" {
+		t.Fatalf("没有上游原话时应退回类目文案，实际 %q", empty.Reason)
+	}
+
+	// 上游原话里的凭据不能跟着话术泄漏给用户。
+	secret := generation.AsyncFailedFailure(`failed: {"authorization":"Bearer sk-abcdef0123456789"}`)
+	if strings.Contains(secret.UserMessage(), "sk-abcdef0123456789") {
+		t.Fatalf("话术泄漏了凭据：%q", secret.UserMessage())
+	}
+}
