@@ -101,20 +101,30 @@ func (r *Repository) nextPrefixedID(db *gorm.DB, prefix string) (string, error) 
 
 func (r *Repository) UserStorageUsage(userID string) (UserStorageUsage, error) {
 	var usage UserStorageUsage
-	query := `
+	// 字节长度按方言展开（见 sql_dialect.go）：写死 CAST(... AS BLOB) 会在 MySQL/PostgreSQL
+	// 上直接语法错误，而这条查询每次创建任务都会跑到。
+	driver := r.sqlDialect()
+	query := fmt.Sprintf(`
 		SELECT
 			(SELECT COUNT(*) FROM assets WHERE user_id = ?) AS asset_count,
-			(SELECT COALESCE(SUM(length(CAST(COALESCE(payload_json, '') AS BLOB))), 0) FROM assets WHERE user_id = ?) AS asset_bytes,
+			%s AS asset_bytes,
 			(SELECT COUNT(*) FROM canvas_projects WHERE user_id = ?) AS canvas_count,
-			(SELECT COALESCE(SUM(length(CAST(COALESCE(payload_json, '') AS BLOB))), 0) FROM canvas_projects WHERE user_id = ?) AS canvas_bytes,
+			%s AS canvas_bytes,
 			(SELECT COUNT(*) FROM tasks WHERE user_id = ?) AS task_count,
-			(SELECT COALESCE(SUM(length(CAST(COALESCE(prompt, '') AS BLOB)) + length(CAST(COALESCE(input_json, '') AS BLOB)) + length(CAST(COALESCE(result_json, '') AS BLOB)) + length(CAST(COALESCE(text_draft, '') AS BLOB)) + length(CAST(COALESCE(error, '') AS BLOB))), 0) FROM tasks WHERE user_id = ?)
-			+ (SELECT COALESCE(SUM(length(CAST(COALESCE(message, '') AS BLOB)) + length(CAST(COALESCE(payload, '') AS BLOB))), 0) FROM task_logs WHERE user_id = ?)
-			+ (SELECT COALESCE(SUM(length(CAST(COALESCE(url, '') AS BLOB)) + length(CAST(COALESCE(payload, '') AS BLOB))), 0) FROM results WHERE user_id = ?)
+			%s
+			+ %s
+			+ %s
 			+ (SELECT COALESCE(SUM(byte_count), 0) FROM task_text_delta WHERE user_id = ?)
-			+ (SELECT COALESCE(SUM(length(CAST(COALESCE(path, '') AS BLOB)) + length(CAST(COALESCE(model, '') AS BLOB)) + length(CAST(COALESCE(provider_request_id, '') AS BLOB)) + length(CAST(COALESCE(error_code, '') AS BLOB)) + length(CAST(COALESCE(error, '') AS BLOB)) + length(CAST(COALESCE(upstream_url, '') AS BLOB)) + length(CAST(COALESCE(request_body, '') AS BLOB)) + length(CAST(COALESCE(response_body, '') AS BLOB))), 0) FROM api_call_logs WHERE user_id = ?) AS task_bytes,
+			+ %s AS task_bytes,
 			(SELECT COUNT(*) FROM api_call_logs WHERE user_id = ?) AS api_call_count
-	`
+	`,
+		sumBytes("assets", driver, "payload_json"),
+		sumBytes("canvas_projects", driver, "payload_json"),
+		sumBytes("tasks", driver, "prompt", "input_json", "result_json", "text_draft", "error"),
+		sumBytes("task_logs", driver, "message", "payload"),
+		sumBytes("results", driver, "url", "payload"),
+		sumBytes("api_call_logs", driver, "path", "model", "provider_request_id", "error_code", "error", "upstream_url", "request_body", "response_body"),
+	)
 	err := r.db.Raw(query, userID, userID, userID, userID, userID, userID, userID, userID, userID, userID, userID).Scan(&usage).Error
 	return usage, err
 }

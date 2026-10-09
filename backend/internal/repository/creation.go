@@ -3,6 +3,7 @@ package repository
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -16,9 +17,14 @@ func (r *Repository) CreationStorageUsage(userID string) (int64, int64, error) {
 		Count int64
 		Bytes int64
 	}
-	query := `SELECT (SELECT COUNT(*) FROM creation_runs WHERE user_id = ?) AS count,
-	(SELECT COALESCE(SUM(length(CAST(COALESCE(state_json,'') AS BLOB))+length(CAST(COALESCE(approved_operations_json,'') AS BLOB))+length(CAST(COALESCE(approved_canvas_json,'') AS BLOB))),0) FROM creation_runs WHERE user_id = ?)
-	+ (SELECT COALESCE(SUM(length(CAST(COALESCE(request_json,'') AS BLOB))+length(CAST(COALESCE(execution_json,'') AS BLOB))+length(CAST(COALESCE(config_signature,'') AS BLOB))),0) FROM creation_submissions WHERE user_id = ?) AS bytes`
+	// 同 UserStorageUsage：字节长度按方言展开，不要写死 CAST(... AS BLOB)。
+	driver := r.sqlDialect()
+	query := fmt.Sprintf(`SELECT (SELECT COUNT(*) FROM creation_runs WHERE user_id = ?) AS count,
+	%s
+	+ %s AS bytes`,
+		sumBytes("creation_runs", driver, "state_json", "approved_operations_json", "approved_canvas_json"),
+		sumBytes("creation_submissions", driver, "request_json", "execution_json", "config_signature"),
+	)
 	err := r.db.Raw(query, userID, userID, userID).Scan(&usage).Error
 	return usage.Count, usage.Bytes, err
 }

@@ -52,7 +52,7 @@ func (s *Store) RecordCreditSettleGap(gap CreditSettleGap) error {
 		DoUpdates: clause.Assignments(map[string]any{
 			"user_id":     gap.UserID,
 			"model_key":   gap.ModelKey,
-			"uncollected": gorm.Expr("MAX(credit_settle_gaps.uncollected, ?)", gap.Uncollected),
+			"uncollected": gorm.Expr(scalarMaxExpr(s.sqlDialect(), "credit_settle_gaps.uncollected", "?"), gap.Uncollected),
 		}),
 	}).Create(&gap).Error
 }
