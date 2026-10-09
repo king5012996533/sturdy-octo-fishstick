@@ -649,15 +649,6 @@ export default function CreatePage() {
         if (references.length) setPrompt((current) => removeCreationReferenceTokens(current, references));
     };
 
-    const clearComposer = () => {
-        promptRef.current = "";
-        attachmentsRef.current = [];
-        setPrompt("");
-        setAttachments([]);
-        setDraftReferences([]);
-        window.requestAnimationFrame(() => composerFocusRef.current?.focus());
-    };
-
     const reorderAttachments = useCallback((next: CreationAttachment[]) => {
         attachmentsRef.current = next;
         setAttachments(next);
@@ -1161,7 +1152,6 @@ export default function CreatePage() {
         references: mentionReferences,
         onRemoveAttachment: removeAttachment,
         onClearAttachments: clearAttachments,
-        onClearComposer: clearComposer,
         onReorderAttachments: reorderAttachments,
         onReplaceAttachment: replaceReferenceFromTrack,
         onReplaceReferenceFiles: replaceReferenceFromFiles,
