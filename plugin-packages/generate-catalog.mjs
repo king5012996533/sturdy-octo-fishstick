@@ -91,7 +91,7 @@ const jsonCreate = (path, body, extra = {}) => ({ method: "POST", path, contentT
 const asyncResponse = (kind, overrides = {}) => ({
   taskId: coalesce(ref("response.id"), ref("response.task_id"), ref("response.taskId"), ref("response.data.id"), ref("taskId")),
   status: coalesce(ref("response.status"), ref("response.state"), ref("response.data.status"), "pending"),
-  message: coalesce(ref("response.error.message"), ref("response.message"), ref("response.fail_reason")),
+  message: coalesce(ref("response.error.message"), ref("response.message"), ref("response.fail_reason"), ref("response.error")),
   [kind + "s"]: coalesce(ref(`response.${kind}_url`), ref(`response.${kind}Url`), ref("response.result_url"), ref("response.url"), ref(`response.data.${kind}_url`), ref("response.output.url")),
   errorPaths: ["error.code"],
   resultEphemeral: true,
@@ -470,7 +470,7 @@ const arkSeedanceBody = (optionNamespace) => ({
 const arkSeedanceResponse = {
   taskId: coalesce(ref("response.id"), ref("response.task_id"), ref("response.data.id"), ref("taskId")),
   status: coalesce(ref("response.status"), ref("response.data.status"), "pending"),
-  message: coalesce(ref("response.error.message"), ref("response.message"), ref("response.fail_reason")),
+  message: coalesce(ref("response.error.message"), ref("response.message"), ref("response.fail_reason"), ref("response.error")),
   videos: coalesce(ref("response.content.video_url"), ref("response.video_url"), ref("response.output.video_url"), ref("response.data.video_url")),
   usage: ref("response.usage"),
   errorPaths: ["error.code"],

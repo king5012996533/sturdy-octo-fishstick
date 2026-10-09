@@ -338,6 +338,9 @@
               },
               {
                 "$ref": "response.fail_reason"
+              },
+              {
+                "$ref": "response.error"
               }
             ]
           },

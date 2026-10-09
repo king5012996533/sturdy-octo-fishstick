@@ -681,11 +681,41 @@ func manifestResponseString(template any, env map[string]any) string {
 	items := manifestArray(value)
 	parts := make([]string, 0, len(items))
 	for _, item := range items {
-		if text := strings.TrimSpace(manifestString(item)); text != "" {
+		if text := strings.TrimSpace(manifestTextValue(item)); text != "" {
 			parts = append(parts, text)
 		}
 	}
 	return strings.Join(parts, "")
+}
+
+// manifestTextValue 把响应字段归一到可直接展示的文本。
+//
+// 上游把失败原因写成对象（如 Replicate 的 error 在部分接口是字符串、在网关接口是对象）
+// 时，直接 JSON 序列化会把整段结构体丢给用户；写成布尔量时又会渲染出 "false"。两者都不
+// 是有效文案，因此这里优先取常见消息键，并忽略没有文本意义的布尔标量。
+func manifestTextValue(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case bool:
+		return ""
+	case map[string]any:
+		if len(typed) == 0 {
+			return ""
+		}
+		for _, key := range []string{"message", "msg", "detail", "error", "reason"} {
+			if text := strings.TrimSpace(manifestTextValue(typed[key])); text != "" {
+				return text
+			}
+		}
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return ""
+		}
+		return string(encoded)
+	default:
+		return manifestString(value)
+	}
 }
 
 func manifestResponseMedia(template any, env map[string]any, kind string, ephemeral bool) []MediaReference {
