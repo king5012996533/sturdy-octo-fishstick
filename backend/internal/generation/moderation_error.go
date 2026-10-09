@@ -8,6 +8,19 @@ import (
 var moderationCodePattern = regexp.MustCompile(`^(input|output)(text|image|video|audio)(?:sensitivecontentdetected|riskdetection)(?:\.(policyviolation|privacyinformation|deepfake))?$`)
 var moderationSubjectPattern = regexp.MustCompile(`\b(input|output|reference)\s+(text|image|video|audio)\b`)
 var moderationMessagePattern = regexp.MustCompile(`may contain sensitive information|includes sensitive content|content (?:safety|policy)|safety policy|copyright restrictions|may contain real person|counterfeit documents or credentials`)
+var moderationSensitiveFlagPattern = regexp.MustCompile(`flagged as (?:potentially )?sensitive`)
+
+// Replicate 与部分 OpenAI 兼容图片接口只说「输入或输出被判定为敏感」，既不区分方向也不给媒介，
+// 无法沿用 Ark 的 code 解析。这里固定一组可回认的文案，既让用户看懂，也让失败类别落进可退费
+// 白名单（见 auth.taskProviderRefundableFailures）。
+const (
+	moderationSensitiveFlagReason = "输入或输出未通过上游内容安全审核"
+	moderationSensitiveFlagAction = "请调整提示词或参考素材后重新生成"
+)
+
+func moderationSensitiveFlagFailure() Failure {
+	return Failure{Category: CategoryModerationOutput, Reason: moderationSensitiveFlagReason, Action: moderationSensitiveFlagAction}
+}
 
 // Ark codes encode direction, medium and cause independently. In this family
 // PolicyViolation means copyright, while PrivacyInformation concerns likeness.
@@ -23,6 +36,10 @@ func moderationErrorCopy(code, message string) (Failure, bool) {
 		}
 		if strings.Contains(message, "output may contain sensitive information") {
 			return Failure{Category: CategoryModerationOutput, Reason: "生成结果未通过内容安全审核", Action: "请调整提示词或参考素材后重新生成"}, true
+		}
+		// 提示词回显里出现同样的措辞时不能当审核结论，先按既有规则剥掉 prompt/input 回显段。
+		if moderationSensitiveFlagPattern.MatchString(promptEchoPattern.ReplaceAllString(message, "")) {
+			return moderationSensitiveFlagFailure(), true
 		}
 		m = moderationSubjectPattern.FindStringSubmatch(message)
 		if len(m) == 0 || !moderationMessagePattern.MatchString(message) {
@@ -74,6 +91,9 @@ func moderationErrorCopy(code, message string) (Failure, bool) {
 }
 
 func persistedModerationCopy(text string) (Failure, bool) {
+	if strings.HasPrefix(text, moderationSensitiveFlagReason+"。"+moderationSensitiveFlagAction+"。") {
+		return moderationSensitiveFlagFailure(), true
+	}
 	for _, direction := range []string{"input", "output"} {
 		for _, media := range []string{"text", "image", "video", "audio"} {
 			for _, suffix := range []string{"", ".PolicyViolation", ".PrivacyInformation", ".DeepFake"} {

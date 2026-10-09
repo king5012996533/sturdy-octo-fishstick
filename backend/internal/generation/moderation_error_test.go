@@ -71,3 +71,34 @@ func TestGenericWrapperRefinementPreservesAuthoritativeCodes(t *testing.T) {
 		}
 	}
 }
+
+// Replicate（以及部分 OpenAI 兼容图片接口）的审核驳回只写「输入或输出被判定为敏感」，
+// 既不给方向也不给媒介。这条措辞以前完全认不出，任务会落到 unknown：用户看到「生成失败」，
+// 平台也不会按审核类目退预扣积分。这里把结论和文案一起钉死。
+func TestModerationSensitiveFlagFromReplicate(t *testing.T) {
+	const reason = "输入或输出未通过上游内容安全审核"
+	const action = "请调整提示词或参考素材后重新生成"
+	raws := []string{
+		"Prediction failed: Async prediction failed: ModelError: The input or output was flagged as sensitive. Please try again with different inputs. (E005) (uIJ6l3ruRD)",
+		"声明式协议任务失败（任务 w0p3yewvwxrmw0d146qv74tgp0）：Prediction failed: Async prediction failed: ModelError: The input or output was flagged as sensitive. Please try again with different inputs. (E005) (uIJ6l3ruRD)",
+		"The generated output was flagged as potentially sensitive by the safety system.",
+	}
+	for _, raw := range raws {
+		first := generation.ClassifyText(raw)
+		persisted := generation.ClassifyText(first.UserMessage())
+		for _, f := range []generation.Failure{first, persisted} {
+			if f.Category != generation.CategoryModerationOutput || f.Reason != reason || f.Action != action || !f.IsModeration() || f.Retryable {
+				t.Fatalf("%s: %+v", raw, f)
+			}
+		}
+	}
+}
+
+// 提示词回显里出现同样的措辞时不能当成审核结论，否则用户贴一张被判敏感的图做提示词，
+// 连参数错误都会被误判成审核驳回。
+func TestModerationSensitiveFlagIgnoredInPromptEcho(t *testing.T) {
+	raw := `{"error":{"code":"invalid_request_error","message":"invalid parameter"},"prompt":"the reference image was flagged as sensitive"}`
+	if got := generation.ClassifyText(raw); got.Category != generation.CategoryInvalidParams {
+		t.Fatalf("prompt echo should not be moderation: %+v", got)
+	}
+}
