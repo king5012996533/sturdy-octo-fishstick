@@ -70,6 +70,38 @@ export function viewportForBounds(bounds: CanvasBounds, viewportSize: CanvasView
     };
 }
 
+// 视窗里还有没有节点（用于"当前视窗没有节点 → 返回节点"提示）。
+//
+// 画布可以非常稀疏：平移几下就滑进一片空白，用户分不清"这里本来就没东西"和"我把内容弄丢了"。
+// 这里只回答一个问题：当前屏幕矩形和任一节点的屏幕矩形有没有交集。判断在屏幕坐标系里做，
+// 不引入第二套世界坐标，折叠背板里的节点由调用方过滤（和缩略图/小地图同一口径）。
+export function viewportContainsNodes(
+    nodes: CanvasNodeData[],
+    viewport: ViewportTransform,
+    viewportSize: CanvasViewportSize,
+    options: { margin?: number; isHidden?: (node: CanvasNodeData) => boolean } = {},
+): boolean {
+    if (!nodes.length) return false;
+    if (!Number.isFinite(viewportSize.width) || !Number.isFinite(viewportSize.height) || viewportSize.width <= 0 || viewportSize.height <= 0) return true;
+    const margin = options.margin ?? 0;
+    const left = -margin;
+    const top = -margin;
+    const right = viewportSize.width + margin;
+    const bottom = viewportSize.height + margin;
+    const k = viewport.k;
+    for (const node of nodes) {
+        if (options.isHidden?.(node)) continue;
+        const nodeLeft = node.position.x * k + viewport.x;
+        const nodeTop = node.position.y * k + viewport.y;
+        if (nodeLeft + node.width * k < left) continue;
+        if (nodeLeft > right) continue;
+        if (nodeTop + node.height * k < top) continue;
+        if (nodeTop > bottom) continue;
+        return true;
+    }
+    return false;
+}
+
 export function viewportAtScale(viewport: ViewportTransform, viewportSize: CanvasViewportSize, scale: number): ViewportTransform {
     const k = Math.min(8, Math.max(0.05, scale));
     const centerWorldX = (viewportSize.width / 2 - viewport.x) / viewport.k;

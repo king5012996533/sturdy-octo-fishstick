@@ -8585,6 +8585,21 @@ html:not(.dark) .creation-studio-control:hover,
         font-weight: 500;
     }
 
+    .canvas-empty-viewport-hint-action {
+        border: 0;
+        cursor: pointer;
+        transition: background .16s ease, opacity .16s ease;
+    }
+
+    .canvas-empty-viewport-hint-action:hover {
+        background: color-mix(in srgb, var(--foreground) 14%, transparent);
+    }
+
+    .canvas-empty-viewport-hint-action:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--foreground) 40%, transparent);
+        outline-offset: 2px;
+    }
+
     .canvas-zoom-menu-actions,
     .canvas-zoom-menu-presets {
         display: grid;

@@ -63,6 +63,7 @@ import { CanvasFileDropOverlay } from "@/components/canvas/canvas-file-drop-over
 import { CanvasPanoramaConfigModal } from "@/components/canvas/canvas-panorama-config-modal";
 import { InfiniteCanvas } from "@/components/canvas/infinite-canvas";
 import { Minimap } from "@/components/canvas/canvas-mini-map";
+import { CanvasEmptyViewportHint } from "@/components/canvas/canvas-empty-viewport-hint";
 import { CanvasNodePromptPanel, type CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
 import { CanvasToolbar } from "@/components/canvas/canvas-toolbar";
 import { useCanvasCreateCommands } from "@/components/canvas/use-canvas-create-commands";
@@ -163,6 +164,7 @@ import { useCanvasStoryboard } from "./use-canvas-storyboard";
 import { useCanvasUpload } from "./use-canvas-upload";
 import { useCanvasTimelineAssetInsert } from "./use-canvas-timeline-asset-insert";
 import { useCanvasViewportController } from "./use-canvas-viewport-controller";
+import { useCanvasViewportEmptiness } from "./use-canvas-viewport-emptiness";
 import {
     CanvasNodeType,
     type CanvasAssistantSession,
@@ -392,6 +394,7 @@ function InfiniteCanvasPage() {
     const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
     const [agentPrefillPrompt, setAgentPrefillPrompt] = useState("");
     const [isMiniMapOpen, setIsMiniMapOpen] = useState(() => scopedLocalStorage.getItem("canvas:minimap") === "1");
+    const [emptyViewportHintDismissed, setEmptyViewportHintDismissed] = useState(false);
     const [canvasAppearance, setCanvasAppearance] = useState<CanvasAppearance>(() => canvasAppearanceForTheme(colorTheme));
     const [backgroundMode, setBackgroundMode] = useState<CanvasBackgroundMode>(DEFAULT_CANVAS_BACKGROUND_MODE);
     const [showImageInfo, setShowImageInfo] = useState(false);
@@ -1066,6 +1069,13 @@ function InfiniteCanvasPage() {
         setDialogNodeId,
         setToolbarNodeId,
     });
+
+    // 视窗滑出内容时给一条"返回节点"的入口。用户主动关掉后，等重新看见节点再重新武装，
+    // 避免在空画布上连续打扰，也避免关掉之后一直不再提醒。
+    const viewportEmpty = useCanvasViewportEmptiness(nodes, viewport, size);
+    useEffect(() => {
+        if (!viewportEmpty && emptyViewportHintDismissed) setEmptyViewportHintDismissed(false);
+    }, [emptyViewportHintDismissed, viewportEmpty]);
 
     // When the Agent dock is open, a connected node can otherwise be created
     // beneath the dock because its world position is intentionally kept stable.
@@ -3547,6 +3557,10 @@ function InfiniteCanvasPage() {
                         />
 
 {isMiniMapOpen && !focusMode ? <Minimap nodes={nodes} viewport={viewport} viewportSize={size} canvasContainerRef={containerRef} onViewportPreviewChange={previewViewport} onViewportChange={handleViewportChange} /> : null}
+
+                        {!focusMode ? (
+                            <CanvasEmptyViewportHint visible={viewportEmpty && !emptyViewportHintDismissed} onReturnToNodes={fitCanvasContent} onDismiss={() => setEmptyViewportHintDismissed(true)} />
+                        ) : null}
 
                         {!focusMode ? (
                             <CanvasOverlayLayerContainer
