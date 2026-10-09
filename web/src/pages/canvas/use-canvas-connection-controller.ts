@@ -67,6 +67,21 @@ type BatchConnectionDropTarget = ConnectionDropTarget;
 // reference canvas. Use the same generous 112px screen-space diameter here,
 // while retaining a circular boundary around the corresponding side anchor.
 const CONNECTION_SNAP_RADIUS = 56;
+/**
+ * 连线拖拽期间做「是否悬停在参考芯片上」命中探测的最小间隔。
+ *
+ * 这个判定只驱动一个瞬态悬停提示，40ms（约 25Hz）肉眼无差别；但它每次都要调用
+ * elementFromPoint，会强制同步样式与布局，在拖拽这种布局本就脏的场景里是实打实的
+ * 每帧开销。
+ */
+const CONNECTION_REPLACE_HOVER_PROBE_MS = 40;
+
+/** 距上次命中探测是否已超过节流间隔。抽出来是为了让这条约束可被测试钉住。 */
+export function shouldProbeConnectionReplaceHover(lastProbeAt: number, now: number): boolean {
+    return now - lastProbeAt >= CONNECTION_REPLACE_HOVER_PROBE_MS;
+}
+
+export const CONNECTION_REPLACE_HOVER_PROBE_INTERVAL_MS = CONNECTION_REPLACE_HOVER_PROBE_MS;
 const NODE_STATUS_IDLE = "idle" as const;
 
 function selectRunningHubWorkflow(config: AiConfig) {
@@ -125,6 +140,8 @@ export function useCanvasConnectionController({
     const batchConnectionPointerStartRef = useRef<Position | null>(null);
     const pointerMoveFrameRef = useRef<number | null>(null);
     const latestPointerMoveRef = useRef<PointerEvent | null>(null);
+    /** 上次做 elementFromPoint 命中的时间；见 flushPointerMove 里的节流说明。 */
+    const replaceHoverProbeAtRef = useRef(0);
     const hoveredReplaceElRef = useRef<HTMLElement | null>(null);
 
     /** 交给 Leafer 图层注册逐帧草稿更新入口；未挂载时静默降级为无草稿线。 */
@@ -720,6 +737,8 @@ export function useCanvasConnectionController({
         if (batchConnectionPreviewRef.current) clearBatchConnection();
         connectingPointerIdRef.current = event.pointerId;
         connectingPointerStartRef.current = { x: event.clientX, y: event.clientY };
+        // 新一轮拖拽的第一帧就要探测，否则会沿用上一次拖拽的时间戳而被节流掉。
+        replaceHoverProbeAtRef.current = 0;
         setMouseWorld(screenToCanvas(event.clientX, event.clientY));
         setConnecting({ nodeId, handleType, handleId, anchorRatio });
         setConnectionTargetNodeId(null);
@@ -762,26 +781,35 @@ export function useCanvasConnectionController({
             const current = connectingParamsRef.current;
             if (!current || connectingPointerIdRef.current !== event.pointerId || pendingConnectionCreateRef.current) return;
             if (current.handleType === "source" && typeof document !== "undefined") {
-                const el = document.elementFromPoint(event.clientX, event.clientY);
-                let chip = el?.closest<HTMLElement>("[data-reference-chip]");
-                if (!chip) {
-                    const shelf = el?.closest<HTMLElement>(".canvas-node-composer-references");
-                    if (shelf) {
-                        const chips = Array.from(shelf.querySelectorAll<HTMLElement>("[data-reference-chip]"));
-                        let closestChip: HTMLElement | null = null;
-                        let minDistance = Number.POSITIVE_INFINITY;
-                        chips.forEach((c) => {
-                            const rect = c.getBoundingClientRect();
-                            const dist = Math.abs(event.clientX - (rect.left + rect.width / 2));
-                            if (dist < minDistance) {
-                                minDistance = dist;
-                                closestChip = c;
-                            }
-                        });
-                        chip = closestChip;
+                // elementFromPoint 会强制同步样式计算与布局，而连线拖拽期间布局本来就是脏的，
+                // 逐帧探测实测每次要几毫秒。它只驱动「悬停在参考芯片上」这一个瞬态提示，
+                // 所以降到 ~25Hz，并在页面上根本没有参考芯片时直接跳过。
+                const now = performance.now();
+                if (!document.querySelector("[data-reference-chip]")) {
+                    updateConnectionReplaceHover(null);
+                } else if (shouldProbeConnectionReplaceHover(replaceHoverProbeAtRef.current, now)) {
+                    replaceHoverProbeAtRef.current = now;
+                    const el = document.elementFromPoint(event.clientX, event.clientY);
+                    let chip = el?.closest<HTMLElement>("[data-reference-chip]");
+                    if (!chip) {
+                        const shelf = el?.closest<HTMLElement>(".canvas-node-composer-references");
+                        if (shelf) {
+                            const chips = Array.from(shelf.querySelectorAll<HTMLElement>("[data-reference-chip]"));
+                            let closestChip: HTMLElement | null = null;
+                            let minDistance = Number.POSITIVE_INFINITY;
+                            chips.forEach((c) => {
+                                const rect = c.getBoundingClientRect();
+                                const dist = Math.abs(event.clientX - (rect.left + rect.width / 2));
+                                if (dist < minDistance) {
+                                    minDistance = dist;
+                                    closestChip = c;
+                                }
+                            });
+                            chip = closestChip;
+                        }
                     }
+                    updateConnectionReplaceHover(chip || null, event.clientX, event.clientY);
                 }
-                updateConnectionReplaceHover(chip || null, event.clientX, event.clientY);
             } else {
                 updateConnectionReplaceHover(null);
             }
