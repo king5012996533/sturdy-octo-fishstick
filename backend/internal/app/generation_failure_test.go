@@ -96,6 +96,32 @@ func TestProtocolTaskFailureKeepsSpecificCategories(t *testing.T) {
 	}
 }
 
+// TestProtocolTaskFailureSurvivesPersistence 覆盖"落库之后还能被认出来"。
+//
+// 退款发生在失败当时，用的是内存里的错误；但任务读模型、后台对账和前端话术都只能读落库
+// 正文。正文认不回来时 errorCode 会退回 unknown：前端只能原样打出上游原话，后台也按类目
+// 筛不到这一类。所以这里的往返必须落在 async_failed 上。
+func TestProtocolTaskFailureSurvivesPersistence(t *testing.T) {
+	cases := []struct {
+		name    string
+		message string
+	}{
+		{name: "带上游原话", message: "视频生成未成功，请稍后重试；若多次失败请更换素材或提示词。"},
+		{name: "上游什么都没说", message: ""},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			persisted := persistableTaskFailureMessage(providerTaskFailedError{Message: testCase.message, TaskID: "2106878811934052352"})
+			if code := persistedFailureErrorCode(persisted, ""); code != string(generation.CategoryAsyncFailed) {
+				t.Fatalf("落库正文 %q 的 errorCode = %q，期望 %q", persisted, code, generation.CategoryAsyncFailed)
+			}
+			if !persistedFailureBlocksRetry(persisted, "") {
+				t.Fatalf("落库正文 %q 不该允许自动重试", persisted)
+			}
+		})
+	}
+}
+
 // TestProtocolTaskFailureIsRefundable 覆盖退款判据：上游明确回执没有产出就不该收钱。
 func TestProtocolTaskFailureIsRefundable(t *testing.T) {
 	svc, _ := newTaskCreditTestService(t)

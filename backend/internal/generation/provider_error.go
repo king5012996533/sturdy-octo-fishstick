@@ -81,6 +81,9 @@ func AsyncFailedFailure(providerMessage string) Failure {
 	if message := sanitizeProviderText(providerMessage); message != "" {
 		failure.Reason = message
 	}
+	// 兜底动作句必须跟着落库：它是任务读模型认回 async_failed 的唯一凭据（见
+	// matchPersistedCategory），缺了它，正文以原话开头的那批失败会被重新标成 unknown。
+	failure.Action = categoryCopies[CategoryAsyncFailed].Action
 	return normalizeFailure(failure)
 }
 
@@ -1282,6 +1285,12 @@ func matchPersistedCategory(text string) FailureCategory {
 		if strings.HasPrefix(text, copyText.Reason) {
 			return category
 		}
+	}
+	// async_failed 的落库正文以「上游原话」开头，前缀匹配认不回来；而兜底动作句只属于这一类。
+	// 认不回来就等于把一次明确「没有产出」的失败标成 unknown：前端拿不到类目只能把上游原话
+	// 原样打给用户，后台按类目对账也筛不到这一类。用动作句把类目认回来，原话仍留在正文里。
+	if strings.Contains(text, categoryCopies[CategoryAsyncFailed].Action) {
+		return CategoryAsyncFailed
 	}
 	if strings.Contains(text, "真人形象") {
 		return CategoryModerationReference

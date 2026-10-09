@@ -554,3 +554,28 @@ func TestAsyncFailedFailureKeepsProviderMessage(t *testing.T) {
 		t.Fatalf("话术泄漏了凭据：%q", secret.UserMessage())
 	}
 }
+
+// 落库正文是要被重新读出来定类目的：任务读模型只能靠这段文字推 errorCode。
+//
+// 正文以「上游原话」开头时前缀匹配认不回来，于是被标成 unknown——前端拿不到类目只能把原话
+// 原样打给用户，后台按类目对账也筛不到这一批。兜底动作句只属于 async_failed，用它认回来，
+// 同时不能把原话弄丢。
+func TestPersistedAsyncFailedCopyKeepsCategory(t *testing.T) {
+	cases := []string{
+		generation.AsyncFailedFailure("视频生成未成功，请稍后重试；若多次失败请更换素材或提示词。").UserMessage(),
+		generation.AsyncFailedFailure("").UserMessage(),
+		"视频生成未成功。请查看详情后决定是否重试。排查编号：任务 2106878811934052352",
+	}
+	for _, message := range cases {
+		failure := generation.ClassifyText(message)
+		if failure.Category != generation.CategoryAsyncFailed {
+			t.Fatalf("落库正文 %q 认回来的类目 = %q，期望 %q", message, failure.Category, generation.CategoryAsyncFailed)
+		}
+		if failure.ErrorCode() != string(generation.CategoryAsyncFailed) {
+			t.Fatalf("落库正文 %q 的 errorCode = %q", message, failure.ErrorCode())
+		}
+		if !failure.BlocksAutomaticRetry() {
+			t.Fatalf("落库正文 %q 不该允许自动重试", message)
+		}
+	}
+}
