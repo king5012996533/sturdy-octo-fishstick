@@ -220,6 +220,48 @@ no_release_code=$?
 set -e
 expect "发布目录不存在时退出码 1" 1 "$no_release_code"
 
+printf '\n[线上静态残留按天数清理]\n'
+# web/static 里的旧 chunk 是留给"还没刷新的标签页"的，生命周期跟着用户标签页走，
+# 所以按天数淘汰而不是按份数。这里钉死三件事：过期删、没过期不动、static 之外一个都不碰。
+STATIC="$RELEASE/web/static"
+mkdir -p "$STATIC/chunks" "$RELEASE/web/assets" "$RELEASE/web/static-old"
+printf 'old' > "$STATIC/chunks/old-chunk.js"
+printf 'new' > "$STATIC/chunks/new-chunk.js"
+printf 'old' > "$STATIC/old-manifest.json"
+printf 'live' > "$RELEASE/web/index.html"
+printf 'live' > "$RELEASE/web/assets/live.css"
+printf 'live' > "$RELEASE/web/static-old/not-ours.js"
+touch -t 202501010000 "$STATIC/chunks/old-chunk.js" "$STATIC/old-manifest.json" "$RELEASE/web/static-old/not-ours.js"
+touch "$STATIC/chunks/new-chunk.js" "$RELEASE/web/index.html" "$RELEASE/web/assets/live.css"
+# 其它类别全部留足，避免这组用例被上面几轮的 keep 值干扰。
+PRUNE_KEEP=(--keep-releases 9 --keep-db 9 --keep-media 9 --keep-snapshots 9)
+
+"$SCRIPT_DIR/kinotv-prune-releases.sh" --release-dir "$RELEASE" --log "$WORK/prune.log" \
+    "${PRUNE_KEEP[@]}" --dry-run --quiet >/dev/null 2>&1
+expect "静态残留 dry-run 不删任何文件" 3 "$(find "$STATIC" -type f | wc -l | tr -d ' ')"
+
+"$SCRIPT_DIR/kinotv-prune-releases.sh" --release-dir "$RELEASE" --log "$WORK/prune.log" \
+    "${PRUNE_KEEP[@]}" --quiet >/dev/null 2>&1
+expect "过期 chunk 被清掉" 0 "$(find "$STATIC" -name 'old-chunk.js' | wc -l | tr -d ' ')"
+expect "过期 manifest 被清掉" 0 "$(find "$STATIC" -name 'old-manifest.json' | wc -l | tr -d ' ')"
+expect_true "未过期的 chunk 仍在" "$([ -f "$STATIC/chunks/new-chunk.js" ] && echo yes || echo no)"
+expect_true "static 子目录本身没被删" "$([ -d "$STATIC/chunks" ] && echo yes || echo no)"
+expect_true "活入口 index.html 没被碰" "$([ -f "$RELEASE/web/index.html" ] && echo yes || echo no)"
+expect_true "web/assets 下的活文件没被碰" "$([ -f "$RELEASE/web/assets/live.css" ] && echo yes || echo no)"
+expect_true "名字相近的 web/static-old 没被碰" "$([ -f "$RELEASE/web/static-old/not-ours.js" ] && echo yes || echo no)"
+
+# 关闭开关：再老的文件也不许动。
+printf 'old' > "$STATIC/old-chunk.js"
+touch -t 202501010000 "$STATIC/old-chunk.js"
+"$SCRIPT_DIR/kinotv-prune-releases.sh" --release-dir "$RELEASE" --log "$WORK/prune.log" \
+    "${PRUNE_KEEP[@]}" --web-stale-days 0 --quiet >/dev/null 2>&1
+expect_true "--web-stale-days 0 时完全不清理" "$([ -f "$STATIC/old-chunk.js" ] && echo yes || echo no)"
+
+# 传了非数字要回退到默认 30 天，绝不能退化成 0（那等于把线上 chunk 全删）。
+"$SCRIPT_DIR/kinotv-prune-releases.sh" --release-dir "$RELEASE" --log "$WORK/prune.log" \
+    "${PRUNE_KEEP[@]}" --web-stale-days abc --quiet >/dev/null 2>&1
+expect_true "非数字天数回退默认（过期文件被清）" "$([ ! -f "$STATIC/old-chunk.js" ] && echo yes || echo no)"
+
 printf '\n[静态检查：变量名后紧跟非 ASCII 字符]\n'
 # bash 在部分版本/区域设置下会把紧跟 $VAR 的多字节字符并进变量名，变成
 # "DEGRADED）: unbound variable"。这种 bug 只在特定分支上才炸，跑不出来就是漏网。

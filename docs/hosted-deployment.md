@@ -102,11 +102,19 @@ curl -s -o /dev/null -w '%{http_code}\n' https://kinotv.xingtudesign.com/static/
 留旧文件会慢慢堆：一轮发布约 100M，几轮下来 `static/` 会翻倍。淘汰按文件年龄走，
 和 `kinotv-prune-releases.sh` 的"按份数保留回滚物"是两件事，别混在同一个策略里——
 回滚物按份数，静态残留按天数（默认 30 天，比任何用户的标签页存活时间都长）。
+`kinotv-prune-releases.sh` 里已经带上这条策略，不用再手敲 `find`。
 
 ```bash
-# 先看清单
-ssh kinotv "find /opt/kinotv/web -type f -mtime +30 -printf '%p\n' | head -20"
+# 先看清单（--web-stale-days 0 可以整条关掉）
+/opt/kinotv/scripts/kinotv/kinotv-prune-releases.sh --dry-run
 ```
+
+为什么按天数而不是按份数：一天连发三次的话，按份数保留 3 份等于把两天前的 chunk 清光，
+正好是长时间开着标签页的那批用户受害。另外新构建每轮都会重写全部产物（mtime 跟着刷新），
+所以只有"确实不再被任何一份构建产出"的旧 chunk 才会攒到 30 天，判据是安全的。
+
+一个前提：旧 chunk 要是靠 `cp -rn`（不带 `-p`）合进来的，mtime 会被刷成合并那一刻，
+等于把年龄清零、再等 30 天。所以合并旧产物请用 `cp -a` 或用 tar 解包。
 
 ### 上线验收
 
@@ -423,6 +431,8 @@ systemctl enable --now kinotv-backup.timer kinotv-healthcheck.timer kinotv-resto
 
 注意这里**只裁备份目录**。线上目录 `web/` 里的旧 chunk 是有意留着的（见上文
 「前端发布：覆盖合并」），它们要按文件年龄单独淘汰，别用这份按份数的策略去删。
+同一条定时任务里已经带了这一段：在 `web/static` 下淘汰超过 `--web-stale-days`
+（默认 30 天）的文件，只删普通文件、不删目录，`--web-stale-days 0` 可整条关闭。
 
 ```bash
 # 看一遍将删除什么（不动文件）

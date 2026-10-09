@@ -25,6 +25,8 @@ KEEP_RELEASES="${KINOTV_RELEASE_KEEP:-3}"
 KEEP_DB="${KINOTV_RELEASE_KEEP_DB:-3}"
 KEEP_MEDIA="${KINOTV_RELEASE_KEEP_MEDIA:-2}"
 KEEP_SNAPSHOTS="${KINOTV_RELEASE_KEEP_SNAPSHOTS:-2}"
+# 线上 web/static 里旧 chunk 的保留天数。0 = 关掉这条策略。
+WEB_STALE_DAYS="${KINOTV_WEB_STALE_DAYS:-30}"
 LOG="${KINOTV_PRUNE_LOG:-/var/log/kinotv-prune.log}"
 DRY_RUN=0
 QUIET=0
@@ -38,12 +40,14 @@ usage() {
   --keep-db N              *.db.bak-* 库快照保留份数，默认 3
   --keep-media N           resources.bak-*.tgz 保留份数，默认 2
   --keep-snapshots N       backups/ 下发布前手工快照保留份数，默认 2
+  --web-stale-days N       线上 web/static 里旧 chunk 的保留天数，默认 30，0 表示关闭
   --log PATH               日志文件，默认 /var/log/kinotv-prune.log（不可写时只输出到 stdout）
   --dry-run                只打印将删除的清单，不实际删除
   --quiet                  只写日志，不输出到 stdout
 
 环境变量同名：KINOTV_RELEASE_DIR / KINOTV_RELEASE_KEEP / KINOTV_RELEASE_KEEP_DB /
-KINOTV_RELEASE_KEEP_MEDIA / KINOTV_RELEASE_KEEP_SNAPSHOTS / KINOTV_PRUNE_LOG
+KINOTV_RELEASE_KEEP_MEDIA / KINOTV_RELEASE_KEEP_SNAPSHOTS / KINOTV_WEB_STALE_DAYS /
+KINOTV_PRUNE_LOG
 USAGE
 }
 
@@ -54,6 +58,7 @@ while [ $# -gt 0 ]; do
         --keep-db) KEEP_DB="$2"; shift 2 ;;
         --keep-media) KEEP_MEDIA="$2"; shift 2 ;;
         --keep-snapshots) KEEP_SNAPSHOTS="$2"; shift 2 ;;
+        --web-stale-days) WEB_STALE_DAYS="$2"; shift 2 ;;
         --log) LOG="$2"; shift 2 ;;
         --dry-run) DRY_RUN=1; shift ;;
         --quiet) QUIET=1; shift ;;
@@ -215,8 +220,58 @@ prune_category() {
     say "  ${label}：保留 ${kept} 份，清理 ${removed} 份（$(kinotv_human_size "$freed")）"
 }
 
+# 线上 web/static 里的旧 chunk：发布时是故意留下来的，按文件年龄淘汰。
+#
+# 为什么不并进上面的"按份数保留"：那几类是发布回滚物，生命周期跟着"上次发布"走；
+# 这些旧 chunk 是给"还没刷新的标签页"用的备份通道，生命周期跟着"用户标签页能活多久"走。
+# 按份数算的话，一天连发三次就把两天前的 chunk 删光了，正好是长开标签页的那批人受害。
+# 所以按天数，而且默认 30 天——比任何人开着不刷新的标签页都长。
+#
+# 安全边界：
+#   * 只在 $RELEASE_DIR/web/static 里面找，活目录的入口文件（index.html）不在这个范围。
+#   * 只删普通文件，不删目录；判定用 mtime，tar 解包会保留构建时间，所以新旧可分。
+#   * 一次删不掉就记失败并继续，不因为一个文件让整轮清理半途而废。
+prune_stale_web_assets() {
+    local dir="$RELEASE_DIR/web/static"
+    local days="$WEB_STALE_DAYS"
+    local path size removed=0 freed=0
+
+    case "$days" in
+        ''|*[!0-9]*) days=30 ;;
+    esac
+    if [ "$days" -le 0 ]; then
+        say "  线上静态残留：已关闭（--web-stale-days 0）"
+        return 0
+    fi
+    if [ ! -d "$dir" ]; then
+        say "  线上静态残留：没有 ${dir}，跳过"
+        return 0
+    fi
+
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        size="$(bytes_of "$path")"
+        if [ "$DRY_RUN" -eq 1 ]; then
+            say "  [dry-run] 将删除 线上静态残留：${path#"$dir"/}（$(kinotv_human_size "$size")）"
+        elif rm -f -- "$path" 2>/dev/null; then
+            say "  删除 线上静态残留：${path#"$dir"/}（$(kinotv_human_size "$size")）"
+        else
+            say "  删除失败 线上静态残留：${path#"$dir"/}"
+            FAILED=1
+            continue
+        fi
+        removed=$((removed + 1))
+        freed=$((freed + size))
+    done < <(find "$dir" -type f -mtime "+${days}" -print 2>/dev/null)
+
+    TOTAL_FILES=$((TOTAL_FILES + removed))
+    TOTAL_BYTES=$((TOTAL_BYTES + freed))
+    say "  线上静态残留：清理 ${removed} 个文件（$(kinotv_human_size "$freed")），保留 ${days} 天内的"
+}
+
 MODE="正式删除"
 [ "$DRY_RUN" -eq 1 ] && MODE="dry-run"
+say "线上静态残留保留天数：${WEB_STALE_DAYS}（0 表示关闭）"
 say "开始清理发布备份：dir=${RELEASE_DIR} mode=${MODE}"
 say "保留份数：前端/二进制=${KEEP_RELEASES} 库快照=${KEEP_DB} 资源归档=${KEEP_MEDIA} 手工快照=${KEEP_SNAPSHOTS}"
 
@@ -228,6 +283,7 @@ prune_category "画布库快照" "$KEEP_DB" 'open_ai_canvas.db.bak-*'
 prune_category "账号库快照" "$KEEP_DB" 'kinotv-auth.db.bak-*'
 prune_category "资源归档" "$KEEP_MEDIA" 'resources.bak-*.tgz'
 prune_category "发布前手工快照" "$KEEP_SNAPSHOTS" 'backups/*'
+prune_stale_web_assets
 
 if [ "$FAILED" -ne 0 ]; then
     say "清理完成但有删除失败项：共处理 ${TOTAL_FILES} 份，约 $(kinotv_human_size "$TOTAL_BYTES")"
