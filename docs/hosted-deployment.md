@@ -58,12 +58,39 @@
 ```bash
 # 后端（在服务器上编译，架构一致、省一次交叉编译）
 cd /tmp/kinotv-src/backend
-CGO_ENABLED=1 GOFLAGS=-mod=mod GOSUMDB=off GOPROXY=https://goproxy.cn,direct \
-  go build -o /opt/kinotv/kinotv-server ./cmd/server
+CGO_ENABLED=1 GOTOOLCHAIN=local GOFLAGS=-mod=mod GOSUMDB=off GOPROXY=https://goproxy.cn,direct \
+  /usr/local/go/bin/go build -o /opt/kinotv/kinotv-server ./cmd/server
 
 # 前端（托管形态必须显式打开登录界面，否则产物里没有登录页）
 cd web && BEEFTV_HOSTED_AUTH=1 bun run build
 ```
+
+两处别改成想当然的写法：
+
+- **用绝对路径 `/usr/local/go/bin/go`，别写裸 `go`。** 这台机器的 PATH 里没有 go，
+  裸命令只会 `command not found`。
+- **`GOTOOLCHAIN=local` 不是可选项。** `go.mod` 要求 go ≥ 1.27.2；服务器上的 go 更旧时
+  Go 会去联网下载对应工具链，而构建命令里必须带 `GOSUMDB=off`（国内连不上
+  sum.golang.org），两者叠在一起会直接失败：
+
+```
+go: download go1.27.2: golang.org/toolchain@v0.0.1-go1.27.2.linux-amd64:
+    verifying module: checksum database disabled by GOSUMDB=off
+```
+
+所以服务器上的 `/usr/local/go` 必须本身就是 1.27.2 或更新，然后钉住 `GOTOOLCHAIN=local`
+不去联网取。升级方式（官方包，校验和要对得上 `go1.27.2.linux-amd64.tar.gz.sha256`）：
+
+```bash
+cd /tmp && curl -sSLO https://dl.google.com/go/go1.27.2.linux-amd64.tar.gz
+sha256sum go1.27.2.linux-amd64.tar.gz   # 与官方 .sha256 一致才继续
+rm -r /usr/local/go && tar -xzf go1.27.2.linux-amd64.tar.gz -C /usr/local
+/usr/local/go/bin/go version            # 期望 go1.27.2
+```
+
+注意先 `rm -r /usr/local/go` 再解包：直接解到已存在的目录会与旧版本合并，
+留下新版本里已经没有的旧文件。升级后确认一次文件数：
+`tar -tzf go1.27.2.linux-amd64.tar.gz | grep -vc "/$"` 应与 `find /usr/local/go -type f | wc -l` 相等。
 
 上传时排除 macOS 的 AppleDouble 旁注文件（`._*`）：`tar` 里带上
 `COPYFILE_DISABLE=1` 和 `--exclude '._*'`。这类文件混进
@@ -453,10 +480,14 @@ systemctl enable --now kinotv-backup.timer kinotv-healthcheck.timer kinotv-resto
 
 | 类别 | 默认保留 |
 | --- | --- |
-| `web.bak-*`、`kinotv-server.bak-*` | 各 3 份 |
+| `web.bak-*`、`kinotv-server.bak-*` | 各 4 份 |
 | `open_ai_canvas.db.bak-*`、`kinotv-auth.db.bak-*` | 各 3 份 |
 | `resources.bak-*.tgz` | 2 份 |
 | `backups/` 下的发布前手工快照 | 2 份 |
+
+默认份数只写在脚本里，systemd 单元不再单独用 `Environment` 覆盖——两处各写一个值时，
+定时任务保留 4 份而手动跑保留 3 份，手动执行一次就会把第 4 份删掉，而人手动跑这个脚本
+往往正是刚出过事的时候。要临时多留就直接传 `--keep-releases N`。
 
 几条硬约束，改脚本时别拆掉：
 
