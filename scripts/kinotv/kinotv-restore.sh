@@ -122,10 +122,14 @@ while IFS=$'\t' read -r rel sum size mode; do
     [ -n "$rel" ] || continue
     src="$RUN_DIR/$rel"
     if [ ! -f "$src" ]; then
-        if [ "$rel" = "media/resources.tar.gz" ] && [ "$MEDIA_PRUNED" -eq 1 ]; then
-            info "资源包已按保留策略清理，跳过：$rel"
-            continue
-        fi
+        case "$rel" in
+            media/*)
+                if [ "$MEDIA_PRUNED" -eq 1 ]; then
+                    info "资源已按保留策略清理，跳过：$rel"
+                    continue
+                fi
+                ;;
+        esac
         fail "备份缺少文件：$rel"
         continue
     fi
@@ -158,21 +162,18 @@ if [ -d "$RUN_DIR/config" ]; then
     find "$TARGET/config" -mindepth 1 -maxdepth 1 -type f -exec cp -p {} "$TARGET/" \;
 fi
 if [ "$WITH_MEDIA" -eq 1 ]; then
-    if [ -f "$RUN_DIR/media/resources.tar.gz" ]; then
-        tar xzf "$RUN_DIR/media/resources.tar.gz" -C "$TARGET"
-        # 逐条确认解包结果：tar 报错时可能已解出一部分，只看退出码会漏掉"解了一半"。
-        MEDIA_MISSING=0
-        MEDIA_TOTAL=0
-        while IFS= read -r entry; do
-            case "$entry" in */) continue ;; esac
-            MEDIA_TOTAL=$((MEDIA_TOTAL + 1))
-            [ -e "$TARGET/$entry" ] || { fail "资源解包后缺少：$entry"; MEDIA_MISSING=$((MEDIA_MISSING + 1)); }
-        done <<EOF2
-$(tar tzf "$RUN_DIR/media/resources.tar.gz")
-EOF2
-        [ "$MEDIA_MISSING" -eq 0 ] && pass "资源已恢复（$MEDIA_TOTAL 个文件全部落盘）"
+    if [ -d "$RUN_DIR/media/resources" ]; then
+        mkdir -p "$TARGET/resources"
+        # 必须复制而不是沿用硬链接：恢复出来的这份要能独立于备份目录存在，
+        # 否则以后裁掉旧备份会把"已经恢复好的数据"一起带走。
+        if cp -a "$RUN_DIR/media/resources/." "$TARGET/resources/"; then
+            MEDIA_TOTAL="$(find "$TARGET/resources" -type f | wc -l | tr -d ' ')"
+            pass "资源已恢复（$MEDIA_TOTAL 个文件全部落盘）"
+        else
+            fail "资源复制失败"
+        fi
     else
-        info "本次备份没有资源包（已清理或本来就没备份），跳过"
+        info "本次备份没有资源（已清理或本来就没备份），跳过"
     fi
 fi
 if [ -f "$TARGET/.settings-key" ]; then
@@ -191,18 +192,32 @@ fi
 MISSING=0
 while IFS=$'\t' read -r rel sum size mode; do
     [ -n "$rel" ] || continue
-    case "$rel" in media/*)
-        # 资源包在恢复时已经解包成目录树，比对对象是整个 tar 包，另有专门校验。
-        continue
-        ;;
-    config/*) out="$TARGET/${rel#config/}" ;;
-    *) out="$TARGET/$rel" ;;
+    case "$rel" in
+        media/resources/*)
+            # 没勾 --with-media 时素材本来就不恢复；按策略裁过的也一样，都不算失败。
+            [ "$WITH_MEDIA" -eq 1 ] || continue
+            [ "$MEDIA_PRUNED" -eq 1 ] && continue
+            out="$TARGET/resources/${rel#media/resources/}" ;;
+        media/*) continue ;;
+        config/*) out="$TARGET/${rel#config/}" ;;
+        *) out="$TARGET/$rel" ;;
     esac
     if [ ! -f "$out" ]; then
         fail "恢复后缺少文件：$rel"
         MISSING=$((MISSING + 1))
         continue
     fi
+    case "$rel" in
+        media/resources/*)
+            # 内容校验第 1 步已经对着备份本体做过一遍，这里只确认落盘完整（大小一致）。
+            # 素材是这里唯一会到 GB 级的部分，一次恢复把它读两遍不值得。
+            [ "$(kinotv_file_size "$out")" = "$size" ] || {
+                fail "恢复后大小不符：$rel"
+                MISSING=$((MISSING + 1))
+            }
+            continue
+            ;;
+    esac
     if [ "$(kinotv_sha256 "$out")" != "$sum" ]; then
         fail "恢复后内容与备份不符：$rel"
         MISSING=$((MISSING + 1))

@@ -332,12 +332,12 @@ CANVAS_BACKEND_DATA_DIR=/opt/kinotv/data CANVAS_DATABASE_DRIVER=sqlite /tmp/insp
 ```
 open_ai_canvas.db  kinotv-auth.db
 config/{local-model-config.json,plugin_registry.json,.settings-key}
-media/resources.tar.gz
+media/resources/...  用户素材，与上一份共用硬链接
 manifest.tsv        每行 <相对路径>	<sha256>	<字节数>	<权限>
 done                只有全部成功才出现
 ```
 
-三个容易踩的点，改动前先读：
+四个容易踩的点，改动前先读：
 
 - **数据库必须用 `sqlite3 .backup`，不能 `cp`。** 开着 WAL 时主库文件里没有尚未
   checkpoint 的事务，直接拷出来的库看着正常、实际丢最近一段写入。
@@ -345,10 +345,16 @@ done                只有全部成功才出现
   边车文件。脚本会把它转成 `journal_mode=delete`，这样归档是自包含的单文件，
   异地存放、只读挂载、换任意 sqlite 版本都能直接打开。
 - **`.settings-key` 必须和库同一批。** 少了它，渠道密钥解不开、资源签名对不上。
+- **素材走硬链接，不要改回整份打包。** 素材只增不减，整份 tar 等于每天复制一遍全部
+  素材：素材 5G 时保留 3 天就是 15G，磁盘会先被备份副本撑满。现在用
+  `rsync --link-dest` 指向上一次还带素材的备份，没变动的文件共用 inode，体积只按
+  真正变了多少增长。两个后果要记住：`du` 出来的目录大小会把共用 inode 也算进去，
+  不代表实际新增（日志里报的是"本次新增写入"）；这个设计依赖机器上有 `rsync`，
+  缺了备份会直接失败而不是悄悄退回整份打包。
 
 保留策略：数据库与配置 7 天，`resources` 3 天（它比库大一个数量级，用同一个保留期会
-把盘吃光）。资源包被清掉后会留 `media-pruned` 标记，恢复侧据此区分"按策略清理"和
-"本来就没备份"。
+把盘吃光）。素材被清掉后会留 `media-pruned` 标记，恢复侧据此区分"按策略清理"和
+"本来就没备份"。裁掉某一份的 `media/` 不会影响后面的备份——它们各自持有自己的硬链接。
 
 ### 恢复与演练
 

@@ -127,6 +127,93 @@ nodone_code=$?
 set -e
 expect "缺 done 时恢复被拒绝" 1 "$nodone_code"
 
+printf '\n[素材增量：硬链接去重]\n'
+# 素材只增不减，备份靠硬链接去重。这里钉死四件事：没变的共用 inode、新增的单独写、
+# 源里删掉的从新备份消失、以及最要命的——动新备份绝不能改坏旧备份里的文件。
+MB="$WORK/media-backups"
+mkdir -p "$DATA/resources/2026/11"
+printf 'img-one' > "$DATA/resources/2026/10/one.jpg"
+printf 'img-two' > "$DATA/resources/2026/11/two.jpg"
+
+"$SCRIPT_DIR/kinotv-backup.sh" --data-dir "$DATA" --backup-dir "$MB" --quiet >/dev/null 2>&1
+M1="$(find "$MB" -mindepth 1 -maxdepth 1 -type d -name '*-*' | sort | tail -1)"
+# 数据目录里本来就有前面造的文件，所以期望值按源目录现算，不写死。
+expect "第一份素材数与源一致" "$(find "$DATA/resources" -type f | wc -l | tr -d ' ')" \
+    "$(count_lines "$M1/manifest.tsv" '^media/resources/')"
+
+# 两次备份的目录名精确到秒，同秒会撞进同一个目录，所以这里必须隔开一秒以上。
+sleep 2
+printf 'img-three' > "$DATA/resources/2026/10/three.jpg"
+"$SCRIPT_DIR/kinotv-backup.sh" --data-dir "$DATA" --backup-dir "$MB" --quiet >/dev/null 2>&1
+M2="$(find "$MB" -mindepth 1 -maxdepth 1 -type d -name '*-*' | sort | tail -1)"
+expect_true "两次备份落在不同目录" "$([ "$M1" != "$M2" ] && echo yes || echo no)"
+expect "第二份素材数与源一致（含新增的那张）" "$(find "$DATA/resources" -type f | wc -l | tr -d ' ')" \
+    "$(count_lines "$M2/manifest.tsv" '^media/resources/')"
+expect "没动过的素材与上一份共用 inode" \
+    "$(kinotv_file_inode "$M1/media/resources/2026/10/one.jpg")" \
+    "$(kinotv_file_inode "$M2/media/resources/2026/10/one.jpg")"
+expect_true "新素材没有污染上一份" "$([ ! -e "$M1/media/resources/2026/10/three.jpg" ] && echo yes || echo no)"
+
+sleep 2
+rm -f "$DATA/resources/2026/11/two.jpg"
+"$SCRIPT_DIR/kinotv-backup.sh" --data-dir "$DATA" --backup-dir "$MB" --quiet >/dev/null 2>&1
+M3="$(find "$MB" -mindepth 1 -maxdepth 1 -type d -name '*-*' | sort | tail -1)"
+expect_true "源里删掉的素材不留在新备份" \
+    "$([ ! -e "$M3/media/resources/2026/11/two.jpg" ] && echo yes || echo no)"
+expect_true "旧备份里那份素材还在" \
+    "$([ -e "$M1/media/resources/2026/11/two.jpg" ] && echo yes || echo no)"
+expect_true "旧备份的内容没被新备份改坏" \
+    "$([ "$(cat "$M1/media/resources/2026/11/two.jpg")" = "img-two" ] && echo yes || echo no)"
+expect_true "旧备份的清单仍完整" \
+    "$(grep -q 'media/resources/2026/11/two.jpg' "$M1/manifest.tsv" && echo yes || echo no)"
+
+"$SCRIPT_DIR/kinotv-restore.sh" latest --backup-dir "$MB" --target "$WORK/media-restored" --with-media \
+    > "$WORK/media-restore.log" 2>&1
+expect "素材备份恢复退出码" 0 "$?"
+expect_true "恢复出的素材内容一致" \
+    "$(cmp -s "$DATA/resources/2026/10/three.jpg" "$WORK/media-restored/resources/2026/10/three.jpg" && echo yes || echo no)"
+expect_true "恢复出的是独立副本，不是指向备份的硬链接" \
+    "$([ "$(kinotv_file_inode "$WORK/media-restored/resources/2026/10/three.jpg")" \
+        != "$(kinotv_file_inode "$M3/media/resources/2026/10/three.jpg")" ] && echo yes || echo no)"
+
+# --skip-media 是给高频轻量备份用的，不能顺手产出半份素材。
+sleep 2
+"$SCRIPT_DIR/kinotv-backup.sh" --data-dir "$DATA" --backup-dir "$MB" --skip-media --quiet >/dev/null 2>&1
+M4="$(find "$MB" -mindepth 1 -maxdepth 1 -type d -name '*-*' | sort | tail -1)"
+expect_true "--skip-media 不产出素材" "$([ ! -d "$M4/media" ] && echo yes || echo no)"
+
+# 最危险的一步：裁掉旧备份的素材目录。后面的备份与它共用 inode，删目录项不能
+# 连带把还在用的内容删掉——这条要是错了，就是"裁剪策略把有效备份一起带走"。
+sleep 2
+"$SCRIPT_DIR/kinotv-backup.sh" --data-dir "$DATA" --backup-dir "$MB" --quiet >/dev/null 2>&1
+MA="$(find "$MB" -mindepth 1 -maxdepth 1 -type d -name '*-*' | sort | tail -1)"
+sleep 2
+"$SCRIPT_DIR/kinotv-backup.sh" --data-dir "$DATA" --backup-dir "$MB" --quiet >/dev/null 2>&1
+MO="$(find "$MB" -mindepth 1 -maxdepth 1 -type d -name '*-*' | sort | tail -1)"
+expect_true "新旧两份确实共用 inode" \
+    "$([ "$(kinotv_file_inode "$MA/media/resources/2026/10/one.jpg")" \
+        = "$(kinotv_file_inode "$MO/media/resources/2026/10/one.jpg")" ] && echo yes || echo no)"
+rm -r "$MA/media"
+: > "$MA/media-pruned"
+expect_true "裁掉旧备份的素材后，新备份的文件还在" \
+    "$([ -f "$MO/media/resources/2026/10/one.jpg" ] && echo yes || echo no)"
+expect_true "新备份的文件内容没被连带删除" \
+    "$([ "$(cat "$MO/media/resources/2026/10/one.jpg")" = "img-one" ] && echo yes || echo no)"
+"$SCRIPT_DIR/kinotv-restore.sh" latest --backup-dir "$MB" --target "$WORK/after-prune" \
+    --force --with-media > "$WORK/after-prune.log" 2>&1
+expect "裁剪之后新备份仍可完整恢复" 0 "$?"
+expect_true "恢复出的内容仍然正确" \
+    "$(cmp -s "$DATA/resources/2026/10/one.jpg" "$WORK/after-prune/resources/2026/10/one.jpg" && echo yes || echo no)"
+
+# 素材被按策略裁掉之后，恢复必须能分辨"这是清理"而不是"文件丢了"。
+# 少了这条，一次正常的保留策略清理会被演练报成备份损坏。
+rm -r "$M3/media"
+: > "$M3/media-pruned"
+"$SCRIPT_DIR/kinotv-restore.sh" "$(basename "$M3")" --backup-dir "$MB" --target "$WORK/pruned-restore" \
+    --force --with-media > "$WORK/pruned.log" 2>&1
+expect "素材已按策略清理时恢复仍然通过" 0 "$?"
+expect_true "日志说明了是按策略清理" "$(grep -q '按保留策略清理' "$WORK/pruned.log" && echo yes || echo no)"
+
 printf '\n[发布备份清理]\n'
 # 造一个发布目录：每个类别都远超保留份数，另外混入不该被碰的活文件与不认识的条目。
 RELEASE="$WORK/release"

@@ -35,6 +35,17 @@ kinotv_file_mode() {
     fi
 }
 
+# 取 inode 号。媒体备份用硬链接去重，"这份备份和上一份是不是同一个文件"靠它判断，
+# 比拿 size+mtime 猜可靠——素材是只增不改的，inode 相同就一定没被改过。
+kinotv_file_inode() {
+    local path="$1"
+    if stat -c %i "$path" >/dev/null 2>&1; then
+        stat -c %i "$path"
+    else
+        stat -f %i "$path"
+    fi
+}
+
 # 计算 sha256。优先 coreutils 的 sha256sum，macOS 只有 shasum。
 kinotv_sha256() {
     local path="$1"

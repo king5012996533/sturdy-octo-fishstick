@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
 # KinoTV 备份：SQLite 在线快照 + 配置 + 用户资源。
 #
-# 每次运行产出一个"整份"目录，最后才写 done 标记：
+# 每次运行产出一个目录，最后才写 done 标记：
 #
 #   <backup-dir>/20261003-033001/
 #     open_ai_canvas.db
 #     kinotv-auth.db
 #     config/<local-model-config.json|plugin_registry.json|.settings-key>
-#     media/resources.tar.gz
+#     media/resources/...            用户素材，与上一份共用硬链接
 #     manifest.tsv     每行 <相对路径>\t<sha256>\t<字节数>\t<权限>
 #     done             只有全部成功才出现
 #
 # 为什么按目录而不是平铺一堆带时间戳的文件：恢复时"哪几个文件属于同一次备份"必须
 # 无从猜测。平铺布局下漏掉一两个文件也能"恢复成功"，而残缺的备份比没有备份更危险。
+#
+# 素材为什么是硬链接树而不是一个 tar：素材只增不减，整份打包等于每天复制一遍全部
+# 素材。素材 5G 时，保留 3 天就是 15G 备份，而每天真正新增的可能只有几十兆——磁盘
+# 会先被备份副本撑满，而不是被素材本身。改成 rsync --link-dest 之后，没变动的文件
+# 与上一份共用同一个 inode，备份体积只按"真正变了多少"增长。
 #
 # done 标记是恢复侧的唯一准入条件：没有它，恢复脚本拒绝使用这份备份。
 set -Eeuo pipefail
@@ -68,6 +73,17 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 RUN_DIR="$BACKUP_DIR/$STAMP"
 FAILED=0
 ARTIFACT_COUNT=0
+MEDIA_FILES=0
+MEDIA_LINKED=0
+MEDIA_NEW_BYTES=0
+MEDIA_TOTAL_BYTES=0
+
+# 素材增量依赖 rsync。缺了要在动手之前说清楚，而不是备到一半才发现——
+# 那时候 RUN_DIR 已经建出来、库快照也做完了一半。
+if [ "$INCLUDE_MEDIA" -eq 1 ] && [ -d "$DATA_DIR/resources" ] && ! command -v rsync >/dev/null 2>&1; then
+    say "备份失败：没有找到 rsync，素材增量备份无法进行"
+    exit 1
+fi
 
 # 同一时刻只允许一个备份在跑：两个 .backup 同时写同一块盘会互相拖慢，
 # 更糟的是并发裁剪可能删掉另一份刚写一半的产物。
@@ -175,23 +191,54 @@ done
 
 # ---- 3. 用户资源 ----
 # 生成产物是花钱跑出来的，丢了无法用数据库重建。
+#
+# 整树逐文件进清单：媒体是这里唯一会到 GB 级的部分，只记一个包级别的校验和，
+# 一旦包坏了就没法知道坏在哪几个文件、能不能只丢一小部分。逐文件记录换来的是
+# "恢复前就能点名到具体哪个素材对不上"。
 if [ "$INCLUDE_MEDIA" -eq 1 ] && [ -d "$DATA_DIR/resources" ]; then
-    MEDIA="$RUN_DIR/media/resources.tar.gz"
-    mkdir -p "$RUN_DIR/media"
-    rm -f "$MEDIA"
-    if tar czf "$MEDIA" -C "$DATA_DIR" resources 2>>"$LOG"; then
-        # tar 写入中途失败也会留下一个能打开、但内容不全的包，必须做一次可读性校验。
-        if ! tar tzf "$MEDIA" >/dev/null 2>&1; then
-            say "备份失败：resources.tar.gz 无法完整读取"
-            rm -f "$MEDIA"
+    MEDIA_DIR="$RUN_DIR/media"
+    MEDIA_TREE="$MEDIA_DIR/resources"
+    mkdir -p "$MEDIA_DIR"
+    # 上一份还带着素材的备份，它的树拿来当 --link-dest：内容一样的文件直接共用 inode，
+    # 不占新增空间。素材被裁掉的旧备份不会被选中（test -d 过滤掉了）。
+    PREV_MEDIA="$(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -name '*-*' \
+        ! -path "$RUN_DIR" -exec test -d '{}/media/resources' \; -print 2>/dev/null | sort | tail -1)"
+    RSYNC_ARGS=(-a)
+    [ -n "$PREV_MEDIA" ] && RSYNC_ARGS+=("--link-dest=$PREV_MEDIA/media/resources")
+    if ! rsync "${RSYNC_ARGS[@]}" "$DATA_DIR/resources/" "$MEDIA_TREE/" >>"$LOG" 2>&1; then
+        say "备份失败：素材同步失败"
+        FAILED=1
+    else
+        # 上一份里留着、这一份源里已经没有的素材要清掉——否则"恢复出来比现在多"
+        # 同样说不清。必须先清再进清单，不然清单会点到已经不存在的文件。
+        while IFS= read -r -d '' path; do
+            rel="${path#"$MEDIA_TREE"/}"
+            [ -e "$DATA_DIR/resources/$rel" ] || rm -f -- "$path"
+        done < <(find "$MEDIA_TREE" -type f -print0)
+        while IFS= read -r -d '' path; do
+            rel="${path#"$MEDIA_TREE"/}"
+            sum="$(kinotv_sha256 "$path")"
+            size="$(kinotv_file_size "$path")"
+            mode="$(kinotv_file_mode "$path")"
+            printf 'media/resources/%s\t%s\t%s\t%s\n' "$rel" "$sum" "$size" "$mode" >> "$RUN_DIR/manifest.tsv"
+            ARTIFACT_COUNT=$((ARTIFACT_COUNT + 1))
+            MEDIA_FILES=$((MEDIA_FILES + 1))
+            MEDIA_TOTAL_BYTES=$((MEDIA_TOTAL_BYTES + size))
+            # 和上一份的同一个文件 inode 相同 ⇒ 这一份没有为它多占一个字节。
+            if [ -n "$PREV_MEDIA" ] && [ -f "$PREV_MEDIA/media/resources/$rel" ] \
+                && [ "$(kinotv_file_inode "$path")" = "$(kinotv_file_inode "$PREV_MEDIA/media/resources/$rel")" ]; then
+                MEDIA_LINKED=$((MEDIA_LINKED + 1))
+            else
+                MEDIA_NEW_BYTES=$((MEDIA_NEW_BYTES + size))
+            fi
+        done < <(find "$MEDIA_TREE" -type f -print0)
+        SRW="$(find "$DATA_DIR/resources" -type f | wc -l | tr -d ' ')"
+        if [ "$MEDIA_FILES" != "$SRW" ]; then
+            say "备份失败：素材文件数不符（源 ${SRW}，备份 ${MEDIA_FILES}）"
             FAILED=1
         else
-            record "media/resources.tar.gz" "$MEDIA"
+            say "  media/resources/ $MEDIA_FILES 个文件共 $(kinotv_human_size "$MEDIA_TOTAL_BYTES")，其中 $MEDIA_LINKED 个与上一份共用，本次新增写入 $(kinotv_human_size "$MEDIA_NEW_BYTES")"
         fi
-    else
-        say "备份失败：resources 打包失败"
-        rm -f "$MEDIA"
-        FAILED=1
     fi
 elif [ "$INCLUDE_MEDIA" -eq 1 ]; then
     say "提示：$DATA_DIR/resources 不存在，跳过资源备份"
@@ -213,8 +260,13 @@ fi
 } > "$RUN_DIR/manifest.meta"
 : > "$RUN_DIR/done"
 
-TOTAL="$(du -sh "$RUN_DIR" 2>/dev/null | awk '{print $1}')"
-say "备份完成：$ARTIFACT_COUNT 个产物，共 ${TOTAL:-?}"
+# 不报 du 出来的目录大小：素材是硬链接，du 会把共用 inode 也算进来，
+# 那个数字会让人误以为备份又涨了一份。
+if [ "$INCLUDE_MEDIA" -eq 1 ] && [ "$MEDIA_FILES" -gt 0 ]; then
+    say "备份完成：$ARTIFACT_COUNT 个产物，其中素材 $MEDIA_FILES 个、本次新增写入 $(kinotv_human_size "$MEDIA_NEW_BYTES")"
+else
+    say "备份完成：$ARTIFACT_COUNT 个产物"
+fi
 
 # ---- 5. 裁剪 ----
 # 只删本脚本自己产出的目录结构。找不到 done 的旧目录按更短期限清掉：
