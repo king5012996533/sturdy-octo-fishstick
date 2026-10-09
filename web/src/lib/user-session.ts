@@ -1,6 +1,7 @@
 import { localForageStorage } from "@/lib/localforage-storage";
 import { normalizeLocalAsset, normalizeLocalCanvasProject } from "@/lib/local-workspace-migration";
-import { scopedLocalStorage, setActiveUserScope } from "@/lib/user-scope";
+import { appQueryClient } from "@/lib/query-client";
+import { getActiveUserScope, scopedLocalStorage, setActiveUserScope } from "@/lib/user-scope";
 import { CANVAS_HISTORY_STORE_KEY, useCanvasHistoryStore } from "@/stores/canvas/use-canvas-history-store";
 import { CANVAS_STORE_KEY, flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { ASSET_STORE_KEY, flushAssetStorePersistence, useAssetStore } from "@/stores/use-asset-store";
@@ -31,6 +32,9 @@ async function hydrateLocalWorkspace(payload: WorkspaceBootstrapPayload) {
 
     try {
         await Promise.all([flushCanvasStorePersistence(), flushAssetStorePersistence()]);
+        // 换账号/换工作区时把上一个 scope 的查询缓存整个丢掉。查询键已经在哈希层带了 scope
+        // （见 query-client），这里清一次是为了不让旧账号的数据继续留在内存里。
+        if (getActiveUserScope() !== payload.workspace.id) appQueryClient.clear();
         setActiveUserScope(payload.workspace.id);
 
         const [persistedCanvas, persistedCanvasHistory, persistedAssets, persistedPlugins] = await Promise.all([
