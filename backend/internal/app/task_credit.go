@@ -506,11 +506,19 @@ func taskChargeTier(intent ModelRequestIntent) string {
 	}
 }
 
-// videoResolutionPriceTier 把用户选的分辨率折成价格档位名（480p → 480P）。
+// videoResolutionPriceTier 把用户选的分辨率折成价格档位名（480p → 480P，768 → 768P）。
 //
 // 认形状而不是查固定清单：视频分辨率有 360p…2160p，还有 768p、960p 这类非标准写法，
-// 写死清单会在接入新模型时漏档。面板没选（auto / 空）或取值不像分辨率时回空档，由
-// 「不区分」那一行兜底——回落到某个具体档位等于用一个自己没验过的成本出货。
+// 写死清单会在接入新模型时漏档。
+//
+// 裸数字要补回尾部的 P：面板统一把分辨率写成 480 / 720 / 768 这种数字形式（见
+// web/src/lib/video-generation-options.ts）。标准档位由 normalizeModelRequestOption
+// 的固定表补 P，768、960 这类非标准档漏在表外，档位于是算成空档，落到「不区分」那一行，
+// 表现为"照常配了 768P 的价却报未定价"。补 P 只是同一分辨率的另一种写法，不是把认不出
+// 的取值猜成某一档。
+//
+// 面板没选（auto / 空）或取值不像分辨率时仍回空档，由「不区分」那一行兜底——回落到某个
+// 具体档位等于用一个自己没验过的成本出货。
 func videoResolutionPriceTier(value any) string {
 	text, ok := value.(string)
 	if !ok {
@@ -521,10 +529,35 @@ func videoResolutionPriceTier(value any) string {
 		return ""
 	}
 	tier := strings.ToUpper(resolution)
-	if !isVideoResolutionTierShape(tier) {
+	if isVideoResolutionTierShape(tier) {
+		return tier
+	}
+	if !isBareResolutionNumber(tier) {
 		return ""
 	}
-	return tier
+	// 补完仍要再判一次形状：拼出来的档位必须自己合法，否则一位两位的数字会被拼成
+	// 一个不存在的档位，把本该回落到「不区分」的一次调用变成"未定价"。
+	candidate := tier + "P"
+	if !isVideoResolutionTierShape(candidate) {
+		return ""
+	}
+	return candidate
+}
+
+// isBareResolutionNumber 报告一个取值是不是"只有数字的分辨率"（768、960、2160）。
+//
+// 下限三位：360p…2160p 都是三位以上，一位两位的数字更可能是别的参数被误传进 vquality，
+// 那种情况应该留在空档，而不是拼出一个不存在的档位。
+func isBareResolutionNumber(value string) bool {
+	if len(value) < 3 {
+		return false
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // isVideoResolutionTierShape 与 auth.IsVideoResolutionPriceTier 是同一条形状规则。

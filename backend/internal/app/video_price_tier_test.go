@@ -21,12 +21,27 @@ func TestTaskChargeTierPicksVideoResolution(t *testing.T) {
 		// 非标准写法原样带上：能力合同里就有 768P、960P 这类档，认不出就等于让运营白配。
 		{"768P", "768P"},
 		{"960P", "960P"},
+		// 面板把分辨率压成裸数字送上来（480 / 720 / 768），标准档位由
+		// normalizeModelRequestOption 的固定表补 P，768 这类非标准档漏在表外。
+		// 少了这条兜底，就是"后台配了 768P 的价，用户点生成报未定价"。
+		{"768", "768P"},
+		{"960", "960P"},
+		{"480", "480P"},
+		{"720", "720P"},
+		{"1080", "1080P"},
+		{"2160", "2160P"},
+		{"2k", "2K"},
 		// 面板没选清晰度（auto / 空）时不能猜一档，交给「不区分」那一行兜底。
 		{"auto", ""},
 		{"", ""},
+		// 一位两位的数字更像别的参数被误传，不能拼成 12P 这种不存在的档位。
+		{"12", ""},
+		{"1", ""},
 		{nil, ""},
 		{480, ""},
 		{"超清", ""},
+		{"720pp", ""},
+		{"P720", ""},
 	}
 	for _, item := range cases {
 		options := map[string]any{"videoSeconds": 15}
@@ -62,5 +77,57 @@ func TestVideoResolutionTierMatchesPricingDomain(t *testing.T) {
 		if appSide != authSide {
 			t.Fatalf("档位形状判定不一致：%q app=%v auth=%v", sample, appSide, authSide)
 		}
+	}
+}
+
+// TestVideoResolutionTierPricingRoundTrip 把"面板送来的裸数字分辨率"和"定价域按档取价"
+// 串成一条真实链路跑一遍。
+//
+// 面板统一把分辨率写成裸数字（见 web/src/lib/video-generation-options.ts），标准档位由
+// normalizeModelRequestOption 的固定表补 P，768、960 这类非标准档漏在表外。少了补 P，
+// 档位会算成空档、落到「不区分」那一行，表现为"后台配了 768P 的价，用户点生成报未定价"。
+// 两侧各自的形状测试都过，只有串起来跑才拦得住这条——所以这里刻意不 mock 定价域。
+func TestVideoResolutionTierPricingRoundTrip(t *testing.T) {
+	_, db := newFeatureAvailabilityTestService(t)
+	if err := auth.EnsurePricingSchema(db); err != nil {
+		t.Fatalf("初始化定价表失败: %v", err)
+	}
+	store := auth.NewStore(db)
+	sell := int64(21)
+	price := &auth.ModelPrice{
+		ID:            "h3-768p",
+		ModelKey:      "CHANNEL_000008::MiniMax-H3",
+		Capability:    string(auth.CapabilityVideo),
+		PriceTier:     "768P",
+		Unit:          string(auth.UnitPerSecond),
+		SellUnitPrice: &sell,
+		Currency:      "CNY",
+		Enabled:       true,
+	}
+	if err := store.SaveModelPrice(price); err != nil {
+		t.Fatalf("写入 768P 单价失败: %v", err)
+	}
+	ledger, err := auth.NewService(auth.Options{Store: store})
+	if err != nil {
+		t.Fatalf("装配计费服务失败: %v", err)
+	}
+
+	tier := videoResolutionPriceTier("768")
+	if tier != "768P" {
+		t.Fatalf("面板的裸数字 768 应折成档位 768P，实际 %q", tier)
+	}
+	quote, err := ledger.QuoteTaskCharge(auth.TaskChargeInput{
+		UserID:     "user-1",
+		TaskID:     "task-1",
+		ModelKey:   "CHANNEL_000008::MiniMax-H3",
+		Capability: string(auth.CapabilityVideo),
+		Tier:       tier,
+		Quantity:   15,
+	})
+	if err != nil {
+		t.Fatalf("按 768 档试算失败（修复前这里报「尚未定价」）: %v", err)
+	}
+	if !quote.Priced || quote.Credits != 315 {
+		t.Fatalf("768P 档 15 秒应报 315 分，实际 priced=%v credits=%d", quote.Priced, quote.Credits)
 	}
 }
