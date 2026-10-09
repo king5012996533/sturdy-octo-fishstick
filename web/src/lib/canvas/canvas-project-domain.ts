@@ -5,7 +5,7 @@ import { normalizeStoryboardAssetBindings } from "@/lib/canvas/canvas-storyboard
 import { bindingForConnectedNode, storyboardComposerContent, storyboardRowReferenceNodeIds } from "@/lib/canvas/canvas-storyboard-materializer";
 import type { CanvasImageAngleParams } from "@/components/canvas/canvas-node-angle-dialog";
 import type { NodeGenerationInput } from "@/components/canvas/canvas-node-generation";
-import { isFrameNode } from "@/lib/canvas/canvas-frame";
+import { isFrameNode, isNodeHiddenByCollapsedFrame } from "@/lib/canvas/canvas-frame";
 import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { canvasNodeMentionToken, canvasResourceMentionToken, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
@@ -391,6 +391,14 @@ export function isHiddenBatchChild(node: CanvasNodeData, nodes: CanvasNodeData[]
     const root = nodes.find((item) => item.id === rootId);
     if (root && collapsingBatchIds?.has(rootId)) return false;
     return Boolean(root && !root.metadata?.imageBatchExpanded);
+}
+
+// 节点在画布上是不是真的看不见：收进批量表的那批，和待在折叠背板里的那批。
+// 这和“节点存在”是两回事——看不见的节点不该被缩略图、适合屏幕、连线吸附或空视窗提示
+// 当成内容，否则会出现“看得到节点却提示视窗没有节点”这类自相矛盾的判断。
+export function isCanvasNodeHiddenFromView(node: CanvasNodeData, nodes: CanvasNodeData[]) {
+    if (isHiddenBatchChild(node, nodes)) return true;
+    return Boolean(node.parentId) && isNodeHiddenByCollapsedFrame(node, nodes);
 }
 
 export function sameStringSet(left: Set<string>, right: Set<string>) {

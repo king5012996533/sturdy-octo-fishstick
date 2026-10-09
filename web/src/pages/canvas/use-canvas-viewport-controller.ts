@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, type Dispatch, type MouseEvent, type SetStateAction } from "react";
 
-import { isNodeHiddenByCollapsedFrame } from "@/lib/canvas/canvas-frame";
-import { isHiddenBatchChild } from "@/lib/canvas/canvas-project-domain";
+import { isCanvasNodeHiddenFromView } from "@/lib/canvas/canvas-project-domain";
 import { applyCanvasLiveViewport } from "@/lib/canvas/canvas-live-viewport";
 import { canOpenCanvasNodePromptPanel, isCanvasMediaResultNode } from "@/lib/canvas/canvas-node-semantics";
 import { getCanvasNodesBounds, viewportAtScale, viewportForBounds, type CanvasViewportSize } from "@/lib/canvas/canvas-viewport";
@@ -86,7 +85,7 @@ export function useCanvasViewportController({
     useEffect(() => {
         if (!agentCreatedNodes || focusedAgentBatch.current === agentCreatedNodes || size.width <= 0 || size.height <= 0) return;
         focusedAgentBatch.current = agentCreatedNodes;
-        const targets = agentCreatedNodes.filter((node) => !isHiddenBatchChild(node, nodesRef.current) && !isNodeHiddenByCollapsedFrame(node, nodesRef.current));
+        const targets = agentCreatedNodes.filter((node) => !isCanvasNodeHiddenFromView(node, nodesRef.current));
         const rect = containerRef.current?.getBoundingClientRect();
         const panel = containerRef.current?.ownerDocument.querySelector(".canvas-agent-panel")?.getBoundingClientRect();
         const area = unobscuredCanvasArea(size, rect && panel ? { left: panel.left - rect.left, top: panel.top - rect.top, right: panel.right - rect.left, bottom: panel.bottom - rect.top } : undefined);
@@ -123,12 +122,12 @@ export function useCanvasViewportController({
 
     const fitCanvasContent = useCallback(() => {
         const nodes = nodesRef.current;
-        return focusNodesInView(nodes.filter((node) => !isHiddenBatchChild(node, nodes) && !isNodeHiddenByCollapsedFrame(node, nodes)));
+        return focusNodesInView(nodes.filter((node) => !isCanvasNodeHiddenFromView(node, nodes)));
     }, [focusNodesInView, nodesRef]);
 
     const fitCanvasSelection = useCallback(() => {
         const nodes = nodesRef.current;
-        return focusNodesInView(nodes.filter((node) => selectedNodeIdsRef.current.has(node.id) && !isHiddenBatchChild(node, nodes) && !isNodeHiddenByCollapsedFrame(node, nodes)), 1.25);
+        return focusNodesInView(nodes.filter((node) => selectedNodeIdsRef.current.has(node.id) && !isCanvasNodeHiddenFromView(node, nodes)), 1.25);
     }, [focusNodesInView, nodesRef, selectedNodeIdsRef]);
 
     const handleCanvasDoubleClick = useCallback((event: MouseEvent<HTMLDivElement>) => {

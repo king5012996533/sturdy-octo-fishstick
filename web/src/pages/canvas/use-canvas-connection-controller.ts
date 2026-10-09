@@ -9,10 +9,10 @@ import { batchSourceRestriction, buildBatchConnectionCreateRequest, hasBatchConn
 import { batchReferenceHandleAtY } from "@/lib/canvas/canvas-batch-table";
 import { resolveConnectedNodeCreatePosition } from "@/lib/canvas/canvas-connected-node-placement";
 import { canvasConnectionError } from "@/lib/canvas/canvas-connection-policy";
-import { attachNodeToStoryboardRow, createCanvasNode, getConnectionTargetAnchor, isHiddenBatchChild, normalizeConnection, storyboardHandleAtY, storyboardPromptTemplateMetadata, storyboardRowFromHandle } from "@/lib/canvas/canvas-project-domain";
+import { attachNodeToStoryboardRow, createCanvasNode, getConnectionTargetAnchor, isCanvasNodeHiddenFromView, normalizeConnection, storyboardHandleAtY, storyboardPromptTemplateMetadata, storyboardRowFromHandle } from "@/lib/canvas/canvas-project-domain";
 import { createCanvasDrawingFromImage } from "@/lib/canvas/canvas-drawing-storage";
 import type { CanvasDrawingEngine } from "@/lib/canvas/canvas-drawing-engine";
-import { isFrameNode, isNodeHiddenByCollapsedFrame } from "@/lib/canvas/canvas-frame";
+import { isFrameNode } from "@/lib/canvas/canvas-frame";
 import { canOpenCanvasNodePromptPanel } from "@/lib/canvas/canvas-node-semantics";
 import { normalizeRunningHubCapability, type AiConfig } from "@/stores/use-config-store";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type CanvasNodeMetadata, type ConnectionHandle, type ContextMenuState, type Position, type ViewportTransform } from "@/types/canvas";
@@ -495,7 +495,7 @@ export function useCanvasConnectionController({
         let bestPriority = Number.POSITIVE_INFINITY;
 
         [...nodesRef.current]
-            .filter((node) => !isHiddenBatchChild(node, nodesRef.current) && !isNodeHiddenByCollapsedFrame(node, nodesRef.current) && !isFrameNode(node))
+            .filter((node) => !isCanvasNodeHiddenFromView(node, nodesRef.current) && !isFrameNode(node))
             .reverse()
             .forEach((node) => {
                 const scrollTop = scriptScrollTopById[node.id] || 0;
@@ -542,7 +542,7 @@ export function useCanvasConnectionController({
         const current: ConnectionHandle = { nodeId: source.id, handleType: "source" };
 
         [...nodesRef.current]
-            .filter((node) => !isHiddenBatchChild(node, nodesRef.current) && !isNodeHiddenByCollapsedFrame(node, nodesRef.current) && !isFrameNode(node))
+            .filter((node) => !isCanvasNodeHiddenFromView(node, nodesRef.current) && !isFrameNode(node))
             .reverse()
             .forEach((node) => {
                 const scrollTop = scriptScrollTopById[node.id] || 0;
