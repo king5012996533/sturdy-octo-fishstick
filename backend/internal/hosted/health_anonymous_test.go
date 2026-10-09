@@ -46,8 +46,12 @@ func TestHostedRuntimeServesHealthProbesWithoutSession(t *testing.T) {
 	if live.Code != http.StatusOK {
 		t.Fatalf("探活应 200，实际 %d：%s", live.Code, live.Body.String())
 	}
-	if !strings.Contains(live.Body.String(), "build") {
-		t.Fatalf("探活应带构建信息：%s", live.Body.String())
+	// 匿名探活只回答"进程在不在、能不能服务"。带构建信息等于白送一份版本指纹——
+	// 匿名访问者拿到版本号就能直接对上已知漏洞；账号库路径同属部署细节，一并禁止。
+	for _, forbidden := range []string{"build", "version", "commit", "buildTime", "goVersion", authPath, filepath.Base(authPath)} {
+		if strings.Contains(live.Body.String(), forbidden) {
+			t.Fatalf("匿名存活探针泄露了 %q：%s", forbidden, live.Body.String())
+		}
 	}
 
 	ready := serveRuntime(runtime, http.MethodGet, "/api/health/ready", nil)
@@ -69,10 +73,12 @@ func TestHostedRuntimeServesHealthProbesWithoutSession(t *testing.T) {
 	if envelope.Data.Status == "" {
 		t.Fatalf("探活响应缺少状态字段：%s", ready.Body.String())
 	}
-	// 匿名响应只放状态与构建信息，不能顺带把账号库路径之类的部署细节吐出去。
+	// 匿名响应只放运行状态，既不吐版本指纹也不吐账号库路径这类部署细节。
 	for _, response := range []*httptest.ResponseRecorder{live, ready} {
-		if strings.Contains(response.Body.String(), authPath) {
-			t.Fatalf("探活响应泄露了账号库路径：%s", response.Body.String())
+		for _, forbidden := range []string{"build", "version", "commit", "buildTime", "goVersion", authPath, filepath.Base(authPath)} {
+			if strings.Contains(response.Body.String(), forbidden) {
+				t.Fatalf("匿名探活响应泄露了 %q：%s", forbidden, response.Body.String())
+			}
 		}
 	}
 

@@ -96,6 +96,11 @@ func TestRuntimeOpenStartClose(t *testing.T) {
 	if err := json.NewDecoder(bootstrapResponse.Body).Decode(&bootstrapEnvelope); err != nil {
 		t.Fatal(err)
 	}
+	// 必须在这里就关掉，不能只靠上面的 defer：defer 要等测试函数返回，而本用例
+	// 中途会调 runtime.Close()。响应体不关，HTTP keep-alive 连接就一直算 active，
+	// httpServer.Shutdown 只能干等到 ShutdownTimeout 才报 "context deadline exceeded"，
+	// 于是这个用例随机变红。用完即关是这个夹具能稳定关停的前提。
+	_ = bootstrapResponse.Body.Close()
 	if bootstrapEnvelope.Data.Workspace.ID == "" || bootstrapEnvelope.Data.Workspace.Storage != "sqlite" || bootstrapEnvelope.Data.User.Username != "local" {
 		t.Fatalf("unexpected workspace bootstrap payload: %#v", bootstrapEnvelope)
 	}
@@ -196,6 +201,10 @@ func TestRuntimeOpenStartClose(t *testing.T) {
 		t.Fatalf("desktop unknown proxy path status = %d, want %d", unknownProxyResponse.StatusCode, http.StatusNotFound)
 	}
 
+	// 关服务前先放掉客户端侧的空闲 keep-alive 连接。否则这些连接在服务端看来还没
+	// 收敛，http.Server.Shutdown 会一直等到 ShutdownTimeout 才报 deadline exceeded，
+	// 用例就会随机变红。
+	http.DefaultClient.CloseIdleConnections()
 	if err := runtime.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}

@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"infinite-canvas/backend/internal/app"
 	"infinite-canvas/backend/internal/beefapi"
@@ -45,10 +46,63 @@ func modelConfigAccessFor(c *gin.Context, svc *app.Service) (modelConfigAccess, 
 	return modelConfigAccessFull, nil
 }
 
-// modelConfigCredentialFields 是普通账号视图里必须抹掉的字段。
+// modelConfigCredentialFields 是普通账号视图里必须抹掉的字段名，按「去掉大小写与
+// _ - 分隔符」后的形态收录，因此 apiKey / api_key / api-key / API_KEY 命中同一条。
+//
+// 用精确匹配而不是子串匹配：token 只该命中 token，不能把 inputTokens / maxTokens /
+// contextTokens 这类计费与容量字段一起抹掉；同理由 key 派生出的 modelKey、itemKey、
+// objectKey 也不在名单里。
+//
 // headers 也算凭据：渠道自定义头里经常直接放 Authorization。
+// credentialRef 只存引用，但引用本身就是可用来换取凭据的句柄，同样不对外。
 var modelConfigCredentialFields = []string{
-	"apiKey", "secretKey", "encryptedApiKey", "deviceCode", "device_code", "headers",
+	"apikey", "secretkey", "accesskey", "accesskeyid", "accesskeysecret",
+	"secret", "clientsecret", "webhooksecret", "privatekey", "signingkey",
+	"token", "accesstoken", "refreshtoken", "authtoken", "sessiontoken", "bearer",
+	"password", "passwd", "authorization", "cookie", "headers",
+	"encryptedapikey", "credential", "credentialref", "devicecode",
+}
+
+// isModelConfigCredentialKey 判定一个字段名是否是凭据。
+func isModelConfigCredentialKey(key string) bool {
+	normalized := strings.ToLower(key)
+	normalized = strings.NewReplacer("_", "", "-", "", " ", "").Replace(normalized)
+	for _, field := range modelConfigCredentialFields {
+		if normalized == field {
+			return true
+		}
+	}
+	return false
+}
+
+// redactModelConfigCredentials 返回脱敏后的副本，凭据字段一律置空。
+//
+// 必须递归：凭据不只挂在渠道顶层，还可能藏在 modelProfiles[]、headers、或任意嵌套
+// 对象里，只看一层等于没脱敏。
+//
+// 必须是「复制」而不是「就地改」：上层的浅拷贝让嵌套 map 与已保存的真实配置共享同一
+// 个底层对象，就地抹掉会连平台自己的凭据一起清空——既泄不了密，还会把线上渠道打断。
+func redactModelConfigCredentials(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, nested := range typed {
+			if isModelConfigCredentialKey(key) {
+				out[key] = ""
+				continue
+			}
+			out[key] = redactModelConfigCredentials(nested)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for index, item := range typed {
+			out[index] = redactModelConfigCredentials(item)
+		}
+		return out
+	default:
+		return value
+	}
 }
 
 // platformModelCatalogView 生成平台允许普通账号看到的模型目录：只保留平台自己的
@@ -57,36 +111,22 @@ func platformModelCatalogView(config map[string]any) map[string]any {
 	if config == nil {
 		return nil
 	}
-	view := make(map[string]any, len(config))
-	for key, value := range config {
-		view[key] = value
+	redacted, _ := redactModelConfigCredentials(config).(map[string]any)
+	if redacted == nil {
+		return nil
 	}
-	stripModelConfigCredentials(view)
 
-	channels, _ := config["channels"].([]any)
+	channels, _ := redacted["channels"].([]any)
 	allowed := make([]any, 0, len(channels))
 	for _, raw := range channels {
 		channel, ok := raw.(map[string]any)
 		if !ok || !platformVisibleChannel(channel) {
 			continue
 		}
-		sanitized := make(map[string]any, len(channel))
-		for key, value := range channel {
-			sanitized[key] = value
-		}
-		stripModelConfigCredentials(sanitized)
-		allowed = append(allowed, sanitized)
+		allowed = append(allowed, channel)
 	}
-	view["channels"] = allowed
-	return view
-}
-
-func stripModelConfigCredentials(fields map[string]any) {
-	for _, field := range modelConfigCredentialFields {
-		if _, ok := fields[field]; ok {
-			fields[field] = ""
-		}
-	}
+	redacted["channels"] = allowed
+	return redacted
 }
 
 // platformVisibleChannel 判定一个渠道是否属于平台能力而非账号私有配置。
