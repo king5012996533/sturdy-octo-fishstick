@@ -95,7 +95,13 @@ export function CanvasNodePanelOverlay({ node, viewport, containerRef, panelWidt
     const panelRef = useRef<HTMLDivElement>(null);
     const { bringToFront, zIndex } = useCanvasOverlayLayer(`node-panel:${node.id}`, "var(--z-modal-overlay)");
     const initialWidth = resolveNodePanelWidth(node, viewport, panelWidth, panelMinWidth, panelMaxWidth, panelWidthScale);
-    const initialPosition = getNodePanelPosition(node, viewport, { width: containerRef.current?.clientWidth || 0, height: containerRef.current?.clientHeight || 0 }, initialWidth, panelHeight, dragOffset, keepBelowNode, avoidBottomDock);
+    // 只在挂载时算一次。它会读 container.clientWidth，而组件每个视口节拍（64ms）都会重渲染，
+    // 在渲染期间读布局就是每拍一次强制同步重排。挂载后的位置由下面的命令式 update() 逐帧负责，
+    // 这里只是首帧兜底（useLayoutEffect 在绘制前就会纠正）。
+    const [initialPosition] = useState(() => getNodePanelPosition(node, viewport, { width: containerRef.current?.clientWidth || 0, height: containerRef.current?.clientHeight || 0 }, initialWidth, panelHeight, dragOffset, keepBelowNode, avoidBottomDock));
+    // 视口不再进 effect 依赖，用 ref 取最新值，避免每拍拆掉重建订阅。
+    const latestViewportRef = useRef(viewport);
+    latestViewportRef.current = viewport;
 
     useLayoutEffect(() => {
         bringToFront();
@@ -105,7 +111,7 @@ export function CanvasNodePanelOverlay({ node, viewport, containerRef, panelWidt
         const container = containerRef.current;
         const panel = panelRef.current;
         if (!container || !panel) return;
-        let liveViewport = viewport;
+        let liveViewport = latestViewportRef.current;
         let liveDragOffset = dragOffset;
         let viewportSize = { width: container.clientWidth, height: container.clientHeight };
         const update = (nextViewport: ViewportTransform) => {
@@ -118,7 +124,7 @@ export function CanvasNodePanelOverlay({ node, viewport, containerRef, panelWidt
                 : getNodePanelPosition(node, nextViewport, viewportSize, nextWidth, panelHeight, liveDragOffset, keepBelowNode, avoidBottomDock);
             panel.style.transform = `translate3d(${position.left}px, ${position.top}px, 0)`;
         };
-        update(viewport);
+        update(latestViewportRef.current);
         const resizeObserver = new ResizeObserver(() => {
             viewportSize = { width: container.clientWidth, height: container.clientHeight };
             update(liveViewport);
@@ -134,7 +140,7 @@ export function CanvasNodePanelOverlay({ node, viewport, containerRef, panelWidt
             unsubscribeViewport();
             unsubscribeDrag();
         };
-    }, [avoidBottomDock, containerRef, dragOffset?.x, dragOffset?.y, isDragging, keepBelowNode, node.height, node.id, node.position.x, node.position.y, node.width, panelHeight, panelMaxWidth, panelMinWidth, panelWidth, panelWidthScale, viewport]);
+    }, [avoidBottomDock, containerRef, dragOffset?.x, dragOffset?.y, isDragging, keepBelowNode, node.height, node.id, node.position.x, node.position.y, node.width, panelHeight, panelMaxWidth, panelMinWidth, panelWidth, panelWidthScale]);
 
     return (
         <div
