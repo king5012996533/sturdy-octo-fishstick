@@ -196,7 +196,10 @@
     /* 悬浮层永远比它下面的墙窄一点：窄屏上两条公式的最小边距写反，
        输入卡会比灵感墙更宽，浮层就变成压在墙外面了。 */
     --creation-home-wall: min(1680px, calc(100% - 48px));
-    --creation-home-composer: min(880px, calc(100% - 72px));
+    /* 880px 的上限是"六个控件刚好一行"压出来的，余量不到 10px：
+       模型名换一个长一点的型号（MiniMax H3 768P 这类）就会挤爆底栏。
+       上限抬到 960px 让宽屏有余量，边距仍比灵感墙多 24px，浮层关系不变。 */
+    --creation-home-composer: min(960px, calc(100% - 72px));
 }
 /* 平台首页空态：真实创作控件保留原有行为，视觉收敛为沉浸式创作入口。 */
 .app-user-workspace .creation-home > .creation-empty-workspace {
@@ -271,7 +274,8 @@
     z-index: 3;
     /* 悬浮层：比下面的灵感墙窄一档，压在 hero 下缘之上。
        底栏一行要放下"模式 + 参考 + 语音 + 模型 + 比例 + 时长"六个控件，
-       再加右侧的预扣与发送键，880px 是六个控件不折行的下限。 */
+       再加右侧的预扣与发送键。控件宽度锁死（见下面的 @container），
+       这一排里只有模型名可以截断，所以卡片越宽越稳，窄了也只是模型名变短。 */
     width: var(--creation-home-composer);
     margin: -214px auto 0;
 }
@@ -321,10 +325,28 @@
     opacity: .55;
 }
 .app-user-workspace .creation-home .creation-submit.is-icon-only.ant-btn:disabled { background: transparent !important; box-shadow: none; }
-/* 窄屏放不下 880px 时不再让控件在底栏内部折行 —— 那样第二行只剩一个控件，
-   右边的预扣与发送键却还停在同一行的居中位置。改成底栏自己折：控件独占一行，
-   预扣与发送键右对齐排第二行，两行都是齐的。 */
-@media (max-width: 1119px) {
+/* 底栏一行放不下六个控件时，最后那个"时长"会被挤到第二行，而右侧的预扣与发送键
+   还停在第一行的居中位置 —— 屏幕上就是右下角这块错位。修法是让控件永不内部折行：
+   把五个尺寸固定的控件钉住，只留模型名按剩余空间伸缩（截断成"MiniMax H3…"）。
+   模型名被截到下限（144px）还不够时，才让底栏整体折成两行。
+   阈值按卡片自己的宽度判断：卡片宽度由侧栏和视口共同决定，
+   用视口断点会在侧栏收起的那一档（约 1020px，卡片反而变宽）误折。 */
+@container (min-width: 660px) {
+    .app-user-workspace .creation-home .creation-chat-controls { flex-wrap: nowrap; }
+    /* 除模型名与录音条以外，这一排全部钉住：模式 / 参考 / 语音 / 比例 / 时长
+       都是定宽控件，被压窄只会让里面的文字换行，看起来像坏掉了。 */
+    .app-user-workspace .creation-home .creation-chat-controls > :not(.voice-recording-inline) { flex: 0 0 auto; }
+    /* 模型选择器外面还包了一层宽度自适应的 div，真正伸缩的是这层壳；
+       壳被压窄后按钮跟着收，模型名走自己的 ellipsis 截断。 */
+    .app-user-workspace .creation-home .creation-chat-controls > :has(> .creation-model-picker) {
+        min-width: 144px;
+        flex: 0 1 auto;
+    }
+}
+/* 卡片放不下整排控件（含截断后的模型名）时不再让控件在底栏内部折行 ——
+   那样第二行只剩一个控件，右边的预扣与发送键却还停在同一行的居中位置。
+   改成底栏自己折：控件独占一行，预扣与发送键右对齐排第二行，两行都是齐的。 */
+@container (max-width: 799px) {
     .app-user-workspace .creation-home .creation-chat-dock {
         flex-wrap: wrap !important;
         justify-content: flex-end;
