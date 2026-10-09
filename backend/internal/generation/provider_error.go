@@ -257,6 +257,10 @@ var providerCodeCategories = map[string]FailureCategory{
 	"upstream_unavailable":                 CategoryProviderUnavailable,
 	"upstream_rejected":                    CategoryUnknown,
 	"upstream_error":                       CategoryUnknown,
+	// 上游渠道账号自己的余额用尽（渠道 provider 的积分口径），
+	// 与用户在本平台的积分无关，必须归到渠道侧而不是参数错误。
+	"insufficient_points": CategoryQuotaUpstream,
+	"insufficientpoints":  CategoryQuotaUpstream,
 }
 
 func (f Failure) ErrorCode() string {
@@ -827,14 +831,14 @@ func categoryFromProviderMessage(raw string) (FailureCategory, bool) {
 		return CategoryInvalidParams, true
 	case containsContentSafety(normalized):
 		return moderationCategoryFromMessage(normalized), true
-	case strings.Contains(normalized, "insufficient_quota") || ((strings.Contains(normalized, "quota") || strings.Contains(normalized, "balance") || strings.Contains(normalized, "额度") || strings.Contains(normalized, "余额") || strings.Contains(normalized, "欠费")) && !strings.Contains(normalized, "rate")):
-		if strings.Contains(normalized, "arrearage") || strings.Contains(normalized, "billing_hard_limit") || strings.Contains(normalized, "供应商") {
+	case strings.Contains(normalized, "insufficient_quota") || strings.Contains(normalized, "insufficient points") || strings.Contains(normalized, "积分不足") || ((strings.Contains(normalized, "quota") || strings.Contains(normalized, "balance") || strings.Contains(normalized, "额度") || strings.Contains(normalized, "余额") || strings.Contains(normalized, "欠费")) && !strings.Contains(normalized, "rate")):
+		if strings.Contains(normalized, "arrearage") || strings.Contains(normalized, "billing_hard_limit") || strings.Contains(normalized, "供应商") || strings.Contains(normalized, "积分不足") || strings.Contains(normalized, "insufficient points") {
 			return CategoryQuotaUpstream, true
 		}
 		return CategoryQuotaUnknown, true
 	case strings.Contains(normalized, "rate limit") || strings.Contains(normalized, "too many requests") || strings.Contains(normalized, "throttl") || strings.Contains(normalized, "频繁"):
 		return CategoryThrottled, true
-	case strings.Contains(normalized, "context length") || strings.Contains(normalized, "maximum context") || strings.Contains(normalized, "too many tokens") || strings.Contains(normalized, "max_tokens") || strings.Contains(normalized, "长度") && (strings.Contains(normalized, "最大") || strings.Contains(normalized, "超出")):
+	case isContextTooLongMessage(normalized):
 		return CategoryContextTooLong, true
 	case strings.Contains(normalized, "model_not_found") || strings.Contains(normalized, "model not found") || strings.Contains(normalized, "does not exist") && strings.Contains(normalized, "model") || strings.Contains(normalized, "模型不存在") || strings.Contains(normalized, "模型或模型接口不存在"):
 		return CategoryModelMissing, true
@@ -910,6 +914,32 @@ func specializeModeration(failure *Failure, fields extractedFields) {
 		return
 	}
 	failure.Category = moderationCategoryFromMessage(normalized)
+}
+
+// isContextTooLongMessage 判断上游是否在说「输入太长」。
+//
+// 各家措辞差别很大：OpenAI 说 context length，NewAPI 说「大于最大长度」，
+// 而 grok / 部分渠道只说「提示词超过当前模型允许长度」。后一种以前会掉进
+// 通用分支变成「模型不接受当前参数」，用户不知道该缩短提示词。
+func isContextTooLongMessage(normalized string) bool {
+	for _, marker := range []string{
+		"context length", "maximum context", "too many tokens", "max_tokens",
+		"prompt too long", "prompt is too long", "allowed length", "maximum length",
+		"输入内容过长", "提示词过长", "文本过长", "内容过长", "超过最大长度", "超出最大长度",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	if !strings.Contains(normalized, "长度") && !strings.Contains(normalized, "length") {
+		return false
+	}
+	for _, qualifier := range []string{"最大", "超出", "超过", "限制", "上限", "too long", "exceed", "allowed"} {
+		if strings.Contains(normalized, qualifier) {
+			return true
+		}
+	}
+	return false
 }
 
 func genericProviderCode(code string) bool {

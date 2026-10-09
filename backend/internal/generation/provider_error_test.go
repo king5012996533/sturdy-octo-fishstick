@@ -483,3 +483,43 @@ func TestMediaCopyPreservesAuthenticationAndIgnoresRequestEcho(t *testing.T) {
 		t.Fatalf("request echo classified: %+v", failure)
 	}
 }
+
+// TestUpstreamRejectionsKeepTheirOwnReason 守住这类真实线上故障：
+// 上游明确说了原因（提示词太长、渠道账号积分用尽），平台却又把它折叠成
+// 「模型不接受当前参数」，用户照着这句话改参数永远改不对，
+// 后台也分不清是用户输入问题还是渠道欠费。
+func TestUpstreamRejectionsKeepTheirOwnReason(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		category generation.FailureCategory
+		contains string
+	}{
+		{
+			name:     "grok-prompt-too-long",
+			body:     `{"code":400,"error":"提示词失败：提示词超过当前模型允许长度，请缩短后重试","error_code":"invalid_prompt","message":"提示词失败：提示词超过当前模型允许长度，请缩短后重试","success":false,"task_id":"vid_da3a4dad6c91a86a656bd6613d59d6b3"}`,
+			category: generation.CategoryContextTooLong,
+			contains: "长度限制",
+		},
+		{
+			name:     "channel-account-out-of-points",
+			body:     `{"code":"INSUFFICIENT_POINTS","message":"积分不足，当前 0 积分"}`,
+			category: generation.CategoryQuotaUpstream,
+			contains: "额度",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			failure := generation.ClassifyHTTP(400, "Bad Request", tt.body)
+			if failure.Category != tt.category {
+				t.Fatalf("category = %s want %s message=%q", failure.Category, tt.category, failure.UserMessage())
+			}
+			if strings.Contains(failure.UserMessage(), "模型不接受当前参数") {
+				t.Fatalf("上游原因被折叠成通用参数错误：%q", failure.UserMessage())
+			}
+			if !strings.Contains(failure.UserMessage(), tt.contains) {
+				t.Fatalf("message = %q want %q", failure.UserMessage(), tt.contains)
+			}
+		})
+	}
+}
