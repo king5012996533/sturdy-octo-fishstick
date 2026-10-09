@@ -70,6 +70,44 @@ cd web && BEEFTV_HOSTED_AUTH=1 bun run build
 `internal/providerpreset/catalog/` 会被 `//go:embed catalog/*.json` 一起嵌进二进制，
 `mustLoadCatalog` 解码失败即 panic，服务根本起不来。
 
+### 前端发布：覆盖合并，不要整体替换目录
+
+构建产物里的 chunk 名带内容哈希，而**已经打开的页面还握着一份旧的哈希图**。把
+`/opt/kinotv/web` 换成新目录（`mv` 走旧目录）等于把旧 chunk 从线上抹掉，那些页面下一次
+懒加载就会 404，用户看到的是 `Failed to fetch dynamically imported module`——
+页面本身没坏，坏的是它引用的那个文件已经不在了。刷新能好，但用户不会知道要刷新。
+
+所以前端发布只做"覆盖合并"：同名文件用新的，旧文件留着继续服务，靠定时清理淘汰。
+
+```bash
+# 1. 本地构建（托管形态必须显式打开登录界面）
+cd web && BEEFTV_HOSTED_AUTH=1 bun run build
+
+# 2. 先传到一个只属于本次发布的暂存目录，别直接写线上目录
+COPYFILE_DISABLE=1 tar -cz -C dist --exclude '._*' -f - . \
+  | ssh kinotv "mkdir -p /opt/kinotv/web-new-<时间戳> && tar -xz -C /opt/kinotv/web-new-<时间戳> -f -"
+
+# 3. 校验拿到的是这一版，再留一份可回滚的复制（是 cp，不是 mv）
+ssh kinotv "md5sum /opt/kinotv/web-new-<时间戳>/index.html"   # 与本地 dist/index.html 一致
+ssh kinotv "cp -a /opt/kinotv/web /opt/kinotv/web.bak-<时间戳>"
+
+# 4. 覆盖合并：同名覆盖，旧 chunk 原地保留
+ssh kinotv "cp -a /opt/kinotv/web-new-<时间戳>/. /opt/kinotv/web/ && rm -r /opt/kinotv/web-new-<时间戳>"
+
+# 5. 验收：入口 chunk 是新哈希且 200，顺手确认一个旧 chunk 也还在 200
+curl -s https://kinotv.xingtudesign.com/ | grep -o 'static/index-[a-zA-Z0-9_-]*\.js' | head -1
+curl -s -o /dev/null -w '%{http_code}\n' https://kinotv.xingtudesign.com/static/<旧入口 chunk>
+```
+
+留旧文件会慢慢堆：一轮发布约 100M，几轮下来 `static/` 会翻倍。淘汰按文件年龄走，
+和 `kinotv-prune-releases.sh` 的"按份数保留回滚物"是两件事，别混在同一个策略里——
+回滚物按份数，静态残留按天数（默认 30 天，比任何用户的标签页存活时间都长）。
+
+```bash
+# 先看清单
+ssh kinotv "find /opt/kinotv/web -type f -mtime +30 -printf '%p\n' | head -20"
+```
+
 ### 上线验收
 
 换二进制之前先跑一遍，别拿生产当它第一次运行的环境：
@@ -379,9 +417,12 @@ systemctl enable --now kinotv-backup.timer kinotv-healthcheck.timer kinotv-resto
 
 ## 磁盘维护
 
-每次发布会把旧前端挪成 `web.bak-<时间戳>`（每份约 103M）并保留旧二进制。它们只用于
+每轮发布前会把前端复制成 `web.bak-<时间戳>`（每份约 103M），并保留旧二进制。它们只用于
 回滚，**不需要长期堆**——这对文件一个多月能攒到好几个 G，所以交给定时任务每天裁一次，
 不再靠人记得敲 `rm`。
+
+注意这里**只裁备份目录**。线上目录 `web/` 里的旧 chunk 是有意留着的（见上文
+「前端发布：覆盖合并」），它们要按文件年龄单独淘汰，别用这份按份数的策略去删。
 
 ```bash
 # 看一遍将删除什么（不动文件）
