@@ -21,7 +21,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/kinotv-common.sh"
 
 RELEASE_DIR="${KINOTV_RELEASE_DIR:-/opt/kinotv}"
-KEEP_RELEASES="${KINOTV_RELEASE_KEEP:-3}"
+# 前端与二进制的默认保留份数。
+#
+# 为什么是 4 而不是 3：这台机器上 systemd 单元曾经用 Environment 单独钉过 4，
+# 于是"定时任务保留 4 份、手动跑保留 3 份"，手动执行一次就会把第 4 份删掉——
+# 而人手动跑这个脚本，往往正是刚出过事、想去清理的时候。一个策略只该有一个默认值，
+# 需要临时多留就直接传 --keep-releases。
+KEEP_RELEASES="${KINOTV_RELEASE_KEEP:-4}"
 KEEP_DB="${KINOTV_RELEASE_KEEP_DB:-3}"
 KEEP_MEDIA="${KINOTV_RELEASE_KEEP_MEDIA:-2}"
 KEEP_SNAPSHOTS="${KINOTV_RELEASE_KEEP_SNAPSHOTS:-2}"
@@ -36,7 +42,7 @@ usage() {
 用法: kinotv-prune-releases.sh [选项]
 
   --release-dir DIR        发布目录，默认 /opt/kinotv
-  --keep-releases N        web.bak-* 与 kinotv-server.bak-* 保留份数，默认 3
+  --keep-releases N        web.bak-* 与 kinotv-server.bak-* 保留份数，默认 4
   --keep-db N              *.db.bak-* 库快照保留份数，默认 3
   --keep-media N           resources.bak-*.tgz 保留份数，默认 2
   --keep-snapshots N       backups/ 下发布前手工快照保留份数，默认 2
@@ -231,10 +237,58 @@ prune_category() {
 #   * 只在 $RELEASE_DIR/web/static 里面找，活目录的入口文件（index.html）不在这个范围。
 #   * 只删普通文件，不删目录；判定用 mtime，tar 解包会保留构建时间，所以新旧可分。
 #   * 一次删不掉就记失败并继续，不因为一个文件让整轮清理半途而废。
+# 从一个文件里捞出它引用的静态资源名。宁可多认（多保留），不可漏认（误删）：
+# 白名单只用来"免删"，多列几个最坏是少清几个文件，漏一个就是线上 404。
+referenced_static_names() {
+    grep -oE '[A-Za-z0-9_@./-]+\.(js|mjs|css|wasm|json|woff2?|ttf|png|jpe?g|svg|gif|webp|avif|mp4|webm)' "$1" 2>/dev/null \
+        | sed -E 's|^\./||; s|^/static/||; s|^/||; s|[?#].*$||' \
+        | grep -vE '^(https?:)?//' \
+        | sort -u || true
+}
+
+# 现役引用白名单：从当前入口 index.html 出发，沿"入口 → 直接引用 → 那些文件又引用的
+# 次级资源"做有限轮闭包展开，得到一份"还不能删"的清单。
+#
+# 为什么必须要有这一步：tar 解包保留构建时间，跨发布复用的 chunk（vendor 之类）mtime
+# 可能远超保留期，却仍被现役 index.html 引用。只看 mtime 会把这个文件删掉，表现就是
+# "明明没发布，站点突然 404"。判断"还有没有人引用它"才是正确判据。
+#
+# 入口 index.html 本身不在 web/static 里，天然不会被扫到；这里读它，只是为了知道它引用了谁。
+collect_live_web_assets() {
+    local index="$RELEASE_DIR/web/index.html"
+    [ -f "$index" ] || return 0
+
+    local out round_in round_out
+    out="$(mktemp)" && round_in="$(mktemp)" && round_out="$(mktemp)" || return 0
+
+    referenced_static_names "$index" > "$round_in"
+    cp "$round_in" "$out"
+
+    local round name file
+    for round in 1 2 3; do
+        : > "$round_out"
+        while IFS= read -r name; do
+            [ -n "$name" ] || continue
+            file="$RELEASE_DIR/web/static/$name"
+            [ -f "$file" ] || continue
+            referenced_static_names "$file" >> "$round_out"
+        done < "$round_in"
+        sort -u "$round_out" -o "$round_out"
+        # 只看这一轮新冒出来的；没有新增说明已收敛，停。
+        comm -13 "$out" "$round_out" > "$round_in" || : > "$round_in"
+        [ -s "$round_in" ] || break
+        cat "$round_in" >> "$out"
+        sort -u "$out" -o "$out"
+    done
+
+    cat "$out"
+    rm -f "$out" "$round_in" "$round_out"
+}
+
 prune_stale_web_assets() {
     local dir="$RELEASE_DIR/web/static"
     local days="$WEB_STALE_DAYS"
-    local path size removed=0 freed=0
+    local path size removed=0 freed=0 kept=0
 
     case "$days" in
         ''|*[!0-9]*) days=30 ;;
@@ -248,25 +302,37 @@ prune_stale_web_assets() {
         return 0
     fi
 
+    local live_list relative
+    live_list="$(mktemp)" || return 0
+    collect_live_web_assets | sort -u > "$live_list"
+    say "  线上静态残留：现役引用白名单 $(wc -l < "$live_list" | tr -d ' ') 项，无论多久都不删"
+
     while IFS= read -r path; do
         [ -n "$path" ] || continue
+        relative="${path#"$dir"/}"
+        # 仍被现役入口引用：跳过。这一步就是这条策略存在的理由。
+        if grep -Fxq -- "$relative" "$live_list"; then
+            kept=$((kept + 1))
+            continue
+        fi
         size="$(bytes_of "$path")"
         if [ "$DRY_RUN" -eq 1 ]; then
-            say "  [dry-run] 将删除 线上静态残留：${path#"$dir"/}（$(kinotv_human_size "$size")）"
+            say "  [dry-run] 将删除 线上静态残留：${relative}（$(kinotv_human_size "$size")）"
         elif rm -f -- "$path" 2>/dev/null; then
-            say "  删除 线上静态残留：${path#"$dir"/}（$(kinotv_human_size "$size")）"
+            say "  删除 线上静态残留：${relative}（$(kinotv_human_size "$size")）"
         else
-            say "  删除失败 线上静态残留：${path#"$dir"/}"
+            say "  删除失败 线上静态残留：${relative}"
             FAILED=1
             continue
         fi
         removed=$((removed + 1))
         freed=$((freed + size))
     done < <(find "$dir" -type f -mtime "+${days}" -print 2>/dev/null)
+    rm -f "$live_list"
 
     TOTAL_FILES=$((TOTAL_FILES + removed))
     TOTAL_BYTES=$((TOTAL_BYTES + freed))
-    say "  线上静态残留：清理 ${removed} 个文件（$(kinotv_human_size "$freed")），保留 ${days} 天内的"
+    say "  线上静态残留：清理 ${removed} 个文件（$(kinotv_human_size "$freed")），保留 ${days} 天内的；因现役引用豁免 ${kept} 个"
 }
 
 MODE="正式删除"

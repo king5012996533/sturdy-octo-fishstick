@@ -250,9 +250,9 @@ expect "dry-run 不删除任何条目" 24 "$(find "$RELEASE" -maxdepth 1 -name '
 
 "$SCRIPT_DIR/kinotv-prune-releases.sh" --release-dir "$RELEASE" --log "$WORK/prune.log" --quiet >/dev/null 2>&1
 expect "正式清理退出码" 0 "$?"
-# 每个类别都按默认份数保留：前端 3 / 二进制 3 / 库快照 3 / 资源 2 / 手工快照 2。
-expect "前端保留最近 3 份" 3 "$(find "$RELEASE" -maxdepth 1 -name 'web.bak-*' | wc -l | tr -d ' ')"
-expect "二进制保留最近 3 份" 3 "$(find "$RELEASE" -maxdepth 1 -name 'kinotv-server.bak-*' | wc -l | tr -d ' ')"
+# 每个类别都按默认份数保留：前端 4 / 二进制 4 / 库快照 3 / 资源 2 / 手工快照 2。
+expect "前端保留最近 4 份" 4 "$(find "$RELEASE" -maxdepth 1 -name 'web.bak-*' | wc -l | tr -d ' ')"
+expect "二进制保留最近 4 份" 4 "$(find "$RELEASE" -maxdepth 1 -name 'kinotv-server.bak-*' | wc -l | tr -d ' ')"
 expect "两个库各保留最近 3 份" 6 "$(find "$RELEASE" -maxdepth 1 -name '*.db.bak-*' | wc -l | tr -d ' ')"
 expect "资源归档保留最近 2 份" 2 "$(find "$RELEASE" -maxdepth 1 -name 'resources.bak-*' | wc -l | tr -d ' ')"
 expect "手工快照保留最近 2 份" 2 "$(find "$RELEASE/backups" -maxdepth 1 -mindepth 1 | wc -l | tr -d ' ')"
@@ -348,6 +348,48 @@ expect_true "--web-stale-days 0 时完全不清理" "$([ -f "$STATIC/old-chunk.j
 "$SCRIPT_DIR/kinotv-prune-releases.sh" --release-dir "$RELEASE" --log "$WORK/prune.log" \
     "${PRUNE_KEEP[@]}" --web-stale-days abc --quiet >/dev/null 2>&1
 expect_true "非数字天数回退默认（过期文件被清）" "$([ ! -f "$STATIC/old-chunk.js" ] && echo yes || echo no)"
+
+printf '\n[线上静态残留：现役引用白名单]\n'
+# 跨发布复用的 vendor chunk 时间戳可能远超保留期，却仍然被现役入口引用。
+# 只看 mtime 会把它删掉，表现就是"明明没发布，站点突然 404"。
+printf '<script src="/static/index-LIVE.js"></script>' > "$RELEASE/web/index.html"
+printf 'import "./vendor-LIVE.js";' > "$STATIC/index-LIVE.js"
+printf 'export const shared = 1;' > "$STATIC/vendor-LIVE.js"
+printf 'orphan' > "$STATIC/orphan-OLD.js"
+touch -t 202401010000 "$STATIC/index-LIVE.js" "$STATIC/vendor-LIVE.js" "$STATIC/orphan-OLD.js"
+
+"$SCRIPT_DIR/kinotv-prune-releases.sh" --release-dir "$RELEASE" --log "$WORK/prune.log" \
+    "${PRUNE_KEEP[@]}" --quiet >/dev/null 2>&1
+expect_true "入口直接引用的老 chunk 不删" \
+    "$([ -f "$STATIC/index-LIVE.js" ] && echo yes || echo no)"
+expect_true "沿引用链递归找到的次级资源也不删" \
+    "$([ -f "$STATIC/vendor-LIVE.js" ] && echo yes || echo no)"
+expect_true "没被任何现役文件引用的照旧按天数删掉" \
+    "$([ ! -f "$STATIC/orphan-OLD.js" ] && echo yes || echo no)"
+expect_true "日志里报出了豁免数量" \
+    "$(grep -q '因现役引用豁免' "$WORK/prune.log" && echo yes || echo no)"
+
+# 入口缺失时白名单为空，此时只能退回"按天数"的老行为，不能反过来一个都不删——
+# 那会让这条策略在 index.html 丢失时彻底失效。
+printf 'orphan2' > "$STATIC/orphan-OLD2.js"
+touch -t 202401010000 "$STATIC/orphan-OLD2.js"
+mv "$RELEASE/web/index.html" "$RELEASE/web/index.html.hidden"
+"$SCRIPT_DIR/kinotv-prune-releases.sh" --release-dir "$RELEASE" --log "$WORK/prune.log" \
+    "${PRUNE_KEEP[@]}" --quiet >/dev/null 2>&1
+expect_true "入口缺失时仍按天数清理" "$([ ! -f "$STATIC/orphan-OLD2.js" ] && echo yes || echo no)"
+expect_true "入口缺失时不是整轮跳过（现役文件也照删）" \
+    "$([ ! -f "$STATIC/index-LIVE.js" ] && echo yes || echo no)"
+mv "$RELEASE/web/index.html.hidden" "$RELEASE/web/index.html"
+
+# dry-run 的白名单必须和正式清理一致，否则"先看清单"看到的和实际删的不是一回事。
+printf 'orphan3' > "$STATIC/orphan-OLD3.js"
+printf 'live3' > "$STATIC/index-LIVE3.js"
+printf '<script src="/static/index-LIVE3.js"></script>' > "$RELEASE/web/index.html"
+touch -t 202401010000 "$STATIC/orphan-OLD3.js" "$STATIC/index-LIVE3.js"
+"$SCRIPT_DIR/kinotv-prune-releases.sh" --release-dir "$RELEASE" --log "$WORK/prune.log" \
+    "${PRUNE_KEEP[@]}" --dry-run --quiet >/dev/null 2>&1
+expect_true "dry-run 也不删现役引用" "$([ -f "$STATIC/index-LIVE3.js" ] && echo yes || echo no)"
+expect_true "dry-run 也不删本该删的（只看不动）" "$([ -f "$STATIC/orphan-OLD3.js" ] && echo yes || echo no)"
 
 printf '\n[静态检查：变量名后紧跟非 ASCII 字符]\n'
 # bash 在部分版本/区域设置下会把紧跟 $VAR 的多字节字符并进变量名，变成
