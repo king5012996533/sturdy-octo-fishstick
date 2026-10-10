@@ -342,6 +342,73 @@ func (r *Repository) ReleaseTaskProviderRecovery(id string, owner string) error 
 		Updates(map[string]any{"lease_owner": "", "lease_expires_at": nil, "updated_at": time.Now()}).Error
 }
 
+// ClaimNextSubmissionUncertainTask 领取一条"提交结果未确认"的失败任务做自动对账。
+//
+// 与人工恢复共用同一个 lease_owner 前缀：两条路读的是同一份上游任务，并发跑会把同一份
+// 产物登记两遍。cutoff 由调用方给出，用来跳过刚失败、还在等上游回执的任务。
+//
+// 只挑生成类任务：文本任务不调用上游，不会停在 submission_unknown。已经结清过的
+// （poll_stage 打了标记）不再重复领取。
+func (r *Repository) ClaimNextSubmissionUncertainTask(owner string, leaseDuration time.Duration, cutoff time.Time) (*model.Task, error) {
+	var task model.Task
+	now := time.Now()
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		query := tx.Where(
+			"status = ? AND stage = ? AND type <> ? AND type <> ? AND created_at <= ? AND (poll_stage IS NULL OR poll_stage <> ?) AND (next_poll_at IS NULL OR next_poll_at <= ?) AND (lease_expires_at IS NULL OR lease_expires_at <= ?)",
+			model.TaskStatusFailed, "submission_unknown", "canvas_text", "text", cutoff, "unreconciled", now, now,
+		).Order("created_at asc").Limit(1)
+		if result := query.Find(&task); result.Error != nil || result.RowsAffected == 0 {
+			task = model.Task{}
+			return result.Error
+		}
+		claim := tx.Model(&model.Task{}).Where(
+			"id = ? AND status = ? AND stage = ? AND (lease_expires_at IS NULL OR lease_expires_at <= ?)",
+			task.ID, model.TaskStatusFailed, "submission_unknown", now,
+		).Updates(map[string]any{
+			"lease_owner":      owner,
+			"lease_expires_at": now.Add(leaseDuration),
+			"updated_at":       now,
+		})
+		if claim.Error != nil || claim.RowsAffected == 0 {
+			task = model.Task{}
+			return claim.Error
+		}
+		return tx.First(&task, "id = ?", task.ID).Error
+	})
+	if err != nil || task.ID == "" {
+		return nil, err
+	}
+	return &task, nil
+}
+
+// MarkTaskSubmissionReconciled 收尾一次提交结果对账：写入最终结论、停掉后续对账并释放租约。
+//
+// 带 lease_owner 条件是有意的：对账期间任务可能被人工恢复接管或用户重试，那种情况下
+// 这条结论已经过期，不能覆盖别人的写入。
+//
+// 结清标记写进 poll_stage：任务本身仍停在失败态等用户重试，只有这个标记能区分
+// "已经处理过"和"还没处理"，少了它下一轮扫描会把同一条任务反复捞起来。
+func (r *Repository) MarkTaskSubmissionReconciled(id string, owner string, stage string, message string, pollStage string) error {
+	result := r.db.Model(&model.Task{}).
+		Where("id = ? AND lease_owner = ?", id, owner).
+		Updates(map[string]any{
+			"stage":            stage,
+			"error":            message,
+			"poll_stage":       pollStage,
+			"next_poll_at":     nil,
+			"lease_owner":      "",
+			"lease_expires_at": nil,
+			"updated_at":       time.Now(),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrTaskStateConflict
+	}
+	return nil
+}
+
 func (r *Repository) UpdateTaskProgress(id string, stage string, progress int) error {
 	return r.db.Model(&model.Task{}).Where("id = ? AND status = ?", id, model.TaskStatusRunning).Updates(map[string]any{
 		"stage": stage, "progress": progress, "updated_at": time.Now(),

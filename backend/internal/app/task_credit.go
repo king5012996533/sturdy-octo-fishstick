@@ -232,6 +232,17 @@ func (s *Service) refundTaskCredits(task *model.Task, taskErr error, note string
 		_ = s.log(task.UserID, task.ID, "warn", "预扣未退回："+note+"。原因："+reason, "")
 		return
 	}
+	s.refundTaskCreditsUnchecked(task, note)
+}
+
+// refundTaskCreditsUnchecked 直接退回一次预扣，不再过 taskRefundVerdict。
+//
+// 只给对账路径用：那里"该不该退"已经由上游查证得出结论，不再由提交证据推断。重放安全，
+// 幂等键在账号域按 (任务, 退回) 去重。
+func (s *Service) refundTaskCreditsUnchecked(task *model.Task, note string) {
+	if s == nil || s.taskCreditLedger == nil || task == nil {
+		return
+	}
 	credits, refunded, err := s.taskCreditLedger.RefundTask(task.UserID, task.ID, note)
 	if err != nil {
 		// 退费失败不能把任务本身的终态一起吞掉：任务已经失败/取消是既成事实，

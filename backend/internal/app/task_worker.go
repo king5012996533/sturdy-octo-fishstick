@@ -38,6 +38,7 @@ func (w *taskWorkerCoordinator) start(ctx context.Context) {
 	s := w.service
 	s.startTextReplayCleanup(ctx)
 	s.startProviderCancellationReconciliation(ctx)
+	s.startProviderSubmissionReconciliation(ctx)
 	s.startAgentMemoryCompactScheduler()
 	if !s.IsLocalMode() {
 		s.runWorkerLoop(func(ctx context.Context) {

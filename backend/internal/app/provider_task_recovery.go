@@ -9,10 +9,17 @@ import (
 	"time"
 
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/protocol"
 	"infinite-canvas/backend/internal/repository"
 )
 
 const providerTaskRecoveryLeaseDuration = 10 * time.Minute
+
+// providerRecoveryLeaseOwnerPrefix 是"正在向上游查这条任务"的租约前缀。
+//
+// 人工恢复和自动对账共用它：两条路读的是同一份上游任务，并发跑会把同一份产物登记两遍。
+// repository.ClaimFailedTaskProviderRecovery 的互斥条件就是按这个前缀写的。
+const providerRecoveryLeaseOwnerPrefix = "manual-recovery:"
 
 type ProviderTaskQueryResult struct {
 	Task           *model.Task `json:"task"`
@@ -106,41 +113,19 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 	if task.Status != model.TaskStatusFailed {
 		return nil, BadAuthRequest("只能人工查询状态为失败的任务")
 	}
-	if !strings.HasPrefix(task.Type, "canvas_video") && !strings.HasPrefix(task.Type, "video_") {
+	if !isProviderVideoTaskType(task.Type) {
 		return nil, BadAuthRequest("该任务不是视频生成任务")
 	}
-
-	s.hydrateTaskProviderRequestID(task)
-	providerRequestID := strings.TrimSpace(task.ProviderRequestID)
-	if providerRequestID == "" {
-		return nil, BadAuthRequest("该任务没有可恢复的上游任务 ID")
-	}
-	decryptedInput, err := s.decryptTaskInputJSON(task.InputJSON)
+	recovery, err := s.prepareProviderVideoRecovery(ctx, task)
 	if err != nil {
-		return nil, fmt.Errorf("读取任务配置失败：%w", err)
-	}
-	var input canvasGenerationInput
-	if err := json.Unmarshal([]byte(decryptedInput), &input); err != nil {
-		return nil, fmt.Errorf("任务输入解析失败：%w", err)
-	}
-	config, err := s.resolveProviderConfig(input.Config)
-	if err != nil {
-		return nil, err
-	}
-	ctx = ensureOfficialProtocolAdapter(ctx, config.InterfaceType)
-	adapter, declarative := declarativeProtocolAdapterForContext(ctx, config.InterfaceType)
-	beefVideo := isBeefAPIVideoConfig(config) && isSeedanceVideoConfig(config)
-	if !declarative && !beefVideo {
-		return nil, BadAuthRequest("该任务的请求协议不支持安全查询上游状态")
-	}
-	input.Config = config
-	task.InputJSON = decryptedInput
-	task.ProviderRequestID = providerRequestID
-	if err := s.repo.UpdateTaskProviderState(task.ID, providerRequestID, task.PollStage, task.NextPollAt); err != nil {
+		var unavailable providerRecoveryUnavailableError
+		if errors.As(err, &unavailable) {
+			return nil, BadAuthRequest(unavailable.Error())
+		}
 		return nil, err
 	}
 
-	owner := "manual-recovery:" + newID()
+	owner := providerRecoveryLeaseOwnerPrefix + newID()
 	if err := s.repo.ClaimFailedTaskProviderRecovery(task.ID, claimUserID, owner, providerTaskRecoveryLeaseDuration); err != nil {
 		if errors.Is(err, repository.ErrTaskProviderRecoveryConflict) {
 			return nil, &AuthError{Status: 409, Message: "该任务正在查询上游状态，请稍后再试"}
@@ -153,32 +138,94 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 			_ = s.log(task.UserID, task.ID, "error", "人工查询租约释放失败", releaseErr.Error())
 		}
 	}()
+	return s.runProviderVideoRecovery(ctx, task, recovery, "人工查询")
+}
 
-	// 上游已成功后的完整媒体下载和本地入库可能持续数十秒。浏览器关闭抽屉、
-	// 页面刷新或代理断开都不应中断这项运维恢复，否则任务会再次停在
-	// failed/refunded。保留请求值用于审计，但把执行生命周期交给恢复租约控制。
+// providerRecoveryUnavailableError 表示这次恢复是"问不了上游"，而不是"问出了错"：
+// 平台手里没有上游任务号，或当前协议不支持安全查询。两者都不是临时故障，重试不会变好，
+// 调用方要据此走各自的兜底（人工填任务号、或按无产出结清），而不是重排一次。
+type providerRecoveryUnavailableError struct{ message string }
+
+func (e providerRecoveryUnavailableError) Error() string { return e.message }
+
+func isProviderVideoTaskType(taskType string) bool {
+	taskType = strings.TrimSpace(taskType)
+	return strings.HasPrefix(taskType, "canvas_video") || strings.HasPrefix(taskType, "video_")
+}
+
+// providerVideoRecovery 是一次上游恢复查询已经解析好的执行条件。
+type providerVideoRecovery struct {
+	input     canvasGenerationInput
+	adapter   protocol.Adapter
+	beefVideo bool
+}
+
+// prepareProviderVideoRecovery 校验任务可查、解析上游配置，并把上游任务号落回任务。
+//
+// 它刻意不碰租约：调用方可能已经持有对账租约，重复领取会把自己挡在门外。
+func (s *Service) prepareProviderVideoRecovery(ctx context.Context, task *model.Task) (providerVideoRecovery, error) {
+	s.hydrateTaskProviderRequestID(task)
+	providerRequestID := strings.TrimSpace(task.ProviderRequestID)
+	if providerRequestID == "" {
+		return providerVideoRecovery{}, providerRecoveryUnavailableError{message: "该任务没有可恢复的上游任务 ID"}
+	}
+	decryptedInput, err := s.decryptTaskInputJSON(task.InputJSON)
+	if err != nil {
+		return providerVideoRecovery{}, fmt.Errorf("读取任务配置失败：%w", err)
+	}
+	var input canvasGenerationInput
+	if err := json.Unmarshal([]byte(decryptedInput), &input); err != nil {
+		return providerVideoRecovery{}, fmt.Errorf("任务输入解析失败：%w", err)
+	}
+	config, err := s.resolveProviderConfig(input.Config)
+	if err != nil {
+		return providerVideoRecovery{}, err
+	}
+	lookupCtx := ensureOfficialProtocolAdapter(ctx, config.InterfaceType)
+	adapter, declarative := declarativeProtocolAdapterForContext(lookupCtx, config.InterfaceType)
+	beefVideo := isBeefAPIVideoConfig(config) && isSeedanceVideoConfig(config)
+	if !declarative && !beefVideo {
+		return providerVideoRecovery{}, providerRecoveryUnavailableError{message: "该任务的请求协议不支持安全查询上游状态"}
+	}
+	input.Config = config
+	task.InputJSON = decryptedInput
+	task.ProviderRequestID = providerRequestID
+	if err := s.repo.UpdateTaskProviderState(task.ID, providerRequestID, task.PollStage, task.NextPollAt); err != nil {
+		return providerVideoRecovery{}, err
+	}
+	return providerVideoRecovery{input: input, adapter: adapter, beefVideo: beefVideo}, nil
+}
+
+// runProviderVideoRecovery 向已确认可查的上游问一次结果，出片时下载、入库并登记项目产物。
+//
+// 返回 Recovered=false 表示上游仍在处理：任务保持失败态，等下一轮再问。上游已成功后的
+// 媒体下载可能持续数十秒，浏览器关闭抽屉、页面刷新或代理断开都不应中断它，因此这里用
+// 恢复租约控制的上下文，而不是发起这次查询的请求上下文。
+func (s *Service) runProviderVideoRecovery(ctx context.Context, task *model.Task, recovery providerVideoRecovery, action string) (*ProviderTaskQueryResult, error) {
+	ctx = ensureOfficialProtocolAdapter(ctx, recovery.input.Config.InterfaceType)
 	recoveryCtx, cancelRecovery := providerTaskRecoveryContext(ctx)
 	defer cancelRecovery()
 	queryCtx := withProviderAnalytics(recoveryCtx, s, *task)
 	var result map[string]interface{}
 	var providerStatus string
-	if beefVideo {
-		result, providerStatus, err = queryBeefAPIVideoResult(queryCtx, input, providerRequestID)
+	var err error
+	if recovery.beefVideo {
+		result, providerStatus, err = queryBeefAPIVideoResult(queryCtx, recovery.input, task.ProviderRequestID)
 	} else {
-		result, providerStatus, err = queryProtocolAdapterVideoTask(queryCtx, input, adapter, providerRequestID)
+		result, providerStatus, err = queryProtocolAdapterVideoTask(queryCtx, recovery.input, recovery.adapter, task.ProviderRequestID)
 	}
 	if err != nil {
-		_ = s.log(task.UserID, task.ID, "error", "人工查询上游视频任务失败", err.Error())
+		_ = s.log(task.UserID, task.ID, "error", action+"上游视频任务失败", err.Error())
 		return nil, err
 	}
 	if result == nil {
-		_ = s.log(task.UserID, task.ID, "info", "人工查询完成，上游任务仍在处理", providerStatus)
+		_ = s.log(task.UserID, task.ID, "info", action+"完成，上游任务仍在处理", providerStatus)
 		return &ProviderTaskQueryResult{Task: taskForOutput(*task), ProviderStatus: providerStatus, Recovered: false}, nil
 	}
 
 	result, err = s.persistGeneratedMediaResultForTask(task, result)
 	if err != nil {
-		_ = s.log(task.UserID, task.ID, "error", "人工查询已取得视频，但结果保存失败", err.Error())
+		_ = s.log(task.UserID, task.ID, "error", action+"已取得视频，但结果保存失败", err.Error())
 		return nil, err
 	}
 	resultJSON, err := json.Marshal(result)
@@ -189,14 +236,14 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 	task.PollStage = strings.ToLower(providerStatus)
 	task.NextPollAt = nil
 	if err := s.saveTaskCompletionWithinStorageQuota(task, resultJSON, nil, false); err != nil {
-		_ = s.log(task.UserID, task.ID, "error", "人工查询已取得视频，但任务恢复失败", err.Error())
+		_ = s.log(task.UserID, task.ID, "error", action+"已取得视频，但任务恢复失败", err.Error())
 		return nil, err
 	}
 	if err := s.RegisterTaskOutputFromTask(*task); err != nil {
 		_ = s.log(task.UserID, task.ID, "error", "任务恢复成功但项目产物登记失败", err.Error())
 		return nil, fmt.Errorf("任务已恢复，但项目素材登记失败：%w", err)
 	}
-	_ = s.log(task.UserID, task.ID, "info", "人工查询确认生成成功，任务已恢复并登记项目产物", providerStatus)
+	_ = s.log(task.UserID, task.ID, "info", action+"确认生成成功，任务已恢复并登记项目产物", providerStatus)
 	return &ProviderTaskQueryResult{Task: taskForOutput(*task), ProviderStatus: providerStatus, Recovered: true}, nil
 }
 
@@ -212,7 +259,10 @@ func queryBeefAPIVideoResult(ctx context.Context, input canvasGenerationInput, i
 	}
 	status, videoURL := seedancePollStatusAndURL(state)
 	if status == "failed" || status == "cancelled" || status == "expired" {
-		return nil, status, errors.New(defaultString(seedanceErrorMessage(state), "视频生成失败"))
+		// 用 providerTaskFailedError 而不是裸 errors.New：上游明确终止的结论要能被
+		// 归类成"异步任务失败"，否则退款判据看不出"上游没有产出"，会把一次确定的
+		// 失败当成临时错误反复重查。
+		return nil, status, protocolResultError(defaultString(seedanceErrorMessage(state), "视频生成失败"), id)
 	}
 	if status != "completed" && status != "succeeded" {
 		return nil, status, nil
