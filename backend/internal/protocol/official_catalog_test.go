@@ -300,6 +300,34 @@ func TestOfficialVideoProfilesPreserveExplicitMediaRoles(t *testing.T) {
 	}
 }
 
+// H3 的 768P 档开了 30 秒长镜头，2K 档没有。两张模型卡共用同一个 provider，插件侧的
+// 窗口因此放宽到 4-30，按档收紧落在模型卡自己的能力配置上。这里锁住插件这一侧的窗口：
+// 改回 15 会让 30 秒在前台能选、提交才被打回；再往上开则多出一批 API 能打进来、
+// 前台根本不给选的越界值。
+func TestMiniMaxH3PluginAcceptsThirtySecondDuration(t *testing.T) {
+	adapter := officialPackageAdapter(t, "minimax-hailuo-video-v2.beeftv-plugin", "minimax-video")
+	build := func(t *testing.T, duration int) (RequestSpec, error) {
+		t.Helper()
+		return adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+			Capability: CapabilityVideo, Model: "MiniMax-H3", Prompt: "一个 30 秒长镜头", Duration: duration,
+			AspectRatio: "16:9", Resolution: "768P",
+		}})
+	}
+
+	spec, err := build(t, 30)
+	if err != nil {
+		t.Fatalf("duration 30 rejected: %v", err)
+	}
+	if body := manifestTestBody(t, spec); body["duration"] != float64(30) {
+		t.Fatalf("duration = %#v, want 30", body["duration"])
+	}
+	for _, duration := range []int{3, 31} {
+		if _, err := build(t, duration); err == nil {
+			t.Fatalf("duration %d was accepted", duration)
+		}
+	}
+}
+
 func TestNewAPIChannel1AddsSeedanceContentAliasAndParsesDataURL(t *testing.T) {
 	adapter := officialPackageAdapter(t, "newapi-media-task-v1.beeftv-plugin", "newapi-channel-1")
 	spec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{

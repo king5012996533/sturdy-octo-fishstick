@@ -13,6 +13,17 @@
 
 密钥只从环境变量读，不落库到脚本、不写进仓库。
 
+## 价目：只在缺失时补，永不覆盖
+
+上架参数（渠道、模型卡）可以反复重跑，价目不行：价格一旦在后台调过，脚本里的基线数字就
+只是"首次上架时打算卖多少"，再拿它去覆盖等于悄悄改价。所以这里只做两件事——缺失时补一条，
+已有价目只打印差异不动手。补缺失也要显式加 `--apply-prices`。
+
+2026-10-10 线上值：768P 21 分/秒（tier `768P`）、2K 30 分/秒（tier 默认），与脚本基线
+（15 / 25）不同，以后台为准。价目按 `modelKey + capability` 找，不限 `price_tier`：
+只按空 tier 找会把 `tier=768P` 那条件当成"没有价目"，再插一条默认价的重复行，
+同一个模型撞上两条价目，扣哪个价就说不准了。
+
 ## 为什么走 MiniMax 原生口，不走 OpenAI 兼容口
 
 秘塔同时开了两个口：`https://metaso.cn/api/openai`（OpenAI/Sora 兼容）和
@@ -28,19 +39,23 @@
 `applyFixedVideoResolution` 把画质钉死在那一档，用户选不出别的分辨率，也就不会出现
 「按 768P 的价跑了 2K 的活」。
 
-## 毛利
+## 毛利（2026-10-10 线上价）
 
-| 档位 | 售价 | 上游成本 | 每秒 |
+| 档位 | 售价 | 上游成本 | 毛利 |
 | --- | --- | --- | --- |
-| 768P | ¥0.15/秒 | ¥0.09/秒 | +¥0.06 |
-| 2K | ¥0.25/秒 | ¥0.15/秒 | +¥0.10 |
+| 768P | ¥0.21/秒 | ¥0.09/秒 | +¥0.12/秒（57%） |
+| 768P · 30 秒 | ¥6.30/条 | ¥2.70/条 | +¥3.60/条（57%） |
+| 2K | ¥0.30/秒 | ¥0.15/秒 | +¥0.15/秒（50%） |
 
-两档毛利率都是 40%。这是拉新价，不是成本加成价：同规格上游官方价约 0.45/0.75 元/秒，
-秘塔已经打到 2 折，我们再让一层，换的是「愿意试」而不是「愿意付」。
+比同规格的上游官方价（约 0.45/0.75 元/秒）还是低一截：秘塔已经打到 2 折，我们再让一层，
+换的是「愿意试」而不是「愿意付」。
 
 ## 时长与素材上限的出处
 
-duration 4–15 是上游接口实测的硬边界（3 和 16 都返回「duration 必须为 4 到 15 的整数」）。
+duration 4–15 是上游接口实测的硬边界（3 和 16 都返回「duration 必须为 4 到 15 的整数」）；
+768P 档后来单独开了 30 秒，2K 档没有。所以时长按卡登记：768P 卡是 4–15 加 30，2K 卡维持 4–15。
+插件层的硬校验放宽到 4–30（两张卡共用同一个 provider），按档收紧落在模型卡自己的能力配置上——
+两者都要改，只改一处会出现「前端能选、插件打回」或反过来。
 图片 5 张、参考视频关闭、音频 3 段：上限不是上游的能力上限，是按上游的素材计费倒推出来的
 （见 MAX_IMAGES 上面的说明）。素材必须是公网可达 URL——插件声明了 requiresPublicMediaUrls，
 宿主会把素材换成短时效签名地址，签名有效期 4 小时，够一条视频取完。
@@ -86,21 +101,32 @@ MAX_IMAGES = 9
 MAX_VIDEOS = 3
 MAX_AUDIOS = 3
 
-# 售价：分 / 秒。15 分 = ¥0.15/秒，25 分 = ¥0.25/秒。
+# 前台可选时长与画幅。与 minimax-video 插件的默认档一致，改口径改这里再重跑。
+DURATIONS = list(range(4, 16))
+# 768P 档上游另开了 30 秒长镜头，2K 档没有。时长因此按模型卡给，两张卡不共用一份：
+# 共用会把 2K 允不下来的 30 秒一起露出去，用户选完只会在提交时被后端拒绝。
+DURATIONS_768P = DURATIONS + [30]
+RATIOS = ["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+
+# 售价：分 / 秒。21 分 = ¥0.21/秒，30 分 = ¥0.30/秒。30 秒与逐秒同价，按 30 乘出来。
+# 这两个数字是 2026-10-10 线上实际生效的价，也是"万一价目行丢了、要重建"时的取值。
+# 价格改动以后台为准，改完记得把这里一起改，否则预览表格会报一份不存在的毛利。
 MODELS: list[dict] = [
     {
         "modelKey": "MiniMax-H3",
         "displayName": "MiniMax H3 768P",
         "resolution": "768P",
-        "sellFenPerSecond": 15,
+        "sellFenPerSecond": 21,
         "upstreamPerSecond": "0.09",
+        "durations": DURATIONS_768P,
     },
     {
         "modelKey": "MiniMax-H3-2K",
         "displayName": "MiniMax H3 2K",
         "resolution": "2K",
-        "sellFenPerSecond": 25,
+        "sellFenPerSecond": 30,
         "upstreamPerSecond": "0.15",
+        "durations": DURATIONS,
     },
 ]
 
@@ -110,13 +136,14 @@ UNIT = "SECOND"
 PROTOCOL = "minimax-video"
 VENDOR_CODE = "minimax-video"
 
-# 前台可选时长与画幅。与 minimax-video 插件的默认档一致，改口径改这里再重跑。
-DURATIONS = list(range(4, 16))
-RATIOS = ["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
 
+def capability_config(model: dict) -> dict:
+    """把画质钉死在单一档位，其余沿用 minimax-video 的默认能力。
 
-def capability_config(resolution: str) -> dict:
-    """把画质钉死在单一档位，其余沿用 minimax-video 的默认能力。"""
+    时长跟着模型卡走：768P 卡多一档 30 秒，2K 卡维持 4-15。上游插件的硬校验是
+    4-30 的宽窗口（两张卡共用同一个 provider），按档收紧落在每张卡自己的能力配置上。
+    """
+    resolution = model["resolution"]
     return {
         "version": 1,
         "video": {
@@ -132,7 +159,7 @@ def capability_config(resolution: str) -> dict:
                 "maxAudioBytes": 15 * 1024 * 1024,
                 "maxAudioDurationSeconds": 15,
             },
-            "duration": {"selection": "enum", "values": DURATIONS, "default": 5},
+            "duration": {"selection": "enum", "values": model["durations"], "default": 5},
             "ratios": RATIOS,
             "defaultRatio": "16:9",
             "resolutions": [resolution],
@@ -169,6 +196,16 @@ def request(method: str, base_url: str, path: str, cookie: str, payload: dict | 
     return envelope.get("data") or {}
 
 
+def price_rows_for(price_index: dict, model_key: str, capability: str) -> list[dict]:
+    """列出某个模型已有的全部价目，不限 price_tier。
+
+    后台允许按档位分别定价（H3 的 768P 就挂在 tier `768P` 上）。只按空 tier 找会把已有
+    价目当成"没有价目"，再插一条默认价的重复行——两条价目同时命中一个模型，扣谁的价就
+    说不准了。
+    """
+    return [row for (key, cap, _tier), row in price_index.items() if key == model_key and cap == capability]
+
+
 def price_key(model_key: str, channel_id: str) -> str:
     """定价表里的模型标识带渠道前缀，与前台结算时用的 key 一致。"""
     return f"{channel_id}::{model_key}"
@@ -190,9 +227,12 @@ def print_economics() -> None:
             f"{Decimal(model['sellFenPerSecond']) / 100:>5.2f} 元/秒 "
             f"· 上游 {model['upstreamPerSecond']} 元/秒 · 毛利 {margin * 100:.0f}%"
         )
+    for model in MODELS:
+        print(
+            f"  {model['displayName']:<18} 时长 {'/'.join(str(value) for value in model['durations'])} 秒"
+        )
     print(
-        f"  时长 {'/'.join(str(value) for value in DURATIONS)} 秒；画幅 {', '.join(RATIOS)}；"
-        f"素材上限 图片 {MAX_IMAGES} / 视频 {MAX_VIDEOS} / 音频 {MAX_AUDIOS}"
+        f"  画幅 {', '.join(RATIOS)}；素材上限 图片 {MAX_IMAGES} / 视频 {MAX_VIDEOS} / 音频 {MAX_AUDIOS}"
     )
 
 
@@ -204,7 +244,7 @@ def model_payload(model: dict) -> dict:
         "capability": CAPABILITY.lower(),
         "protocol": PROTOCOL,
         "enabled": True,
-        "capabilityConfig": capability_config(model["resolution"]),
+        "capabilityConfig": capability_config(model),
     }
 
 
@@ -229,6 +269,7 @@ def find_channel(base_url: str, cookie: str) -> dict | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="上架秘塔 MiniMax H3 并按分辨率分档定价（默认只预览）")
     parser.add_argument("--apply", action="store_true", help="真正写入；不加则只打印将要做的变更")
+    parser.add_argument("--apply-prices", action="store_true", help="连缺失的价目一起补；已有价目任何时候都不覆盖")
     parser.add_argument("--base-url", default=os.environ.get("KINO_BASE_URL", "http://127.0.0.1:8080/api"))
     parser.add_argument("--cookie", default=os.environ.get("KINO_ADMIN_COOKIE", ""))
     args = parser.parse_args()
@@ -248,6 +289,7 @@ def main() -> int:
         return 2
 
     plan: list[str] = []
+    notes: list[str] = []
     if channel is None:
         plan.append(f"创建渠道「{CHANNEL_NAME}」→ {CHANNEL_BASE_URL}")
     elif str(channel.get("baseUrl") or "").rstrip("/") != CHANNEL_BASE_URL:
@@ -275,23 +317,31 @@ def main() -> int:
         for row in existing_prices
     }
     for model in MODELS:
-        key = (f"{channel_id}::{model['modelKey']}" if channel_id else "", CAPABILITY, "")
-        existing = price_index.get(key) if channel_id else None
         label = model["modelKey"]
-        if existing is None:
-            plan.append(f"新增价目 {label}：{model['sellFenPerSecond']} 分/秒")
-        elif (
-            existing.get("unit") != UNIT
-            or existing.get("sellUnitPrice") != model["sellFenPerSecond"]
-            or existing.get("enabled") is not True
-        ):
+        rows = price_rows_for(price_index, f"{channel_id}::{model['modelKey']}" if channel_id else "", CAPABILITY)
+        if not rows:
             plan.append(
-                f"更新价目 {label}：单位 {existing.get('unit')} → {UNIT}，"
-                f"售价 {existing.get('sellUnitPrice')} → {model['sellFenPerSecond']} 分/秒"
+                f"新增价目 {label}：{model['sellFenPerSecond']} 分/秒"
+                + ("" if args.apply_prices else "（缺 --apply-prices，本次不写）")
             )
+            continue
+        # 线上价目是权威：价格在后台调过之后，脚本的基线数字就只是"首次上架时打算卖多少"，
+        # 再拿它去覆盖等于悄悄改价。这里只报出来，让人自己判断要不要动。
+        for row in rows:
+            tier = row.get("priceTier") or "默认"
+            if row.get("sellUnitPrice") != model["sellFenPerSecond"] or row.get("unit") != UNIT:
+                notes.append(
+                    f"价目 {label}（tier {tier}）线上是 {row.get('sellUnitPrice')} {row.get('unit')}，"
+                    f"脚本基线是 {model['sellFenPerSecond']} {UNIT}；保持线上值不动"
+                )
+
+    if notes:
+        print()
+        for line in notes:
+            print(" !", line)
 
     if not plan:
-        print("渠道、模型与价目已经是目标状态，无需变更。")
+        print("渠道与模型已经是目标状态，无需变更。")
         return 0
 
     for line in plan:
@@ -356,7 +406,11 @@ def main() -> int:
         (row.get("modelKey"), row.get("capability"), row.get("priceTier") or ""): row
         for row in prices
     }
-    for model in MODELS:
+    if not args.apply_prices:
+        print("价目未改动（需要 --apply-prices 才会补缺失价目；已有价目任何时候都不覆盖）。")
+    for model in MODELS if args.apply_prices else []:
+        if price_rows_for(price_index, price_key(model["modelKey"], channel_id), CAPABILITY):
+            continue
         row = {
             "modelKey": price_key(model["modelKey"], channel_id),
             "capability": CAPABILITY,
@@ -369,17 +423,7 @@ def main() -> int:
             "enabled": True,
             "note": note_for(model),
         }
-        existing = price_index.get((row["modelKey"], CAPABILITY, ""))
-        if existing is None:
-            request("POST", args.base_url, "/admin/billing/model-prices", cookie, row)
-        else:
-            request(
-                "PUT",
-                args.base_url,
-                "/admin/billing/model-prices/" + urllib.parse.quote(str(existing.get("id"))),
-                cookie,
-                row,
-            )
+        request("POST", args.base_url, "/admin/billing/model-prices", cookie, row)
 
     print(f"\n已写入。渠道 ID：{channel_id}")
     return 0
