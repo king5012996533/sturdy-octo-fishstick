@@ -40,3 +40,30 @@ func TestTaskUsesUpstreamReportedProgress(t *testing.T) {
 		}
 	}
 }
+
+// 上游报满进度但结果还没取回时，阶段文案必须如实说明，否则界面停在最大进度上，
+// 用户看到的就是"100% 卡死"（线上真实反馈）。
+func TestProviderProgressStageForRunningTask(t *testing.T) {
+	relayCompleted := `{"code":0,"status":"succeeded","progress":100,"delivery_status":"ready","result_url":"https://relay.example/api/video-content/vid_1","download_url":"https://relay.example/api/video-content/vid_1?download=1"}`
+	tests := []struct {
+		name     string
+		body     string
+		progress int
+		stale    bool
+		want     string
+	}{
+		{name: "halfway", body: `{"progress":60}`, progress: 60, want: "上游生成中"},
+		{name: "full without result locator", body: `{"progress":100}`, progress: 100, want: "上游生成中"},
+		{name: "full with relative url is not a locator", body: `{"progress":100,"result_url":"/videos/1/content"}`, progress: 100, want: "上游生成中"},
+		{name: "full with result locator", body: relayCompleted, progress: 100, want: "上游已生成，正在取回结果"},
+		{name: "stale beats generic running stage", body: `{"progress":60}`, progress: 60, want: videoPollStaleStage, stale: true},
+		{name: "stale does not hide result retrieval", body: relayCompleted, progress: 100, want: "上游已生成，正在取回结果", stale: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := providerProgressStage([]byte(tt.body), tt.progress, tt.stale); got != tt.want {
+				t.Fatalf("providerProgressStage() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

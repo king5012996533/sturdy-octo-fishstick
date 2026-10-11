@@ -436,13 +436,38 @@ func taskLeaseWriter(db *gorm.DB, owner string) *gorm.DB {
 	return db.Where("lease_owner = ? AND lease_expires_at > ?", owner, time.Now())
 }
 
+// taskRunningProgressCeiling 是"仍在运行"的任务能对外显示的最大进度。
+//
+// 上游普遍在"自己生成完了、结果还没交到我们手上"时就报 100：此时任务仍是 running，
+// 前端只能渲染成"100% + 还在转"，用户看到的就是卡死。把运行中的上限压到 95，
+// 100% 只留给结果真正落库的那一刻。
+const taskRunningProgressCeiling = 95
+
 // UpdateTaskProviderProgress records upstream-reported progress without allowing
 // a delayed or out-of-order poll response to move the public percentage backwards.
-func (r *Repository) UpdateTaskProviderProgress(id string, progress int) error {
-	progress = max(0, min(100, progress))
+// stage 为空时沿用"上游生成中"。
+func (r *Repository) UpdateTaskProviderProgress(id string, progress int, stage string) error {
+	progress = max(0, min(taskRunningProgressCeiling, progress))
+	if strings.TrimSpace(stage) == "" {
+		stage = "上游生成中"
+	}
 	return r.db.Model(&model.Task{}).Where("id = ? AND status = ?", id, model.TaskStatusRunning).Updates(map[string]any{
-		"stage":      "上游生成中",
+		"stage":      stage,
 		"progress":   gorm.Expr("CASE WHEN progress < ? THEN ? ELSE progress END", progress, progress),
+		"updated_at": time.Now(),
+	}).Error
+}
+
+// UpdateTaskRunningStage 只改运行中任务的阶段文案，不动进度。
+//
+// 上游长时间不返回结果时任务仍在跑，进度也停在某个数上不再变化。这时唯一能让界面说人话的
+// 办法是换文案（"上游长时间未返回结果"），而不是编一个进度值。
+func (r *Repository) UpdateTaskRunningStage(id string, stage string) error {
+	if strings.TrimSpace(stage) == "" {
+		return nil
+	}
+	return r.db.Model(&model.Task{}).Where("id = ? AND status = ?", id, model.TaskStatusRunning).Updates(map[string]any{
+		"stage":      stage,
 		"updated_at": time.Now(),
 	}).Error
 }

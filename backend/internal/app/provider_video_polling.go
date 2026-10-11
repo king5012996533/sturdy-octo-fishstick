@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -16,9 +17,20 @@ import (
 
 const defaultVideoPollInterval = 30 * time.Second
 
+// videoPollStaleAfter 是"上游迟迟不返回结果"的耐心上限。
+//
+// 超过它任务不会被判失败、也不会退款：聚合上游按建单计费，我们停下轮询不代表它没在跑，
+// 更不代表那笔钱没花出去（见 Service.taskRefundVerdict）。这里只做一件事——把阶段文案
+// 从"上游生成中"换成明确的"上游长时间未返回结果"，让用户知道不是我们卡住了，并且可以
+// 自己决定继续等还是取消。轮询本身照常跑到任务超时。
+const videoPollStaleAfter = 20 * time.Minute
+
+const videoPollStaleStage = "上游长时间未返回结果，可继续等待或取消后重新提交"
+
 type videoPollPolicy struct {
 	InitialDelay          time.Duration
 	Interval              time.Duration
+	StaleAfter            time.Duration
 	MaxNotFoundMisses     int
 	MaxMalformedResponses int
 	MaxDownloadTries      int
@@ -32,7 +44,19 @@ type videoPollEvent string
 const (
 	videoPollEventRetrying  videoPollEvent = "retrying"
 	videoPollEventRecovered videoPollEvent = "recovered"
+	videoPollEventStale     videoPollEvent = "stale"
 )
+
+// providerPollStaleKey 把"这一轮已经等太久了"钉在轮询上下文里。
+//
+// 光在超时那一刻改一次文案没用：下一次成功轮询又会把阶段写回"上游生成中"，界面上的说明
+// 只闪一下。标记挂到上下文上以后，后续每次进度同步都会沿用长等待文案，直到上游真的出结果。
+type providerPollStaleKey struct{}
+
+func providerPollStale(ctx context.Context) bool {
+	stale, _ := ctx.Value(providerPollStaleKey{}).(bool)
+	return stale
+}
 
 type videoPollOutcome struct {
 	Done   bool
@@ -57,6 +81,7 @@ func defaultVideoPollPolicy() videoPollPolicy {
 	return videoPollPolicy{
 		InitialDelay:          defaultVideoPollInterval,
 		Interval:              defaultVideoPollInterval,
+		StaleAfter:            videoPollStaleAfter,
 		MaxNotFoundMisses:     3,
 		MaxMalformedResponses: 3,
 		MaxDownloadTries:      3,
@@ -76,13 +101,22 @@ func runVideoPollLoop(ctx context.Context, taskID string, policy videoPollPolicy
 	notFoundMisses := 0
 	malformedResponses := 0
 	retrying := false
+	staleNotified := false
+	pollStartedAt := time.Now()
 	for time.Now().Before(deadline) {
+		if !staleNotified && time.Since(pollStartedAt) >= policy.StaleAfter {
+			staleNotified = true
+			policy.Notify(ctx, taskID, videoPollEventStale, nil)
+			ctx = context.WithValue(ctx, providerPollStaleKey{}, true)
+		}
 		if nextDelay > 0 {
 			if err := policy.Sleep(ctx, nextDelay); err != nil {
 				return nil, err
 			}
 		}
+		queryStartedAt := time.Now()
 		outcome, err := query(ctx)
+		queryDuration := time.Since(queryStartedAt)
 		if err != nil {
 			if !policy.RetryTransient {
 				return nil, err
@@ -118,6 +152,11 @@ func runVideoPollLoop(ctx context.Context, taskID string, policy videoPollPolicy
 		notFoundMisses = 0
 		malformedResponses = 0
 		nextDelay = policy.Interval
+		// 有些上游把状态查询当长轮询：一次响应本身就要几分钟。响应耗时已经超过间隔时，
+		// 再补睡一个间隔只是白白拖长等待，直接立刻发下一次查询。
+		if queryDuration >= policy.Interval {
+			nextDelay = 0
+		}
 		if retrying {
 			retrying = false
 			policy.Notify(ctx, taskID, videoPollEventRecovered, nil)
@@ -135,6 +174,9 @@ func runVideoPollLoop(ctx context.Context, taskID string, policy videoPollPolicy
 func normalizeVideoPollPolicy(policy videoPollPolicy) videoPollPolicy {
 	if policy.Interval <= 0 {
 		policy.Interval = defaultVideoPollInterval
+	}
+	if policy.StaleAfter <= 0 {
+		policy.StaleAfter = videoPollStaleAfter
 	}
 	if policy.MaxNotFoundMisses <= 0 {
 		policy.MaxNotFoundMisses = 3
@@ -234,6 +276,16 @@ func notifyTaskVideoPollEvent(ctx context.Context, _ string, event videoPollEven
 	metadata, ok := ctx.Value(providerAnalyticsKey{}).(providerAnalyticsContext)
 	service := providerService(metadata)
 	if !ok || service == nil || service.repo == nil || metadata.TaskID == "" {
+		return
+	}
+	if event == videoPollEventStale {
+		// 只改文案，不改进度、不改状态：任务仍然在跑，用户随时可以取消（取消走的是
+		// 另一条路径，与这里的判断无关）。
+		if err := service.repo.UpdateTaskRunningStage(metadata.TaskID, videoPollStaleStage); err != nil {
+			log.Printf("video poll stale stage update failed: task_id=%s error=%v", metadata.TaskID, err)
+			return
+		}
+		_ = service.log(metadata.UserID, metadata.TaskID, "warn", "上游长时间未返回结果，轮询继续", "")
 		return
 	}
 	message := "上游视频查询暂时异常，将继续轮询原任务"
