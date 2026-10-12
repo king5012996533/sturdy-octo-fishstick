@@ -142,7 +142,7 @@ export default function DirectorReproLab() {
             <ReproMatrix />
 
             {workbenchOpen ? (
-                <CanvasDirectorWorkbench open scene={scene} imageNodes={[]} onboardingScope="director-repro-lab" onClose={() => setWorkbenchOpen(false)} onChange={onChange} onApply={onApply} onDeleteImageNode={() => undefined} onFlush={onFlush} generatePanorama={generatePanoramaFixture} />
+                <CanvasDirectorWorkbench open scene={scene} imageNodes={[]} onboardingScope="director-repro-lab" onClose={() => setWorkbenchOpen(false)} onChange={onChange} onApply={onApply} onFlush={onFlush} generatePanorama={generatePanoramaFixture} />
             ) : null}
         </div>
     );

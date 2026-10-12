@@ -1,7 +1,7 @@
 import { Dropdown, type MenuProps } from "antd";
 import type { MenuInfo } from "rc-menu/lib/interface";
 
-import { Bone, Camera, Clapperboard, Compass, Layers, LoaderCircle, MousePointer2, Palette, Rotate3D, RotateCcw, Save, Scaling, Video } from "lucide-react";
+import { Bone, Camera, Clapperboard, Compass, Layers, LoaderCircle, MousePointer2, Palette, Rotate3D, RotateCcw, Save, Scaling, Send, Video } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { releaseDirectorFocusAfterPointer } from "@/lib/canvas/director/director-shortcuts";
@@ -20,6 +20,9 @@ type DirectorViewportDockProps = {
     captureBusy: boolean;
     captureReady: boolean;
     onCapture: () => void;
+    /** 一步到位：截图存进资源库，同时作为图片节点送回画布。没有画布出口时不渲染这个按钮。 */
+    onCaptureAndSend?: () => void;
+    captureSendBusy?: boolean;
     onExportClay: () => void;
     exportBusy: boolean;
     onApplyToCanvas: () => void;
@@ -52,7 +55,7 @@ const TRANSFORM_BUTTONS = [
     { mode: "scale", label: "缩放", shortcut: "F", icon: <Scaling /> },
 ] as const;
 
-export function DirectorViewportDock({ transformMode, renderMode, renderModes, onTransformModeChange, onRenderModeChange, timelineOpen, onToggleTimeline, captureBusy, captureReady, onCapture, onExportClay, exportBusy, onApplyToCanvas, applyBusy, saveRetryable, saveRetryBusy, onRetrySave, mode = "layout", onModeChange = () => {}, workspaceView = "scene", onWorkspaceViewChange = () => {}, canUndo = false, canRedo = false, onUndo = () => {}, onRedo = () => {} }: DirectorViewportDockProps) {
+export function DirectorViewportDock({ transformMode, renderMode, renderModes, onTransformModeChange, onRenderModeChange, timelineOpen, onToggleTimeline, captureBusy, captureReady, onCapture, onCaptureAndSend, captureSendBusy = false, onExportClay, exportBusy, onApplyToCanvas, applyBusy, saveRetryable, saveRetryBusy, onRetrySave, mode = "layout", onModeChange = () => {}, workspaceView = "scene", onWorkspaceViewChange = () => {}, canUndo = false, canRedo = false, onUndo = () => {}, onRedo = () => {} }: DirectorViewportDockProps) {
     const [advancedMenu, setAdvancedMenu] = useState(false);
     const activeTransform = TRANSFORM_BUTTONS.find((item) => item.mode === transformMode) ?? TRANSFORM_BUTTONS[0];
     const releaseMenuFocus = (detail: number) => releaseDirectorFocusAfterPointer({ detail, currentTarget: document.activeElement as HTMLElement });
@@ -99,6 +102,7 @@ export function DirectorViewportDock({ transformMode, renderMode, renderModes, o
                 </button>
             </Dropdown>
             <button type="button" className="director-viewport-dock-button disabled:opacity-40" aria-label="截图" disabled={captureBusy || !captureReady} title={captureBusy ? "正在保存截图" : captureReady ? "截图" : "视口加载中"} onClick={(event) => { onCapture(); releaseDirectorFocusAfterPointer(event); }}>{captureBusy ? <LoaderCircle className="animate-spin" /> : <Camera />}</button>
+            {onCaptureAndSend ? <button type="button" className="director-viewport-dock-button disabled:opacity-40" aria-label="截图并发送到画布" disabled={captureBusy || captureSendBusy || !captureReady} title={captureSendBusy ? "正在发送截图" : captureBusy ? "正在保存截图" : captureReady ? "截图并发送到画布" : "视口加载中"} onClick={(event) => { onCaptureAndSend(); releaseDirectorFocusAfterPointer(event); }}>{captureBusy || captureSendBusy ? <LoaderCircle className="animate-spin" /> : <Send />}</button> : null}
             <button type="button" className={`director-viewport-dock-button ${timelineOpen ? "is-active" : ""}`} aria-label="动画时间轴" aria-pressed={timelineOpen} onClick={(event) => { onToggleTimeline(); releaseDirectorFocusAfterPointer(event); }}><Clapperboard /></button>
         </nav>
     );

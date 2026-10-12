@@ -15,7 +15,7 @@ export function groupDirectorCameraScreenshots(scene: Pick<DirectorScene, "camer
     })).filter((group) => group.screenshots.length > 0);
 }
 
-export function DirectorCameraScreenshotTabs({ scene, tab = "properties", motionTabVisible = true, onTabChange, motionContent, children }: { scene: Pick<DirectorScene, "cameras" | "shots">; tab?: DirectorCameraInspectorTab; motionTabVisible?: boolean; onTabChange?: (tab: DirectorCameraInspectorTab) => void; motionContent?: ReactNode; children: ReactNode }) {
+export function DirectorCameraScreenshotTabs({ scene, tab = "properties", motionTabVisible = true, onTabChange, motionContent, onSendScreenshotToCanvas, children }: { scene: Pick<DirectorScene, "cameras" | "shots">; tab?: DirectorCameraInspectorTab; motionTabVisible?: boolean; onTabChange?: (tab: DirectorCameraInspectorTab) => void; motionContent?: ReactNode; onSendScreenshotToCanvas?: (screenshot: DirectorScreenshot) => void | Promise<void>; children: ReactNode }) {
     const groups = groupDirectorCameraScreenshots(scene);
     return <div className="min-h-full" aria-label="摄像机检查器">
         <div className="border-b px-4 py-3 text-sm font-semibold" style={{ borderColor: "var(--director-sequencer-border)" }}>摄像机</div>
@@ -23,7 +23,7 @@ export function DirectorCameraScreenshotTabs({ scene, tab = "properties", motion
             {(["properties", ...(motionTabVisible ? ["motion"] as const : []), "screenshots"] as const).map((item) => <button key={item} type="button" role="tab" aria-selected={tab === item} className={`rounded-md px-3 py-1.5 text-xs transition ${tab === item ? "bg-white/10 opacity-100" : "opacity-55 hover:opacity-85"}`} onClick={(event) => { onTabChange?.(item); releaseDirectorFocusAfterPointer(event); }}>{item === "properties" ? "属性" : item === "motion" ? "运动轨迹" : "截图"}</button>)}
         </div>
         <div role="tabpanel" aria-label={tab === "properties" ? "属性" : tab === "motion" ? "运动轨迹" : "截图"}>
-            {tab === "properties" ? children : tab === "motion" ? motionContent : <div className="space-y-4 px-3 py-4">{groups.length ? groups.map((group) => <DirectorScreenshotGallery key={group.cameraId} title={`${group.cameraName}截图`} screenshots={group.screenshots} compact />) : <p className="text-xs opacity-55">暂无截图</p>}</div>}
+            {tab === "properties" ? children : tab === "motion" ? motionContent : <div className="space-y-4 px-3 py-4">{groups.length ? groups.map((group) => <DirectorScreenshotGallery key={group.cameraId} title={`${group.cameraName}截图`} screenshots={group.screenshots} compact onSendToCanvas={onSendScreenshotToCanvas} />) : <p className="text-xs opacity-55">暂无截图</p>}</div>}
         </div>
     </div>;
 }

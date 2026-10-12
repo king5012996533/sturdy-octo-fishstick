@@ -64,6 +64,8 @@ function DirectorPreviewState({ kind, theme, action }: { kind: "loading" | "empt
         <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-3 text-center">
             <Move3d className="size-7" style={{ color: theme.node.muted }} aria-hidden />
             <span className="text-xs leading-5" style={{ color: theme.node.muted }}>{loading ? "正在准备场景" : "在3D空间中搭建场景并进行多视角截图"}</span>
+            {/* 输入端这条关系以前没有任何提示：用户不知道画布图片可以直接连进导演台当立牌。 */}
+            {loading ? null : <span className="text-[11px] leading-4" style={{ color: theme.node.muted }}>把画布上的图片连到本节点输入端，进导演台即可作为场景立牌和参考</span>}
             {action}
         </div>
     );

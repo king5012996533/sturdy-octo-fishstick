@@ -81,3 +81,39 @@ describe("导演台视口变换菜单", () => {
         expect(render(false, false)).toContain('title="视口加载中"');
     });
 });
+
+describe("导演台截图并发往画布", () => {
+    const render = (props: { onCaptureAndSend?: () => void; captureBusy?: boolean; captureSendBusy?: boolean; captureReady?: boolean }) => renderToStaticMarkup(createElement(DirectorViewportDock, {
+        transformMode: "translate", renderMode: "beauty", renderModes: ["beauty"],
+        onTransformModeChange: () => {}, onRenderModeChange: () => {},
+        timelineOpen: false, onToggleTimeline: () => {},
+        captureBusy: props.captureBusy ?? false, captureReady: props.captureReady ?? true, onCapture: () => {},
+        onCaptureAndSend: props.onCaptureAndSend, captureSendBusy: props.captureSendBusy,
+        onExportClay: () => {}, exportBusy: false, onApplyToCanvas: () => {}, applyBusy: false,
+        saveRetryable: false, saveRetryBusy: false, onRetrySave: () => {},
+    }));
+
+    test("没有画布出口时不渲染这个按钮，避免出现点了没反应的死按钮", () => {
+        expect(render({})).not.toContain("截图并发送到画布");
+        // 原有三个常驻工具的数量不变。
+        expect((render({}).match(/aria-label="(?:移动|截图|动画时间轴)"/g) || []).length).toBe(3);
+    });
+
+    test("有画布出口时多出一个独立按钮，不挤掉原来的截图", () => {
+        const html = render({ onCaptureAndSend: () => {} });
+        expect(html).toContain('aria-label="截图并发送到画布"');
+        expect(html).toContain('aria-label="截图"');
+    });
+
+    test("保存中和发送中都会禁用，防止重复上传", () => {
+        expect(render({ onCaptureAndSend: () => {}, captureBusy: true })).toMatch(/aria-label="截图并发送到画布"[^>]*disabled/);
+        expect(render({ onCaptureAndSend: () => {}, captureSendBusy: true })).toMatch(/aria-label="截图并发送到画布"[^>]*disabled/);
+        expect(render({ onCaptureAndSend: () => {} })).not.toMatch(/aria-label="截图并发送到画布"[^>]*disabled/);
+    });
+
+    test("视口未就绪时两个截图入口都不可用", () => {
+        const html = render({ onCaptureAndSend: () => {}, captureReady: false });
+        expect(html).toMatch(/aria-label="截图"[^>]*disabled/);
+        expect(html).toMatch(/aria-label="截图并发送到画布"[^>]*disabled/);
+    });
+});

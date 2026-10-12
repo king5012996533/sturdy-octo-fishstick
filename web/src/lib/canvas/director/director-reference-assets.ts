@@ -1,5 +1,7 @@
 import { applyCanvasConnectionPromptSync } from "@/lib/canvas/canvas-resource-references";
-import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
+import { createCanvasNode } from "@/lib/canvas/canvas-project-domain";
+import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
+import type { DirectorScreenshot } from "@/types/director";
 
 /** Attach uploaded image nodes to a director shot using the canvas' normal resource-edge semantics. */
 export function connectDirectorReferenceNodes(nodes: CanvasNodeData[], connections: CanvasConnection[], sourceIds: string[], targetId: string, createId: () => string, mode: "append" | "replace" = "append") {
@@ -26,4 +28,18 @@ export function connectDirectorReferenceNodes(nodes: CanvasNodeData[], connectio
         : nodes.map((node) => node.id === targetId ? { ...node, metadata: { ...node.metadata, referenceAssetNodeIds } } : node);
     if (nextNodes === nodes && nextConnections === connections) return { nodes, connections, linkedSourceIds: sourceIdsUnique };
     return { nodes: applyCanvasConnectionPromptSync(nodes, connections, nextNodes, nextConnections), connections: nextConnections, linkedSourceIds: sourceIdsUnique };
+}
+
+/**
+ * 导演台截图已经上传过资源，送到画布时只做节点登记，不重复上传。
+ * 截图恒为 canvas.toBlob(..., "image/png")，所以这里直接标 image/png。
+ */
+export function directorScreenshotNodeMetadata(screenshot: DirectorScreenshot): CanvasNodeMetadata {
+    return { content: screenshot.url, storageKey: screenshot.storageKey, status: "success", naturalWidth: screenshot.width, naturalHeight: screenshot.height, mimeType: "image/png" };
+}
+
+/** 导演台截图 → 画布图片节点。节点标题沿用截图名，便于在画布上认出是哪一台机位拍的。 */
+export function createDirectorScreenshotCanvasNode(screenshot: DirectorScreenshot, position: { x: number; y: number }): CanvasNodeData {
+    const node = createCanvasNode(CanvasNodeType.Image, position, directorScreenshotNodeMetadata(screenshot));
+    return { ...node, title: screenshot.name };
 }

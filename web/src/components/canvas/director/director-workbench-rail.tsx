@@ -1,13 +1,16 @@
-import { Camera, CircleHelp, GalleryHorizontal, Layers3, RectangleHorizontal, ScanSearch, UserRound } from "lucide-react";
+import { Camera, CircleHelp, GalleryHorizontal, Images, Layers3, RectangleHorizontal, ScanSearch, UserRound } from "lucide-react";
 import { Fragment } from "react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 
-export type DirectorWorkbenchTab = "scene" | "actors" | "cameras" | "panorama" | "aspect" | "assets";
+export type DirectorWorkbenchTab = "scene" | "canvas" | "actors" | "cameras" | "panorama" | "aspect" | "assets";
 
 const tabs = [
     { id: "scene", label: "场景", icon: Layers3 },
+    // 画布图片在导演台里升为一级入口：它就是"从画布拿素材"的那条通道，
+    // 埋在「AI 识图导入 → 3D 素材」里时用户根本找不到（线上反馈：像个孤岛）。
+    { id: "canvas", label: "画布图片", icon: Images },
     { id: "actors", label: "添加角色", icon: UserRound },
     { id: "cameras", label: "添加机位", icon: Camera },
     { id: "panorama", label: "全景图", icon: GalleryHorizontal },

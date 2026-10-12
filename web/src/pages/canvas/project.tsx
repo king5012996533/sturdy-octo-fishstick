@@ -103,7 +103,8 @@ import { resolveCanvasEmptyStateKind } from "@/lib/canvas/canvas-starter";
 import { failedImageBatchChildren, markImageBatchRetrying, reconcileImageBatchRoot, restoreUnsubmittedImageBatchChild } from "@/lib/canvas/canvas-image-batch-retry";
 import { shouldBlockAutomaticRetry } from "@/lib/generation-error";
 import { createCanvasNode, getInputSummary, isHiddenBatchChild } from "@/lib/canvas/canvas-project-domain";
-import { connectDirectorReferenceNodes } from "@/lib/canvas/director/director-reference-assets";
+import { connectDirectorReferenceNodes, createDirectorScreenshotCanvasNode } from "@/lib/canvas/director/director-reference-assets";
+import type { DirectorScreenshot } from "@/types/director";
 import { canvasWorkspaceProjectId, listCanvasWorkspaceProjectCanvases } from "@/lib/canvas/canvas-workspace-project";
 import { deleteWorkspaceCanvasProjects } from "@/services/workspace-project-repository";
 import { createLibTvAudioFixture, createLibTvEmptyTextFixture, createLibTvGeneratingFixture, createLibTvReadonlyDenseFixture, createLibTvStoryboardFixture, createLibTvTextFixture, createLibTvVideoConversionFixture, createLibTvVideoFixture, createLibTvVideoMergeFixture, createLibTvVideoSubtitleFixture } from "@/lib/canvas/canvas-libtv-fixture";
@@ -1241,6 +1242,32 @@ function InfiniteCanvasPage() {
         } catch (error) {
             if (!current()) throw new DOMException("导演台会话已结束", "AbortError");
             message.warning(error instanceof Error ? `图片已加入画布，但素材同步失败：${error.message}` : "图片已加入画布，但素材同步失败");
+        }
+    }, [canvasStorageScope, connectionsRef, currentProject?.projectId, directorNodeId, getCanvasCenter, message, nodesRef, projectId, setConnections, setNodes, setSelectedConnectionId, setSelectedNodeIds]);
+    /**
+     * 导演台截图 → 画布。截图早已上传成资源，这里只登记节点并连回镜头节点，
+     * 不重复上传；连线走和场景参考图相同的资源边语义（append，不顶掉已有参考）。
+     */
+    const addDirectorScreenshotToCanvas = useCallback(async (screenshot: DirectorScreenshot, signal: AbortSignal) => {
+        const current = () => !signal.aborted && directorReferenceTargetRef.current?.projectId === projectId
+            && directorReferenceTargetRef.current?.nodeId === directorNodeId && getActiveUserScope() === canvasStorageScope
+            && nodesRef.current.some((item) => item.id === directorNodeId);
+        if (!current()) throw new DOMException("导演台会话已结束", "AbortError");
+        const node = createDirectorScreenshotCanvasNode(screenshot, getCanvasCenter());
+        const linked = connectDirectorReferenceNodes([...nodesRef.current, node], connectionsRef.current, [node.id], directorNodeId || "", () => nanoid(), "append");
+        nodesRef.current = linked.nodes;
+        connectionsRef.current = linked.connections;
+        setNodes(linked.nodes);
+        setConnections(linked.connections);
+        setSelectedNodeIds(new Set([node.id]));
+        setSelectedConnectionId(null);
+        try {
+            const result = await ensureCanvasNodeAsset({ canvasId: projectId, domainProjectId: currentProject?.projectId, node, source: "canvas-manual" });
+            if (!current()) throw new DOMException("导演台会话已结束", "AbortError");
+            setNodes((current) => current.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, assetId: result.assetId } } : item));
+        } catch (error) {
+            if (!current()) throw new DOMException("导演台会话已结束", "AbortError");
+            message.warning(error instanceof Error ? `截图已加入画布，但素材同步失败：${error.message}` : "截图已加入画布，但素材同步失败");
         }
     }, [canvasStorageScope, connectionsRef, currentProject?.projectId, directorNodeId, getCanvasCenter, message, nodesRef, projectId, setConnections, setNodes, setSelectedConnectionId, setSelectedNodeIds]);
     const {
@@ -3835,11 +3862,12 @@ function InfiniteCanvasPage() {
                                     open
                                     scene={activeDirectorScene}
                                     imageNodes={nodes.filter((node) => node.type === CanvasNodeType.Image && Boolean(node.metadata?.content))}
+                                    connectedImageNodeIds={connections.filter((connection) => connection.toNodeId === directorNodeId && nodes.some((node) => node.id === connection.fromNodeId && node.type === CanvasNodeType.Image)).map((connection) => connection.fromNodeId)}
                                     onClose={() => setDirectorNodeId(null)}
                                     onChange={saveDirectorScene}
                                     onApply={applyDirectorOutput}
-                                    onDeleteImageNode={(nodeId) => deleteNodes(new Set([nodeId]))}
                                     onAddCanvasImage={addDirectorReferenceToCanvas}
+                                    onSendScreenshotToCanvas={addDirectorScreenshotToCanvas}
                                     onFlush={() => flushCanvasStorePersistence()}
                                     onboardingScope={directorOnboardingScope}
                                 />

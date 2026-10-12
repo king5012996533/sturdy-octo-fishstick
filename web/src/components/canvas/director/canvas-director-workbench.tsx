@@ -45,6 +45,7 @@ import { blocksDirectorShortcut, releaseDirectorFocusAfterPointer, resolveDirect
 import { applyDirectorUniformScale, createDirectorActor, createDirectorBillboard, createDirectorCamera, createDirectorLight, createDirectorModel, createDirectorObject, DIRECTOR_ACTOR_COLORS, DIRECTOR_KEYFRAME_EPSILON, directorBoneLabel, directorFocalLengthToFov, directorPoseBoneDeltas, directorPoseLabel, duplicateDirectorCamera, duplicateDirectorGroup, duplicateDirectorObject, groupDirectorObjects, interpolateDirectorTransform, removeDirectorSceneKeyframe, setDirectorSceneKeyframeEasing, toggleDirectorCameraLock, toggleDirectorCameraVisibility, toggleDirectorGroupCollapsed, toggleDirectorGroupLock, toggleDirectorGroupVisibility, toggleDirectorObjectLock, toggleDirectorObjectVisibility, touchDirectorScene, ungroupDirectorObjects, upsertDirectorBoneKeyframe } from "@/lib/canvas/director/director-scene";
 import { resolveDirectorSceneSelection, searchDirectorSceneItems } from "@/lib/canvas/director/director-scene-search";
 import { describeDirectorSaveStatus, resolveDirectorCloseOutcome, shouldBlockDirectorUnload, shouldOfferDirectorDraftRecovery } from "@/lib/canvas/director/director-save-wiring";
+import { buildDirectorCanvasImageRows, directorBillboardSourceNodeIds } from "@/lib/canvas/director/director-canvas-images";
 import { useDirectorSaveCoordinator } from "@/components/canvas/director/use-director-save-coordinator";
 import { uploadMediaFile } from "@/services/file-storage";
 import { imageToDataUrl, resolveImageUrl, uploadImage } from "@/services/image-storage";
@@ -56,9 +57,9 @@ import { useDirectorWorkbenchStore } from "@/stores/canvas/use-director-workbenc
 import { useActiveTheme } from "@/stores/canvas/use-canvas-theme-store";
 import type { CanvasNodeData } from "@/types/canvas";
 import type { ReferenceImage } from "@/types/image";
-import type { DirectorCamera, DirectorCameraMove, DirectorHumanoidBone, DirectorKeyframeDeleteTarget, DirectorKeyframeEasing, DirectorLight, DirectorObject, DirectorPose, DirectorQuat, DirectorRenderMode, DirectorRig, DirectorScene, DirectorSceneOutput, DirectorShot, DirectorShotSize, DirectorTransform, DirectorVec3 } from "@/types/director";
+import type { DirectorCamera, DirectorCameraMove, DirectorHumanoidBone, DirectorKeyframeDeleteTarget, DirectorKeyframeEasing, DirectorLight, DirectorObject, DirectorPose, DirectorQuat, DirectorRenderMode, DirectorRig, DirectorScene, DirectorSceneOutput, DirectorScreenshot, DirectorShot, DirectorShotSize, DirectorTransform, DirectorVec3 } from "@/types/director";
 
-export function CanvasDirectorWorkbench({ open, scene, projectId, imageNodes, onboardingScope, onClose, onChange, onApply, onDeleteImageNode, onAddCanvasImage, onFlush, onShouldCaptureCover, onCaptureCover, generatePanorama = generateDirectorPanorama }: { open: boolean; scene: DirectorScene | null; projectId?: string; imageNodes: CanvasNodeData[]; onboardingScope: string; onClose: () => void; onChange: (scene: DirectorScene) => void; onApply: (output: DirectorSceneOutput) => Promise<void>; onDeleteImageNode: (nodeId: string) => void; onAddCanvasImage?: (image: Awaited<ReturnType<typeof uploadImage>>, title: string, signal: AbortSignal) => void | Promise<void>; onFlush?: () => void | Promise<void>; onShouldCaptureCover?: (scene: DirectorScene, shotId: string) => boolean; onCaptureCover?: (input: { scene: DirectorScene; shotId: string; beauty: Blob }) => Promise<void>; generatePanorama?: typeof generateDirectorPanorama }) {
+export function CanvasDirectorWorkbench({ open, scene, projectId, imageNodes, connectedImageNodeIds, onboardingScope, onClose, onChange, onApply, onAddCanvasImage, onSendScreenshotToCanvas, onFlush, onShouldCaptureCover, onCaptureCover, generatePanorama = generateDirectorPanorama }: { open: boolean; scene: DirectorScene | null; projectId?: string; imageNodes: CanvasNodeData[]; connectedImageNodeIds?: string[]; onSendScreenshotToCanvas?: (screenshot: DirectorScreenshot, signal: AbortSignal) => Promise<void>; onboardingScope: string; onClose: () => void; onChange: (scene: DirectorScene) => void; onApply: (output: DirectorSceneOutput) => Promise<void>; onAddCanvasImage?: (image: Awaited<ReturnType<typeof uploadImage>>, title: string, signal: AbortSignal) => void | Promise<void>; onFlush?: () => void | Promise<void>; onShouldCaptureCover?: (scene: DirectorScene, shotId: string) => boolean; onCaptureCover?: (input: { scene: DirectorScene; shotId: string; beauty: Blob }) => Promise<void>; generatePanorama?: typeof generateDirectorPanorama }) {
     const { message, modal } = App.useApp();
     const theme = canvasThemes[useActiveTheme()];
     const effectiveConfig = useEffectiveConfig();
@@ -840,6 +841,15 @@ export function CanvasDirectorWorkbench({ open, scene, projectId, imageNodes, on
         addObject(createDirectorBillboard(node.title, node.metadata.content, node.metadata.storageKey, node.id));
     };
 
+    // 已连线 / 场中只用来排序和标注，不影响画布节点存在与否。
+    const canvasImageRows = buildDirectorCanvasImageRows(imageNodes, connectedImageNodeIds || [], directorBillboardSourceNodeIds(draft?.objects || []));
+
+    /** 从场景移除该画布图片的立牌；画布节点本身不动。 */
+    const removeBillboardForCanvasNode = (nodeId: string) => {
+        const billboard = draftRef.current?.objects.find((item) => item.kind === "billboard" && item.sourceNodeId === nodeId);
+        if (billboard) removeObject(billboard.id);
+    };
+
     const uploadSceneReference = async (file?: File) => {
         if (!file) return;
         if (!file.type.startsWith("image/")) { message.error("请选择图片文件"); return; }
@@ -1438,7 +1448,7 @@ export function CanvasDirectorWorkbench({ open, scene, projectId, imageNodes, on
         }
     };
 
-    const captureScreenshot = async () => {
+    const captureScreenshot = async ({ sendToCanvas = false }: { sendToCanvas?: boolean } = {}) => {
         const current = draftRef.current;
         const shot = current?.shots.find((item) => item.id === current.activeShotId) || current?.shots[0];
         if (captureBusy || !captureReady || !current || !shot || !viewportRef.current) return;
@@ -1462,10 +1472,36 @@ export function CanvasDirectorWorkbench({ open, scene, projectId, imageNodes, on
             setSceneInspectorView("shot");
             setCameraInspectorTab("screenshots");
             message.success(uploaded.pendingRemoteUpload ? "截图已保存在本机，资源服务暂不可用" : "截图已保存到资源库");
+            if (sendToCanvas && onSendScreenshotToCanvas) {
+                // 发送失败不影响已经存下来的截图，所以单独兜一层，提示里说清楚当前状态。
+                try {
+                    await onSendScreenshotToCanvas(screenshot, session.signal);
+                    session.assertCurrent();
+                    message.success("截图已发送到画布");
+                } catch (error) {
+                    if (session.current()) message.error(error instanceof Error ? `截图已保存，但发送到画布失败：${error.message}` : "截图已保存，但发送到画布失败");
+                }
+            }
         } catch (error) {
             if (session.current()) message.error(error instanceof Error ? error.message : "截图失败，请重试");
         } finally {
             if (session.current()) setCaptureBusy(false);
+        }
+    };
+
+    /**
+     * 截图默认只进资源库和镜头的截图页，画布上看不到。这里给它一条回画布的路：
+     * 用截图现有的资源生成一个图片节点，并按导演台的常规资源边连回本镜头节点。
+     */
+    const sendScreenshotToCanvas = async (screenshot: DirectorScreenshot) => {
+        if (!onSendScreenshotToCanvas) return;
+        const session = directorAsyncSession(sessionRef.current.signal);
+        try {
+            await onSendScreenshotToCanvas(screenshot, session.signal);
+            session.assertCurrent();
+            message.success("截图已发送到画布");
+        } catch (error) {
+            if (session.current()) message.error(error instanceof Error ? error.message : "截图发送到画布失败");
         }
     };
 
@@ -1553,7 +1589,7 @@ export function CanvasDirectorWorkbench({ open, scene, projectId, imageNodes, on
         setMode("layout");
         viewportRef.current?.focusOnPoint(light.transform.position, 0.55);
     };
-    const shotInspector = <ShotInspector shot={activeShot} camera={activeCamera} cameras={draft.cameras} capabilities={capabilities} onUpdateShot={(patch) => updateShot(activeShot.id, patch)} onUpdateCamera={updateActiveCamera} onAddCameraKeyframe={addCameraKeyframe} onApplyCameraMove={applyCameraMove} onAlignCameraToView={alignCameraToView} onExportClay={() => void exportClayVideo()} recording={recording} showScreenshots={!capabilities.cameraTools} showCameraPosition={!capabilities.cameraTools} showCameraSelection={!capabilities.cameraTools} />;
+    const shotInspector = <ShotInspector shot={activeShot} camera={activeCamera} cameras={draft.cameras} capabilities={capabilities} onUpdateShot={(patch) => updateShot(activeShot.id, patch)} onUpdateCamera={updateActiveCamera} onAddCameraKeyframe={addCameraKeyframe} onApplyCameraMove={applyCameraMove} onAlignCameraToView={alignCameraToView} onExportClay={() => void exportClayVideo()} recording={recording} showScreenshots={!capabilities.cameraTools} showCameraPosition={!capabilities.cameraTools} showCameraSelection={!capabilities.cameraTools} onSendScreenshotToCanvas={onSendScreenshotToCanvas ? (screenshot) => void sendScreenshotToCanvas(screenshot) : undefined} />;
     const motionPosition = activeCamera ? resolveDirectorCameraTransform(activeCamera, playhead).position : null;
     const motionOptics = activeCamera ? resolveDirectorCameraTrackValues(activeCamera, playhead) : null;
     const motionInspector = <div className="space-y-5 px-3 py-4 text-xs">
@@ -1681,10 +1717,18 @@ export function CanvasDirectorWorkbench({ open, scene, projectId, imageNodes, on
                             <PanelTitle title="3D 素材" />
                             <div className="px-2 pb-3"><QuickAdd label="上传模型" icon={<FileUp />} onClick={() => modelInputRef.current?.click()} />{modelAssets.map((asset) => <SceneRow key={asset.id} icon={<BoxSelect />} label={asset.title} onClick={() => addModelAsset(asset)} />)}</div>
                             <PanelTitle title="画布图片立牌" />
-                            <div className="px-2 pb-3">{imageNodes.slice(0, 20).map((node) => <SceneRow key={node.id} icon={<ImageIcon />} label={node.title} onClick={() => { const url = node.metadata?.content; if (typeof url !== "string" || !url) return; setSceneReferenceImage({ id: node.id, name: node.title, type: String(node.metadata?.mimeType || "image/png"), dataUrl: url, url, storageKey: node.metadata?.storageKey, width: Number(node.metadata?.naturalWidth) || undefined, height: Number(node.metadata?.naturalHeight) || undefined }); setSceneImportView("reference"); addBillboard(node); }} onDelete={() => onDeleteImageNode(node.id)} />)}</div>
+                            <div className="max-h-[40vh] overflow-y-auto px-2 pb-3">{imageNodes.map((node) => <SceneRow key={node.id} icon={<ImageIcon />} label={node.title} onClick={() => { const url = node.metadata?.content; if (typeof url !== "string" || !url) return; setSceneReferenceImage({ id: node.id, name: node.title, type: String(node.metadata?.mimeType || "image/png"), dataUrl: url, url, storageKey: node.metadata?.storageKey, width: Number(node.metadata?.naturalWidth) || undefined, height: Number(node.metadata?.naturalHeight) || undefined }); setSceneImportView("reference"); addBillboard(node); }} />)}</div>
                             <PanelTitle title="图片素材历史" />
                             <div className="px-2 pb-3">{imageAssets.slice(0, 20).map((asset) => <SceneRow key={asset.id} icon={<ImageIcon />} label={asset.title} onClick={() => { setSceneReferenceImage({ id: asset.id, name: asset.title, type: asset.data.mimeType || "image/png", dataUrl: asset.data.dataUrl, url: asset.data.dataUrl, storageKey: asset.data.storageKey, width: asset.data.width, height: asset.data.height, bytes: asset.data.bytes }); setSceneImportView("reference"); addObject(createDirectorBillboard(asset.title, asset.data.dataUrl, asset.data.storageKey)); }} />)}</div>
                         </>}
+                    </> : null}
+                    {navigationTab === "canvas" ? <>
+                        <PanelTitle title="画布图片" />
+                        <p className="px-3 pb-2 text-[11px] leading-4 opacity-60">点一行就在场景里放一块立牌；✕ 只把立牌从场景移除，不会删掉画布上的图片。</p>
+                        <div className="max-h-[46vh] space-y-0.5 overflow-y-auto px-2 pb-3">
+                            {canvasImageRows.length === 0 ? <p className="px-2 py-8 text-center text-xs opacity-55">画布上还没有图片节点</p> : null}
+                            {canvasImageRows.map(({ node, connected, inScene }) => <SceneRow key={node.id} icon={<ImageIcon />} label={node.title} badge={connected ? "已连线" : inScene ? "场中" : undefined} onClick={() => { const url = node.metadata?.content; if (typeof url !== "string" || !url) return; setSceneReferenceImage({ id: node.id, name: node.title, type: String(node.metadata?.mimeType || "image/png"), dataUrl: url, url, storageKey: node.metadata?.storageKey, width: Number(node.metadata?.naturalWidth) || undefined, height: Number(node.metadata?.naturalHeight) || undefined }); setSceneImportView("reference"); addBillboard(node); }} onDelete={inScene ? () => removeBillboardForCanvasNode(node.id) : undefined} />)}
+                        </div>
                     </> : null}
                     <input ref={modelInputRef} type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" className="hidden" onChange={(event) => { void uploadModel(event.target.files?.[0]); event.currentTarget.value = ""; }} />
                     <input ref={panoramaInputRef} type="file" accept={"image/" + "*"} className="hidden" onChange={(event) => { void uploadPanorama(event.target.files?.[0]); event.currentTarget.value = ""; }} />
@@ -1767,12 +1811,14 @@ export function CanvasDirectorWorkbench({ open, scene, projectId, imageNodes, on
                     {workspaceView === "scene" ? <>
                         <CanvasDirectorOnboarding scope={onboardingScope} open={open} restartSignal={onboardingRestartSignal} className="director-workbench-onboarding absolute left-4 top-28 z-[var(--z-popover)] w-[min(360px,calc(100%-24px))]" />
                         <div className="director-scene-control-bar">
-                            <DirectorViewportDock transformMode={transformMode} renderMode={renderMode} renderModes={capabilities.renderModes} onTransformModeChange={setTransformMode} onRenderModeChange={setRenderMode} timelineOpen={sequencerVisible} onToggleTimeline={() => setSequencerVisible(!sequencerVisible)} captureBusy={captureBusy} captureReady={captureReady} onCapture={() => void captureScreenshot()} onExportClay={() => void exportClayVideo()} exportBusy={recording} onApplyToCanvas={() => void applyToCanvas()} applyBusy={saving} saveRetryable={saveIndicator.retryable} saveRetryBusy={retrying || saveIndicator.busy} onRetrySave={() => void retrySave()} mode={mode} onModeChange={setMode} workspaceView={workspaceView} onWorkspaceViewChange={setWorkspaceView} canUndo={history.length > 0} canRedo={future.length > 0} onUndo={undo} onRedo={redo} />
-                            <DirectorPreviewComposer intent="scene" prompt={activeShot.prompt} submitting={saving || sceneReferenceUploading} submitUnavailable={true} onPromptChange={(prompt) => replaceWithoutHistory((current) => ({ ...current, shots: current.shots.map((shot) => shot.id === activeShot.id ? { ...shot, prompt } : shot) }))} onAddReference={() => sceneReferenceInputRef.current?.click()} onSubmit={() => void applyToCanvas()} />
+                            <DirectorViewportDock transformMode={transformMode} renderMode={renderMode} renderModes={capabilities.renderModes} onTransformModeChange={setTransformMode} onRenderModeChange={setRenderMode} timelineOpen={sequencerVisible} onToggleTimeline={() => setSequencerVisible(!sequencerVisible)} captureBusy={captureBusy} captureReady={captureReady} onCapture={() => void captureScreenshot()} onCaptureAndSend={onSendScreenshotToCanvas ? () => void captureScreenshot({ sendToCanvas: true }) : undefined} onExportClay={() => void exportClayVideo()} exportBusy={recording} onApplyToCanvas={() => void applyToCanvas()} applyBusy={saving} saveRetryable={saveIndicator.retryable} saveRetryBusy={retrying || saveIndicator.busy} onRetrySave={() => void retrySave()} mode={mode} onModeChange={setMode} workspaceView={workspaceView} onWorkspaceViewChange={setWorkspaceView} canUndo={history.length > 0} canRedo={future.length > 0} onUndo={undo} onRedo={redo} />
+                            {/* 这个箭头就是"把当前 3D 构图送回画布"：它和操作条里的「应用到镜头」是同一个动作。
+                                之前它常年 disabled（"AI 自动构建暂未开放"），于是导演台唯一显眼的出口成了死按钮。 */}
+                            <DirectorPreviewComposer intent="scene" prompt={activeShot.prompt} submitting={saving || sceneReferenceUploading} onPromptChange={(prompt) => replaceWithoutHistory((current) => ({ ...current, shots: current.shots.map((shot) => shot.id === activeShot.id ? { ...shot, prompt } : shot) }))} onAddReference={() => sceneReferenceInputRef.current?.click()} onSubmit={() => void applyToCanvas()} />
                         </div>
                     </> : <>
                         <div className="director-workbench-preview-label pointer-events-none absolute left-4 rounded-md bg-black/45 px-3 py-2 text-xs text-white/80">{activeShot.name} · {activeCamera?.name || "无摄影机"} · {activeShot.duration}s 成片预演</div>
-                        <div className="director-preview-control-dock"><DirectorViewportDock transformMode={transformMode} renderMode={renderMode} renderModes={capabilities.renderModes} onTransformModeChange={setTransformMode} onRenderModeChange={setRenderMode} timelineOpen={sequencerVisible} onToggleTimeline={() => setSequencerVisible(!sequencerVisible)} captureBusy={captureBusy} captureReady={captureReady} onCapture={() => void captureScreenshot()} onExportClay={() => void exportClayVideo()} exportBusy={recording} onApplyToCanvas={() => void applyToCanvas()} applyBusy={saving} saveRetryable={saveIndicator.retryable} saveRetryBusy={retrying || saveIndicator.busy} onRetrySave={() => void retrySave()} mode={mode} onModeChange={setMode} workspaceView={workspaceView} onWorkspaceViewChange={setWorkspaceView} canUndo={history.length > 0} canRedo={future.length > 0} onUndo={undo} onRedo={redo} /></div>
+                        <div className="director-preview-control-dock"><DirectorViewportDock transformMode={transformMode} renderMode={renderMode} renderModes={capabilities.renderModes} onTransformModeChange={setTransformMode} onRenderModeChange={setRenderMode} timelineOpen={sequencerVisible} onToggleTimeline={() => setSequencerVisible(!sequencerVisible)} captureBusy={captureBusy} captureReady={captureReady} onCapture={() => void captureScreenshot()} onCaptureAndSend={onSendScreenshotToCanvas ? () => void captureScreenshot({ sendToCanvas: true }) : undefined} onExportClay={() => void exportClayVideo()} exportBusy={recording} onApplyToCanvas={() => void applyToCanvas()} applyBusy={saving} saveRetryable={saveIndicator.retryable} saveRetryBusy={retrying || saveIndicator.busy} onRetrySave={() => void retrySave()} mode={mode} onModeChange={setMode} workspaceView={workspaceView} onWorkspaceViewChange={setWorkspaceView} canUndo={history.length > 0} canRedo={future.length > 0} onUndo={undo} onRedo={redo} /></div>
                         <DirectorPreviewComposer prompt={activeShot.prompt} onPromptChange={(prompt) => replaceWithoutHistory((current) => ({ ...current, shots: current.shots.map((shot) => shot.id === activeShot.id ? { ...shot, prompt } : shot) }))} />
                     </>}
                 </main>
@@ -1787,7 +1833,7 @@ export function CanvasDirectorWorkbench({ open, scene, projectId, imageNodes, on
                         : selectedObject && !capabilities.cameraTools ? <ObjectInspector object={selectedObject} rendered={selectedObjectRendered || selectedObject.transform} playhead={snappedPlayhead} selectedBone={selectedBone} tab={actorInspectorTab} motionTabVisible={sequencerVisible} onTabChange={(tab) => { setActorInspectorTab(tab); if (tab !== "pose") setSelectedBone(null); }} capabilities={capabilities} fps={activeShot?.fps || 24} shotDuration={activeShot?.duration || 15} onSelectBone={setSelectedBone} onUpdate={(patch) => updateObject(selectedObject.id, patch)} onTransformEdit={(edited) => handleObjectTransform(selectedObject.id, selectedObjectRendered || selectedObject.transform, edited)} onToggleTransformKey={(channel) => toggleObjectTransformKey(selectedObject.id, channel)} onPathTransformEdit={(edited) => updateActorPath(selectedObject.id, (object) => updateDirectorActorPathTransform(object, edited))} onCreatePath={(kind) => createActorPath(selectedObject.id, kind)} onPathDurationChange={(duration) => updateActorPath(selectedObject.id, (object) => retimeDirectorActorPath(object, duration))} onPathFacingChange={(facing) => updateActorPath(selectedObject.id, (object) => setDirectorActorPathFacing(object, facing))} onUniformScaleChange={(value, stage) => handleUniformScale(selectedObject.id, value, stage)} onUniformScaleCommit={() => stagedTransaction.end("commit")} onBoneRotationStage={(bone, rotation) => writeBoneRotation(selectedObject.id, bone, rotation, "stage")} onBoneRotationCommit={() => stagedTransaction.end("commit")} onAddKeyframe={recordSelectedKeyframe} onDelete={() => removeObject(selectedObject.id)} />
                         : selectedLight && !capabilities.cameraTools ? <LightInspector light={selectedLight} onUpdate={(patch) => updateLight(selectedLight.id, patch)} onDelete={() => removeLight(selectedLight.id)} />
                         : sceneInspectorView === "scene" && !capabilities.cameraTools && viewMode !== "camera" ? <DirectorSceneInspector scene={draft} onChange={(patch) => commit((current) => ({ ...current, ...patch }))} />
-                        : capabilities.cameraTools || viewMode === "camera" ? <DirectorCameraScreenshotTabs scene={draft} tab={cameraInspectorTab} motionTabVisible={sequencerVisible} onTabChange={setCameraInspectorTab} motionContent={motionInspector}><DirectorCameraProperties scene={draft} camera={activeCamera} cameras={draft.cameras} shot={activeShot} objects={draft.objects} previewUrl={cameraPreviewUrl} playhead={playhead} onUpdateCamera={updateActiveCamera} onUpdateAnimated={updateAnimatedCameraProperty} onUpdateRotation={updateAnimatedCameraRotation} onToggleTrack={toggleCameraTrack} onChangeLookAtMode={updateCameraLookAtMode} onSelectCamera={(cameraId) => updateShot(activeShot.id, { cameraId })} onFollowObject={handleFollowObject}>{shotInspector}</DirectorCameraProperties></DirectorCameraScreenshotTabs>
+                        : capabilities.cameraTools || viewMode === "camera" ? <DirectorCameraScreenshotTabs scene={draft} tab={cameraInspectorTab} motionTabVisible={sequencerVisible} onTabChange={setCameraInspectorTab} motionContent={motionInspector} onSendScreenshotToCanvas={onSendScreenshotToCanvas ? (screenshot) => void sendScreenshotToCanvas(screenshot) : undefined}><DirectorCameraProperties scene={draft} camera={activeCamera} cameras={draft.cameras} shot={activeShot} objects={draft.objects} previewUrl={cameraPreviewUrl} playhead={playhead} onUpdateCamera={updateActiveCamera} onUpdateAnimated={updateAnimatedCameraProperty} onUpdateRotation={updateAnimatedCameraRotation} onToggleTrack={toggleCameraTrack} onChangeLookAtMode={updateCameraLookAtMode} onSelectCamera={(cameraId) => updateShot(activeShot.id, { cameraId })} onFollowObject={handleFollowObject}>{shotInspector}</DirectorCameraProperties></DirectorCameraScreenshotTabs>
                         : shotInspector}
                     </div>
                 </aside>
@@ -1987,7 +2033,7 @@ function LightInspector({ light, onUpdate, onDelete }: { light: DirectorLight; o
     return <Inspector title={light.name} onTitleChange={(name) => onUpdate({ name })} onDelete={onDelete}><Field label="类型"><Select className="w-full" value={light.type} options={[{ label: "方向光", value: "directional" }, { label: "点光源", value: "point" }, { label: "聚光灯", value: "spot" }, { label: "环境光", value: "ambient" }]} onChange={(type) => onUpdate({ type })} /></Field><Vec3Field label="位置" value={light.transform.position} onChange={(position) => onUpdate({ transform: { ...light.transform, position } })} /><Field label="颜色"><ColorPicker value={light.color} onChange={(_, color) => onUpdate({ color })} /></Field><Field label="强度"><InputNumber className="w-full" min={0} max={20} step={0.1} value={light.intensity} onChange={(value) => onUpdate({ intensity: value || 0 })} /></Field><Field label="投射阴影"><Switch checked={light.castShadow} onChange={(castShadow) => onUpdate({ castShadow })} /></Field></Inspector>;
 }
 
-function ShotInspector({ shot, camera, cameras, capabilities, onUpdateShot, onUpdateCamera, onAddCameraKeyframe, onApplyCameraMove, onAlignCameraToView, onExportClay, recording, showScreenshots = true, showCameraPosition = true, showCameraSelection = true }: { shot: DirectorShot; camera: DirectorCamera | null; cameras: DirectorScene["cameras"]; capabilities: DirectorModeCapabilities; onUpdateShot: (patch: Partial<DirectorShot>) => void; onUpdateCamera: (patch: Partial<DirectorCamera>) => void; onAddCameraKeyframe: () => void; onApplyCameraMove: () => void; onAlignCameraToView: () => void; onExportClay: () => void; recording: boolean; showScreenshots?: boolean; showCameraPosition?: boolean; showCameraSelection?: boolean }) {
+function ShotInspector({ shot, camera, cameras, capabilities, onUpdateShot, onUpdateCamera, onAddCameraKeyframe, onApplyCameraMove, onAlignCameraToView, onExportClay, recording, showScreenshots = true, showCameraPosition = true, showCameraSelection = true, onSendScreenshotToCanvas }: { shot: DirectorShot; camera: DirectorCamera | null; cameras: DirectorScene["cameras"]; capabilities: DirectorModeCapabilities; onUpdateShot: (patch: Partial<DirectorShot>) => void; onUpdateCamera: (patch: Partial<DirectorCamera>) => void; onAddCameraKeyframe: () => void; onApplyCameraMove: () => void; onAlignCameraToView: () => void; onExportClay: () => void; recording: boolean; showScreenshots?: boolean; showCameraPosition?: boolean; showCameraSelection?: boolean; onSendScreenshotToCanvas?: (screenshot: DirectorScreenshot) => void | Promise<void> }) {
     return <Inspector title={shot.name} onTitleChange={(name) => onUpdateShot({ name })}>
         {showCameraSelection ? <Field label="摄影机"><Select className="w-full" value={shot.cameraId} options={cameras.map((item) => ({ label: item.name, value: item.id }))} onChange={(cameraId) => onUpdateShot({ cameraId })} /></Field> : null}
         <div className="grid grid-cols-2 gap-2"><Field label="景别"><Select className="w-full" value={shot.shotSize} options={shotSizeOptions} onChange={(shotSize: DirectorShotSize) => onUpdateShot({ shotSize })} /></Field><Field label="帧率"><Select className="w-full" value={shot.fps} options={[24, 25, 30].map((fps) => ({ label: `${fps} fps`, value: fps }))} onChange={(fps: 24 | 25 | 30) => onUpdateShot({ fps })} /></Field></div>
@@ -1995,7 +2041,7 @@ function ShotInspector({ shot, camera, cameras, capabilities, onUpdateShot, onUp
         <Field label="时长"><InputNumber className="w-full" min={0.5} max={60} step={0.5} value={shot.duration} addonAfter="秒" onChange={(value) => onUpdateShot({ duration: value || 5 })} /></Field>
         <Field label="镜头意图"><Input.TextArea autoSize={{ minRows: 3, maxRows: 7 }} value={shot.prompt} placeholder="人物表演、动作、叙事目标…" onChange={(event) => onUpdateShot({ prompt: event.target.value })} /></Field>
         {camera ? <>{showCameraPosition ? <><Vec3Field label="摄影机位置" value={camera.transform.position} onChange={(position) => onUpdateCamera({ transform: { ...camera.transform, position } })} /><Vec3Field label="焦点" value={camera.target} onChange={(target) => onUpdateCamera({ target })} /></> : null}<Field label="焦距"><InputNumber className="w-full" min={12} max={200} value={camera.focalLength} addonAfter="mm" onChange={(focalLength) => onUpdateCamera({ focalLength: focalLength || 35, fov: directorFocalLengthToFov(focalLength || 35) })} /></Field><div className="grid grid-cols-2 gap-2"><Field label="光圈"><InputNumber className="w-full" min={0.7} max={32} step={0.1} value={camera.aperture} addonBefore="f/" onChange={(aperture) => onUpdateCamera({ aperture: aperture || 2.8 })} /></Field><Field label="焦点距离"><InputNumber className="w-full" min={0.1} max={200} step={0.1} value={camera.focusDistance} addonAfter="m" onChange={(focusDistance) => onUpdateCamera({ focusDistance: focusDistance || 5 })} /></Field></div><Button block icon={<Camera className="size-3.5" />} onClick={onAlignCameraToView}>摄影机对齐当前视图</Button><Button block icon={<Video className="size-3.5" />} onClick={onApplyCameraMove}>按运镜生成轨迹</Button>{capabilities.keyframes ? <Button block icon={<Focus className="size-3.5" />} onClick={onAddCameraKeyframe}>记录摄影机关键帧</Button> : null}<Button block type="primary" ghost icon={<Video className="size-3.5" />} loading={recording} onClick={onExportClay}>导出白膜视频</Button></> : null}
-        {showScreenshots ? <DirectorScreenshotGallery screenshots={shot.screenshots || []} /> : null}
+        {showScreenshots ? <DirectorScreenshotGallery screenshots={shot.screenshots || []} onSendToCanvas={onSendScreenshotToCanvas} /> : null}
     </Inspector>;
 }
 
@@ -2083,12 +2129,13 @@ function PanelTitle({ title, action, spacious = false }: { title: string; action
  *「点选对象 -> 按 Delete」是 delete-selected 快捷键的主流程，
  * 焦点留在按钮上会让守卫把 Delete 吃掉。
  */
-function SceneRow({ active, icon, label, visible, locked, depth = 0, groupDisabled, expandIcon, onVisibilityChange, onLockChange, onClick, onFocus, onDuplicate, onGroup, onUngroup, onExpand, onDelete }: { active?: boolean; icon: ReactElement; label: string; visible?: boolean; locked?: boolean; depth?: number; groupDisabled?: boolean; expandIcon?: ReactElement; onVisibilityChange?: () => void; onLockChange?: () => void; onClick: (event: MouseEvent<HTMLButtonElement>) => void; onFocus?: () => void; onDuplicate?: () => void; onGroup?: () => void; onUngroup?: () => void; onExpand?: () => void; onDelete?: () => void }) {
+function SceneRow({ active, icon, label, badge, visible, locked, depth = 0, groupDisabled, expandIcon, onVisibilityChange, onLockChange, onClick, onFocus, onDuplicate, onGroup, onUngroup, onExpand, onDelete }: { active?: boolean; icon: ReactElement; label: string; badge?: string; visible?: boolean; locked?: boolean; depth?: number; groupDisabled?: boolean; expandIcon?: ReactElement; onVisibilityChange?: () => void; onLockChange?: () => void; onClick: (event: MouseEvent<HTMLButtonElement>) => void; onFocus?: () => void; onDuplicate?: () => void; onGroup?: () => void; onUngroup?: () => void; onExpand?: () => void; onDelete?: () => void }) {
     const sceneActions = Boolean(onVisibilityChange || onLockChange || onFocus || onDuplicate || onGroup || onUngroup);
     const row = <div data-director-scene-row="true" data-director-row-label={label} data-active={active ? "true" : "false"} className={`group flex h-8 w-full items-center gap-1 pr-1 text-left text-xs transition ${active ? "bg-black/10 dark:bg-white/10" : "hover:bg-black/5 dark:hover:bg-white/5"}`}>
         <button type="button" className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left" style={{ paddingLeft: 8 + depth * 16 }} onClick={(event) => { onClick(event); releaseDirectorFocusAfterPointer(event); }}>
             <span className="[&>svg]:size-3.5">{icon}</span>
             <span className={`truncate ${visible === false ? "opacity-45" : ""}`}>{label}</span>
+            {badge ? <span data-director-row-badge={badge} className="shrink-0 rounded border px-1 py-0.5 text-[10px] leading-none opacity-70" style={{ borderColor: "currentColor", color: "currentColor" }}>{badge}</span> : null}
         </button>
         {onExpand ? <button type="button" aria-label={`${label}展开/折叠`} title="展开/折叠" className="grid size-6 shrink-0 place-items-center rounded opacity-60 transition hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/10" onClick={(event) => { event.stopPropagation(); onExpand(); releaseDirectorFocusAfterPointer(event); }}>{expandIcon || icon}</button> : null}
         {onFocus ? <button type="button" aria-label={`聚焦${label}`} title="聚焦" className={`grid size-6 shrink-0 place-items-center rounded transition hover:bg-black/5 dark:hover:bg-white/10 ${active ? "pointer-events-auto opacity-75" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-75 group-focus-within:pointer-events-auto group-focus-within:opacity-75"}`} onClick={(event) => { event.stopPropagation(); onFocus(); releaseDirectorFocusAfterPointer(event); }}><Focus className="size-3.5" /></button> : null}

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { connectDirectorReferenceNodes } from "@/lib/canvas/director/director-reference-assets";
+import { connectDirectorReferenceNodes, createDirectorScreenshotCanvasNode, directorScreenshotNodeMetadata } from "@/lib/canvas/director/director-reference-assets";
 import { createCanvasNode } from "@/lib/canvas/canvas-project-domain";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
@@ -54,5 +54,32 @@ describe("导演台参考图片接入画布资源图", () => {
         expect(result.connections.map(({ fromNodeId, toNodeId }) => [fromNodeId, toNodeId])).toEqual([["old-video", "director"], ["new-image", "director"]]);
         expect(result.nodes.find((node) => node.id === target.id)?.metadata?.referenceAssetNodeIds).toEqual(["old-video", "new-image"]);
         expect(result.nodes.some((node) => node.id === oldImage.id)).toBe(true);
+    });
+});
+
+describe("导演台截图接入画布", () => {
+    const screenshot = { id: "shot-1", name: "主摄影机-1", url: "/assets/a.png", storageKey: "resource:a", width: 1280, height: 720, createdAt: "2026-10-12T00:00:00.000Z" };
+
+    test("截图节点沿用截图已有资源，不重新上传也不改动 storageKey", () => {
+        expect(directorScreenshotNodeMetadata(screenshot)).toEqual({ content: "/assets/a.png", storageKey: "resource:a", status: "success", naturalWidth: 1280, naturalHeight: 720, mimeType: "image/png" });
+    });
+
+    test("生成的是可被画布识别的图片节点，标题沿用截图名", () => {
+        const node = createDirectorScreenshotCanvasNode(screenshot, { x: 100, y: 60 });
+        expect(node.type).toBe(CanvasNodeType.Image);
+        expect(node.title).toBe("主摄影机-1");
+        expect(node.metadata?.content).toBe("/assets/a.png");
+        expect(node.metadata?.storageKey).toBe("resource:a");
+        expect(node.width).toBeGreaterThan(0);
+        expect(node.height).toBeGreaterThan(0);
+    });
+
+    test("同一张截图重复发送是幂等的：节点 id 每次都新，但不会复用被顶掉的引用", () => {
+        const first = createDirectorScreenshotCanvasNode(screenshot, { x: 0, y: 0 });
+        const second = createDirectorScreenshotCanvasNode(screenshot, { x: 0, y: 0 });
+        expect(first.id).not.toBe(second.id);
+        const target = { ...createCanvasNode(CanvasNodeType.Video, { x: 0, y: 0 }, { workflowKind: "shot", referenceAssetNodeIds: ["existing"] }), id: "director" } as CanvasNodeData;
+        const linked = connectDirectorReferenceNodes([target, first], [], [first.id], "director", () => "edge", "append");
+        expect(linked.nodes[0].metadata?.referenceAssetNodeIds).toEqual(["existing", first.id]);
     });
 });
