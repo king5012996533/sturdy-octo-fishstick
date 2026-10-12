@@ -286,7 +286,7 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 	ctx = withProtocolRegistry(ctx, s.protocolRegistry())
 	var input canvasGenerationInput
 	if err := json.Unmarshal([]byte(rawInput), &input); err != nil {
-		return nil, fmt.Errorf("任务输入解析失败：%w", err)
+		return nil, taskInputDecodeError(err)
 	}
 	if strings.TrimSpace(input.Prompt) == "" {
 		input.Prompt = fallbackPrompt

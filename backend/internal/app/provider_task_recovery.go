@@ -175,7 +175,7 @@ func (s *Service) prepareProviderVideoRecovery(ctx context.Context, task *model.
 	}
 	var input canvasGenerationInput
 	if err := json.Unmarshal([]byte(decryptedInput), &input); err != nil {
-		return providerVideoRecovery{}, fmt.Errorf("任务输入解析失败：%w", err)
+		return providerVideoRecovery{}, taskInputDecodeError(err)
 	}
 	config, err := s.resolveProviderConfig(input.Config)
 	if err != nil {
