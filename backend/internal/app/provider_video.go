@@ -306,7 +306,7 @@ func runSeedanceVideosTask(ctx context.Context, input canvasGenerationInput, pol
 			post = postJSONWithSubmissionKey
 		}
 		if err := post(ctx, input.Config, "/videos", body, &created); err != nil {
-			return nil, uncertainVideoSubmission(ctx, err)
+			return nil, uncertainProviderSubmission(ctx, err)
 		}
 		if data, ok := created["data"].(map[string]interface{}); ok {
 			created = data

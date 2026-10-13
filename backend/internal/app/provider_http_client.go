@@ -113,7 +113,7 @@ func postJSONWithSubmissionKey(ctx context.Context, config providerConfig, path 
 	// net/http otherwise treats Idempotency-Key as permission to replay on a
 	// stale pooled connection when GetBody is available.
 	req.GetBody = nil
-	return uncertainVideoSubmission(ctx, doJSON(req, target))
+	return uncertainProviderSubmission(ctx, doJSON(req, target))
 }
 
 func applyProviderAuth(req *http.Request, config providerConfig) {

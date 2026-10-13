@@ -76,15 +76,23 @@ func runProtocolAdapterTaskWithPolicy(ctx context.Context, input canvasGeneratio
 			return nil, err
 		}
 		body, err := executeProtocolRequest(withProviderRequestKind(ctx, "create"), input.Config, spec)
+		if err != nil && edgeGatewayCreateFailure(err) {
+			// 边缘网关的 502/503/504：请求还没进上游源站，上游不会建任务、也就不会计费，
+			// 重放一次比把这次失败直接丢给用户划算。真正含糊的超时和连接中断不在这里，
+			// 重放它们可能在上游重复建立一个任务。
+			if retried, retryErr := executeProtocolRequest(withProviderRequestKind(ctx, "create"), input.Config, spec); retryErr == nil {
+				body, err = retried, nil
+			}
+		}
 		if err != nil {
-			if input.Mode == "video" {
-				return nil, uncertainVideoSubmission(ctx, err)
+			if asyncProviderTaskMode(input.Mode) {
+				return nil, uncertainProviderSubmission(ctx, err)
 			}
 			return nil, err
 		}
 		created, err = adapter.ParseCreate(ctx, body)
 		if err != nil {
-			if input.Mode == "video" {
+			if asyncProviderTaskMode(input.Mode) {
 				return nil, providerSubmissionUnknownError{Cause: err}
 			}
 			return nil, err
@@ -355,6 +363,25 @@ func protocolMediaReference(value providerMedia, kind string, order int) protoco
 func executeProtocolRequest(ctx context.Context, config providerConfig, spec protocol.RequestSpec) ([]byte, error) {
 	data, _, err := executeProtocolBinaryRequest(ctx, config, spec)
 	return data, err
+}
+
+// edgeGatewayCreateFailure 判断一次创建失败是不是"请求根本没进上游源站"的边缘网关错误。
+//
+// 只看 502 和 503：这两个是网关连不上源站（或拿不到健康实例），请求没有被处理。504 与
+// 524 是"网关把请求转出去了、只是没等到响应"，源站很可能已经建好任务并计费，重放等于重
+// 复下单，一律不在这里。供应商自己回的 5xx 也一定带 JSON 正文（错误码、request id 之类），
+// 说明请求已经到达上游、只是被上游拒绝，同样交给上层按真实原因处理。
+func edgeGatewayCreateFailure(err error) bool {
+	var httpErr providerHTTPError
+	if !errors.As(err, &httpErr) {
+		return false
+	}
+	switch httpErr.StatusCode {
+	case http.StatusBadGateway, http.StatusServiceUnavailable:
+	default:
+		return false
+	}
+	return !json.Valid([]byte(strings.TrimSpace(httpErr.Body)))
 }
 
 // executeProtocolBinaryRequest 是声明式插件与宿主网络能力之间的边界。manifest 只能声明

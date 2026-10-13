@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -22,7 +23,15 @@ func (e providerSubmissionUnknownError) Error() string {
 }
 func (e providerSubmissionUnknownError) Unwrap() error { return e.Cause }
 
-func uncertainVideoSubmission(ctx context.Context, err error) error {
+// uncertainProviderSubmission 判断一次创建请求的失败能不能定性。
+//
+// 上游明确拒绝（401/402/403/404/429、熔断）说明这次生成没有被受理，错误可以原样向上；
+// 其余瞬时失败（5xx、超时、连接中断、响应体解析不出来）都属于"请求可能已经出去、但我们
+// 没拿到回执"，必须打上提交未确认的标记，才能进入事后对账而不是被当成一次普通失败丢掉。
+//
+// 这条判据最早只用在视频上，因为只有视频有回查入口；现在图片、音频同样走后台对账，因此
+// 对这三种会建立上游任务的模式统一生效。文本任务一次性返回、没有可回查的任务号，不在其列。
+func uncertainProviderSubmission(ctx context.Context, err error) error {
 	if err == nil || errors.Is(err, context.Canceled) || safeRouteRejection(err) {
 		return err
 	}
@@ -34,6 +43,18 @@ func uncertainVideoSubmission(ctx context.Context, err error) error {
 		return providerSubmissionUnknownError{Cause: err}
 	}
 	return err
+}
+
+// asyncProviderTaskMode 报告这个生成模式会不会建立"可回查的上游任务"。
+//
+// 只有这类任务的提交才需要区分"上游已受理"和"我们没拿到回执"：文本任务一次性返回，
+// 没有任务号可查，把它按提交未确认处理只会让任务卡在一个既对不了账、也说不清的状态里。
+func asyncProviderTaskMode(mode string) bool {
+	switch strings.TrimSpace(mode) {
+	case "video", "image", "audio":
+		return true
+	}
+	return false
 }
 
 // providerDispatchRecord 记录"这次尝试是否真的向上游发出过请求"。

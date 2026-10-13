@@ -58,13 +58,13 @@ func TestVideoRecoveryLostReceiptNeverResubmits(t *testing.T) {
 func TestVideoRecoverySubmissionClassification(t *testing.T) {
 	for _, err := range []error{providerHTTPError{StatusCode: 429}, providerHTTPError{StatusCode: 404}, providerCircuitOpenError{}, context.Canceled} {
 		var unknown providerSubmissionUnknownError
-		if errors.As(uncertainVideoSubmission(context.Background(), err), &unknown) {
+		if errors.As(uncertainProviderSubmission(context.Background(), err), &unknown) {
 			t.Fatalf("known rejection wrapped: %v", err)
 		}
 	}
 	for _, err := range []error{io.EOF, io.ErrUnexpectedEOF, context.DeadlineExceeded, providerHTTPError{StatusCode: 524}} {
 		var unknown providerSubmissionUnknownError
-		if !errors.As(uncertainVideoSubmission(context.Background(), err), &unknown) {
+		if !errors.As(uncertainProviderSubmission(context.Background(), err), &unknown) {
 			t.Fatalf("lost receipt not protected: %v", err)
 		}
 	}
