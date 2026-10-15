@@ -74,6 +74,27 @@ import { defaultConfig, resolveModelRequestConfig, useConfigStore, useEffectiveC
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type ContextMenuState } from "@/types/canvas";
 import type { StartCanvasUploadStatus } from "./use-canvas-upload";
 
+/**
+ * 结果已经生成、只有「写回画布」这一步失败。
+ *
+ * 必须和生成失败分开：画布写入的 409（版本冲突）经 generationErrorMessage 会被翻译成
+ * 「模型不接受当前参数」，用户会照着这句话去重试一张已经出好的图。而走到这里时，节点上的
+ * 媒体早已落进本地草稿，调用方要保留这份结果，只如实说明保存没成功。
+ */
+class CanvasMediaSaveError extends Error {
+    readonly saveError: unknown;
+
+    constructor(saveError: unknown) {
+        super("媒体结果已生成，但未能写回画布");
+        this.name = "CanvasMediaSaveError";
+        this.saveError = saveError;
+    }
+}
+
+function isCanvasMediaSaveError(error: unknown): error is CanvasMediaSaveError {
+    return error instanceof CanvasMediaSaveError;
+}
+
 type UseCanvasMediaToolsOptions = {
     projectId: string;
     domainProjectId?: string;
@@ -196,7 +217,7 @@ export function useCanvasMediaTools({
                 latestNodes.set(node.id, { ...node, metadata: { ...node.metadata, assetId: result.assetId } });
             } catch (error) {
                 message.warning(`已有媒体节点尚未完成素材库绑定，无法保存本次结果：${error instanceof Error ? error.message : "未知错误"}`);
-                throw error;
+                throw new CanvasMediaSaveError(error);
             }
         }
         if (assetIds.size > 0) {
@@ -229,7 +250,7 @@ export function useCanvasMediaTools({
                 }
             } catch (error) {
                 message.error(`媒体结果已生成，但本地画布保存失败：${error instanceof Error ? error.message : "未知错误"}`);
-                throw error;
+                throw new CanvasMediaSaveError(error);
             }
         }
         return assetIds;
@@ -879,6 +900,8 @@ export function useCanvasMediaTools({
                     hasSuccess = true;
                 } catch (error) {
                     if (isGenerationCanceled(error)) return;
+                    // 图已经出了，只有写回画布这一步失败：保留这次结果，不要标成生成失败。
+                    if (isCanvasMediaSaveError(error)) { hasSuccess = true; return; }
                     failureCount += 1;
                     const details = generationErrorMessage(error);
                     representativeError = details;
@@ -977,6 +1000,8 @@ export function useCanvasMediaTools({
             await persistMediaNodes([finalizedNode]);
         } catch (error) {
             if (isGenerationCanceled(error)) return;
+            // 图已经出了，只有写回画布这一步失败：节点上留着这次结果，不要标成生成失败。
+            if (isCanvasMediaSaveError(error)) return;
             const details = generationErrorMessage(error);
             setNodes((current) => current.map((item) => item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: details } } : item));
         } finally {
@@ -1039,6 +1064,8 @@ export function useCanvasMediaTools({
                         await new Promise((resolve) => window.setTimeout(resolve, REMOVE_BACKGROUND_CAPACITY_RETRY_DELAY_MS));
                         continue;
                     }
+                    // 图已经出了，只有写回画布这一步失败：这次算成功，别让用户重试一张已经出好的图。
+                    if (isCanvasMediaSaveError(error)) return true;
                     const details = generationErrorMessage(error);
                     setNodes((current) => current.map((item) => item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: details } } : item));
                     return false;
@@ -1138,6 +1165,8 @@ export function useCanvasMediaTools({
             await persistMediaNodes([finalizedNode]);
         } catch (error) {
             if (isGenerationCanceled(error)) return;
+            // 图已经出了，只有写回画布这一步失败：节点上留着这次结果，不要标成生成失败。
+            if (isCanvasMediaSaveError(error)) return;
             const details = generationErrorMessage(error);
             setNodes((current) => current.map((item) => item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: details } } : item));
         } finally {
@@ -1234,6 +1263,8 @@ export function useCanvasMediaTools({
             await persistMediaNodes([finalizedNode]);
         } catch (error) {
             if (isGenerationCanceled(error)) return;
+            // 图已经出了，只有写回画布这一步失败：节点上留着这次结果，不要标成生成失败。
+            if (isCanvasMediaSaveError(error)) return;
             const details = generationErrorMessage(error);
             message.error(details);
             setNodes((current) => current.map((item) => item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: details } } : item));

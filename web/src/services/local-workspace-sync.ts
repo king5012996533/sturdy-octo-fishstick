@@ -1,6 +1,6 @@
 import { applyAgentCanvasPatch, type AgentCanvasPatch } from "@/lib/canvas/agent-canvas-patch";
 import { rebindInconsistentCanvasAssets, type CanvasAssetRebindResult } from "@/services/canvas-asset-repair";
-import { createLocalCanvasProject, deleteLocalCanvasProjects, openLocalCanvasProject, openLocalCanvasProjectFromBackend } from "@/services/local-workspace-repository";
+import { createLocalCanvasProject, deleteLocalCanvasProjects, openLocalCanvasProject, openLocalCanvasProjectFromBackend, queueCanvasBackendWrite } from "@/services/local-workspace-repository";
 import { flushAssetStorePersistence, useAssetStore, type Asset } from "@/stores/use-asset-store";
 import { flushCanvasStorePersistence, useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
 import { http } from "@/services/api/request";
@@ -55,7 +55,10 @@ export async function refreshCanvasAfterAgent(id: string) {
 export async function syncLocalCanvasForAgent(id: string) {
     const project = openLocalCanvasProject(id);
     if (!project) throw new Error("本地画布不存在");
-    await http.put(`/canvas-projects/${encodeURIComponent(id)}`, { project });
+    await queueCanvasBackendWrite(id, async () => {
+        const latest = openLocalCanvasProject(id) ?? project;
+        await http.put(`/canvas-projects/${encodeURIComponent(id)}`, { project: latest });
+    });
     return project;
 }
 
@@ -67,13 +70,18 @@ export async function syncLocalCanvasForAgent(id: string) {
  * remote refresh can resurrect the stale server snapshot.
  */
 export async function syncLocalCanvasSnapshotForAgent(id: string, patch: Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId" | "appearance" | "backgroundMode" | "showImageInfo" | "viewport">>) {
-    const current = openLocalCanvasProject(id);
-    if (!current) throw new Error("本地画布不存在");
-    const project = { ...current, ...patch };
-    const response = await http.put<{ project: CanvasSaveSummary }>(`/canvas-projects/${encodeURIComponent(id)}`, { project });
-    const saved = { ...project, revision: response.project?.revision ?? project.revision, updatedAt: response.project?.updatedAt ?? project.updatedAt };
-    useCanvasStore.setState((state) => ({ projects: state.projects.map((item) => item.id === id ? saved : item) }));
-    return saved;
+    const stored = openLocalCanvasProject(id);
+    if (!stored) throw new Error("本地画布不存在");
+    // 必须走同一条画布写入队列，且在队列内取版本号：批量生成会为每张图各写一次画布，
+    // 在队列外读到的 revision 会让后一个写入落后一版，服务端直接 409。
+    return queueCanvasBackendWrite(id, async () => {
+        const current = openLocalCanvasProject(id) ?? stored;
+        const project = { ...current, ...patch };
+        const response = await http.put<{ project: CanvasSaveSummary }>(`/canvas-projects/${encodeURIComponent(id)}`, { project });
+        const saved = { ...project, revision: response.project?.revision ?? project.revision, updatedAt: response.project?.updatedAt ?? project.updatedAt };
+        useCanvasStore.setState((state) => ({ projects: state.projects.map((item) => item.id === id ? saved : item) }));
+        return saved;
+    });
 }
 
 export async function applyAgentCanvasPatches(id: string, patches: AgentCanvasPatch[]) {

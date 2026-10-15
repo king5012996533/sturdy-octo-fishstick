@@ -101,10 +101,26 @@ export async function createLocalCanvasProject(title: string, projectId?: string
     return { id };
 }
 
-/** Serialize writes per canvas so optimistic revisions cannot race each other. */
-function syncLocalCanvasProject(id: string, includeGeneratedAssets: boolean): Promise<void> {
+/**
+ * Serialize writes per canvas so optimistic revisions cannot race each other.
+ *
+ * 服务端的乐观锁要求请求里的 revision 等于库里当前值，两个各自带着同一个 revision 并发
+ * 发出的写入，后一个必然 409。批量生成正是这个形状：每张图落地都写一次画布。队列把写入
+ * 排成先后，版本号由每个写入自己在队列内现取，后一个才拿得到前一个刚推进的版本。
+ */
+export function queueCanvasBackendWrite<T>(id: string, operation: () => Promise<T>): Promise<T> {
     const previous = backendSaveTails.get(id) || Promise.resolve();
-    const next = previous.catch(() => undefined).then(async () => {
+    const next = previous.catch(() => undefined).then(operation);
+    const tail = next.then(() => undefined, () => undefined);
+    backendSaveTails.set(id, tail);
+    void tail.finally(() => {
+        if (backendSaveTails.get(id) === tail) backendSaveTails.delete(id);
+    });
+    return next;
+}
+
+function syncLocalCanvasProject(id: string, includeGeneratedAssets: boolean): Promise<void> {
+    return queueCanvasBackendWrite(id, async () => {
         const project = openLocalCanvasProject(id);
         if (!project) return;
         const saved = await putCanvasProject(id, includeGeneratedAssets);
@@ -124,11 +140,6 @@ function syncLocalCanvasProject(id: string, includeGeneratedAssets: boolean): Pr
             console.error("画布本地缓存写入失败，已保存到桌面数据库", { id, error });
         });
     });
-    const tail = next.finally(() => {
-        if (backendSaveTails.get(id) === tail) backendSaveTails.delete(id);
-    });
-    backendSaveTails.set(id, tail);
-    return tail;
 }
 
 /**
