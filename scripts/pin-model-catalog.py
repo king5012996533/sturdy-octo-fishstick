@@ -29,6 +29,9 @@
 Cookie 从浏览器开发者工具的任意 /api/admin/* 请求里复制（`Cookie:` 请求头整行）。
 脚本不接收账号密码：这套系统只有验证码登录，把口令塞进命令行等于多一个泄露面。
 
+在售模型不会被静默下架：名单里没有、但渠道已启用且已定价的模型会让脚本直接拒绝执行，
+要真下架得显式加 `--allow-unlisted-disable`（见 `unlisted_sellable`）。
+
 只改 `enabled` 一个字段。模型对象是全量覆盖语义（PUT），因此其余字段——尤其是
 `variants`（分档上游 SKU，例如 Seedance 2.5 的 720p/30s）与 `capabilityConfig`
 （运营为某个模型调过的参数面板）——必须原样往返。漏传 variants 会把档位重置成
@@ -48,21 +51,34 @@ import urllib.request
 # 货架：能力 → 允许上架的模型标识。不在这里的图片/视频模型一律下架。
 # text 与 audio 刻意不在治理范围内：Agent 的脑子（DeepSeek）与将来的音频模型
 # 走的是另一套取舍，把它们一起收进来会让这个脚本在执行时需要理解更多上下文。
+#
+# 标识必须按渠道写实：同一个模型在不同渠道的上游标识可能不同，写错了不会被发现，
+# 只会让脚本把在卖的模型当成"超纲"下架。当前有两组这样的成对标识：
+#   - fal 主账号（CHANNEL_000012）用上游原名，带斜杠：openai/gpt-image-2.5/sunburst；
+#   - Replicate 备用（CHANNEL_000003）用连字符：openai/gpt-image-2.5-sunburst。
+# 两组都在卖（fal 优先、Replicate 兜底），因此两组都得在名单里。
 CATALOG: dict[str, set[str]] = {
     # OpenAI 图片族走同一份质量标准（见 seed-image-model-prices.py）：2.5 系比 2.0 多出
     # 上游 xhigh/max 两档，档位枚举、能力合同与价目都已按五档对齐；2.0 仍只有三档。
     "image": {
         "openai/gpt-image-2",
+        # fal 主账号（带斜杠的上游标识）
+        "openai/gpt-image-2.5/sunburst",
+        "openai/gpt-image-2.5/flare",
+        # Replicate 备用（连字符标识，与上面两条是同一个逻辑模型的两条通路）
         "openai/gpt-image-2.5-sunburst",
         "openai/gpt-image-2.5-flare",
-        "google/imagen-4",
-        "google/imagen-4-fast",
+        # 火山方舟 Seedream 5.0：2026-10 起只卖 pro / flash 两个型号，Lite 已下架。
+        "doubao-seedream-5-0-pro-260628",
+        "doubao-seedream-5-0-flash-260915",
         # 腾讯 TokenHub 混元生图 3.5：中文人物质感到位，补齐国内直连的一条生图线路。
         "hy-image-v3.5-preview",
+        # AI 超分（fal Recraft Crisp）：能力上是图片，但它是画布工具的固定端点，
+        # 不是给用户在下拉里挑的模型（capabilityConfig.toolOnly=true）。仍必须列在这里：
+        # 它要按张计价，而货架是"能不能卖"的唯一开关，漏了就等于按钮点不动。
+        "fal-ai/recraft/upscale/crisp",
     },
     "video": {
-        "seedance-2.0",
-        "seedance-2.5",
         # 秘塔 MiniMax-H3：同一模型的两个分辨率档各占一条货架记录，
         # 漏一个就会被这个脚本当成"超纲"下架，前台少一档。
         "MiniMax-H3",
@@ -72,6 +88,7 @@ CATALOG: dict[str, set[str]] = {
         "grok-imagine-video/v1.5",
     },
 }
+
 MANAGED_CAPABILITIES = tuple(CATALOG)
 
 
@@ -125,6 +142,44 @@ def put_body(model: dict, enabled: bool) -> dict:
     }
 
 
+UNIT_LABELS = {"TOKEN_1M": "百万 token", "TOKEN_1K": "千 token", "IMAGE": "张", "SECOND": "秒", "REQUEST": "次"}
+
+
+def describe_price(rows: list[dict]) -> str:
+    """给一条在售模型配一句人话，说明它为什么不该被这个脚本顺手关掉。"""
+    unit = UNIT_LABELS.get(str(rows[0].get("unit") or ""), "次")
+    sells = [row["sellUnitPrice"] for row in rows if isinstance(row.get("sellUnitPrice"), int)]
+    upstreams = [row["upstreamUnitPrice"] for row in rows if isinstance(row.get("upstreamUnitPrice"), int)]
+    if sells:
+        return f"在售，售价最高 {max(sells)} 分/{unit}"
+    if upstreams:
+        return f"已定价（上游最高 {max(upstreams)} 分/{unit}，售价按倍率解析）"
+    return "已配置价目"
+
+
+def unlisted_sellable(changes: list[tuple[str, dict, bool]], prices: list[dict]) -> list[tuple[str, dict, str]]:
+    """即将下架、但正在卖的模型。
+
+    判据是"渠道里已启用 + 有启用的价目"：两者同时成立说明它正在产生收入，而这个脚本
+    判断它在不在货架上靠的是 CATALOG 那份手写名单——名单一旦落后于实际货架，下架就是
+    静默的：不报错、前台却不卖了。这条路径上已经发生过一次（fal 渠道用的是带斜杠的
+    上游标识，名单里只有 Replicate 的连字符写法），所以改成硬拦截，不再靠人眼。
+    """
+    priced: dict[str, list[dict]] = {}
+    for price in prices:
+        model_key = str(price.get("modelKey") or "")
+        if model_key and price.get("enabled") is not False:
+            priced.setdefault(model_key, []).append(price)
+    hits: list[tuple[str, dict, str]] = []
+    for channel_id, model, wanted in changes:
+        if wanted:
+            continue
+        rows = priced.get(f"{channel_id}::{model.get('modelKey') or ''}")
+        if rows:
+            hits.append((channel_id, model, describe_price(rows)))
+    return hits
+
+
 def reconcile_list(current: list[str], target: list[str]) -> list[str]:
     """保留顺序的对齐：先留两边都有的（按当前顺序），再按目标顺序补上新增的。"""
     target_set = set(target)
@@ -149,6 +204,19 @@ def reconcile_shelf_list(current: list[str], target: list[str], managed_channels
             continue
         kept.append(item)
     return kept + [item for item in target if item not in set(kept)]
+
+
+def is_tool_only(profile: dict) -> bool:
+    """这份画像是不是画布工具专用的固定端点（不让用户在下拉里选）。
+
+    与前台同一判据（`use-config-store.ts` 的 `filterModelsByCapability`）：能力清单是
+    "用户能挑的模型"快照，工具专用模型进去只会让人选中一次必然失败的生成。
+    """
+    capability_config = profile.get("capabilityConfig") or {}
+    if not isinstance(capability_config, dict):
+        return False
+    image = capability_config.get("image") or {}
+    return bool(isinstance(image, dict) and image.get("toolOnly"))
 
 
 def managed_profile(model: dict) -> dict:
@@ -220,6 +288,7 @@ def shelf_plan(config: dict, shelf: dict[str, list[dict]]) -> tuple[dict, list[s
     if not isinstance(channels, list):
         return config, changed
     capability_by_model: dict[str, str] = {}
+    tool_only_entries: set[str] = set()
     managed_channels = set(shelf)
     for channel in channels:
         if not isinstance(channel, dict):
@@ -253,7 +322,10 @@ def shelf_plan(config: dict, shelf: dict[str, list[dict]]) -> tuple[dict, list[s
             channel["modelProfiles"] = next_profiles
             changed.append(f"{channel_id} 同步 {len(next_profiles)} 条模型画像")
         for item in wanted:
-            capability_by_model[f"{channel_id}::{item.get('model', '')}"] = str(item.get("capability") or "")
+            qualified_name = f"{channel_id}::{item.get('model', '')}"
+            capability_by_model[qualified_name] = str(item.get("capability") or "")
+            if is_tool_only(item):
+                tool_only_entries.add(qualified_name)
 
     qualified: dict[str, list[str]] = {}
     for capability in ("image", "video", "text", "audio"):
@@ -266,6 +338,7 @@ def shelf_plan(config: dict, shelf: dict[str, list[dict]]) -> tuple[dict, list[s
             if isinstance(channel, dict)
             for model in (channel.get("models") or [])
             if capability_by_model.get(f"{channel.get('id')}::{model}") == capability
+            and f"{channel.get('id')}::{model}" not in tool_only_entries
         ]
     qualified["models"] = [
         f"{channel.get('id')}::{model}"
@@ -289,6 +362,11 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true", help="真正写入；不加则只打印将要做的变更")
     parser.add_argument("--base-url", default=os.environ.get("KINO_BASE_URL", "http://127.0.0.1:8080/api"))
     parser.add_argument("--cookie", default=os.environ.get("KINO_ADMIN_COOKIE", ""))
+    parser.add_argument(
+        "--allow-unlisted-disable",
+        action="store_true",
+        help="放行「在售模型不在白名单时下架」的情况（默认拒绝，见 unlisted_sellable）",
+    )
     args = parser.parse_args()
 
     cookie = args.cookie.strip()
@@ -332,6 +410,11 @@ def main() -> int:
             "sortOrder": channel.get("sortOrder") or 0,
         }
 
+    unlisted: list[tuple[str, dict, str]] = []
+    if any(not wanted for _, _, wanted in changes):
+        prices = request("GET", args.base_url, "/admin/billing/model-prices", cookie).get("prices") or []
+        unlisted = unlisted_sellable(changes, prices)
+
     exit_code = 0
     for capability, wanted in CATALOG.items():
         missing = sorted(wanted - seen[capability])
@@ -364,10 +447,25 @@ def main() -> int:
     for line in shelf_changes or ["无需变更"]:
         print(f"  {line}")
     print(f"\n渠道开关（{action}）：")
+    unlisted_reasons = {(channel_id, model.get("modelKey")): note for channel_id, model, note in unlisted}
     for channel_id, model, wanted in changes or []:
-        print(f"  [{'上架' if wanted else '下架'}] {channel_id} · {model.get('capability')} · {model.get('modelKey')} ({model.get('displayName')})")
+        note = unlisted_reasons.get((channel_id, model.get("modelKey")))
+        suffix = f" — ⚠ {note}，不在白名单里" if note else ""
+        print(f"  [{'上架' if wanted else '下架'}] {channel_id} · {model.get('capability')} · {model.get('modelKey')} ({model.get('displayName')}){suffix}")
     if not changes:
         print("  无需变更")
+
+    if unlisted and not args.allow_unlisted_disable:
+        print("\n拒绝执行：下面这些模型正在卖，却不在 CATALOG 白名单里。", file=sys.stderr)
+        for channel_id, model, note in unlisted:
+            print(f"  {channel_id} · {model.get('modelKey')}（{note}）", file=sys.stderr)
+        print(
+            "这条路径只会出现在白名单落后于实际货架时——下架是静默的，前台少卖一个模型不会报错。\n"
+            "要么把它补进 CATALOG（通常是要卖），要么先在后台下架它，"
+            "确认这次就是来下架的再加 --allow-unlisted-disable。",
+            file=sys.stderr,
+        )
+        return 1
 
     if not args.apply:
         print("\n这是预览。确认无误后加 --apply 执行。")

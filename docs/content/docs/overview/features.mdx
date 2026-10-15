@@ -99,6 +99,25 @@ description: 当前项目已实现的核心工作台能力与使用入口
 - `web/src/components/canvas/canvas-grid-split-picker.tsx`、`web/src/lib/canvas/canvas-grid-split.ts`：宫格预设、自定义点选与切分子节点布局。
 - `web/src/lib/canvas/canvas-selection.ts`、`web/src/lib/canvas/canvas-live-viewport.ts`：多选虚线框随拖动预览平移。
 
+## 画布图片 AI 超分
+
+图片节点的节点快捷工具里，「AI 超分」是与「局部重绘」并列的一级按钮：点开弹窗即见原图尺寸、输出尺寸与本次消耗，确认后异步生成一张新图挂在原图右侧，原图保留。放大与补细节在服务端完成（fal Recraft Crisp），上游一律放大 4 倍，落库前按画布能接受的长边（4096 px）收口，并按有损 WebP 重新编码——上游返回的是无损格式，2048² 就有几兆、4096² 十几兆，原样落盘会同时吃掉磁盘和画布渲染。界面上写的倍率是收口之后的真实倍率（例如 1536 × 1024 的输入显示 2.67×），并在被收口时说明原因，不会写死一个"4×"。
+
+超分按张计费（一张一价，与质量档、尺寸档无关）。弹窗里的价格来自后端试算 `POST /api/finance/tasks/quote`，前端不写死数字，运营调价后读数跟着变；余额不足或通道未定价时按钮禁用并说明原因，不让用户点一次再被拒。按次结算会省掉用量，因此这条模型的计价单位是 `IMAGE`（张）而不是 `REQUEST`。没有产物时按平台统一的退款规则退回预扣。
+
+这条模型是**工具专用**（渠道模型能力配置里的 `toolOnly`）：它照常下发目录、定价和计费，但不进用户的模型下拉——少一张原图就发不出去，摆进下拉只会让人选中一次必然失败的生成。画布工具按固定模型标识取渠道，因此它没有渠道前缀，也不跟随用户的全局模型选择；渠道换成别的 fal 账号时前端不用改代码。
+
+上架要同时改两处，缺一处前台就用不了：渠道模型的启用开关，以及平台模型配置里该渠道的模型清单——而清单由 `scripts/pin-model-catalog.py` 的 `CATALOG` 白名单收敛，漏掉它会在下次跑脚本时被当成"超纲"静默下架（不报错，只是按钮点不动）。脚本对"正在卖却不在白名单里"的模型直接拒绝执行，需显式加 `--allow-unlisted-disable` 才放行。
+
+### 相关实现
+
+- `web/src/components/canvas/canvas-image-toolbar-tools.tsx`：节点快捷工具里的「AI 超分」入口。
+- `web/src/components/canvas/canvas-node-super-resolve-dialog.tsx`：确认弹窗（原图/输出尺寸、真实倍率、试算价与余额）。
+- `web/src/lib/canvas/canvas-image-super-resolve.ts`：固定调用口径与输出尺寸收口。
+- `web/src/pages/canvas/use-canvas-media-tools.ts`：提交任务与子节点落库。
+- `plugin-packages/fal-upscale/`：`fal-upscale` 协议插件，路径写死 `/fal-ai/recraft/upscale/crisp`。
+- `scripts/seed-fal-upscale-model.py`：上架这条模型与价目（默认预览，加 `--apply` 写入）。
+
 ## 系统渠道排序与前台别名
 
 后台系统渠道及渠道模型列表通过“设置排序”打开完整列表，支持拖动、上移和下移，点击“保存排序”统一生效；取消不会修改线上顺序。渠道行的“更多”菜单支持复制渠道，复制会生成独立的渠道、模型和价格档，并保留原连接配置与凭证。界面不显示内部排序数字，排序不受筛选及分页影响；并发修改会提示重新加载，避免覆盖其他管理员的调整。系统渠道模式下，用户端模型选择器沿用同一渠道及模型顺序。模型排序独立保存，不改变价格、能力版本或启用状态。

@@ -15,7 +15,7 @@ pin = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pin)
 
 
-def channel_model(model_key, capability, enabled=True):
+def channel_model(model_key, capability, enabled=True, capability_config=None):
     return {
         "id": "MODEL_x",
         "modelKey": model_key,
@@ -23,10 +23,16 @@ def channel_model(model_key, capability, enabled=True):
         "icon": "",
         "capability": capability,
         "protocol": "replicate-prediction-image",
-        "capabilityConfig": {"version": 1},
+        "capabilityConfig": capability_config or {"version": 1},
         "enabled": enabled,
         "variants": [{"resolution": "*"}],
     }
+
+
+def tool_only_model(model_key):
+    """画布工具专用的固定端点：能力上是图片，但不进用户能挑的模型清单。"""
+
+    return channel_model(model_key, "image", capability_config={"version": 1, "image": {"toolOnly": True, "maxOutputs": 1}})
 
 
 def base_config():
@@ -130,6 +136,61 @@ class ShelfPlanTest(unittest.TestCase):
         self.assertEqual(config, {"models": []})
         self.assertEqual(changes, [])
 
+
+
+class ToolOnlyTest(unittest.TestCase):
+    def test_detects_the_flag_in_a_profile(self):
+        self.assertTrue(pin.is_tool_only(pin.managed_profile(tool_only_model("fal-ai/recraft/upscale/crisp"))))
+        self.assertFalse(pin.is_tool_only(pin.managed_profile(channel_model("m-old", "image"))))
+        # 没有 capabilityConfig 的画像不该被判成工具专用。
+        self.assertFalse(pin.is_tool_only({"model": "m-old"}))
+        self.assertFalse(pin.is_tool_only({"model": "m-old", "capabilityConfig": {"image": None}}))
+
+    def test_stays_out_of_capability_lists_but_keeps_its_shelf_entry(self):
+        # 工具专用模型必须留在 channels[].models 与 models 里：画布工具按标识取渠道，
+        # 少一处按钮就点不动。它只该从 imageModels 这类"用户能挑的模型"快照里退出去。
+        shelf = {
+            "C1": [
+                pin.managed_profile(channel_model("m-old", "image")),
+                pin.managed_profile(channel_model("audio-1", "audio")),
+                pin.managed_profile(tool_only_model("fal-ai/recraft/upscale/crisp")),
+            ]
+        }
+        config, _ = pin.shelf_plan(json.loads(json.dumps(base_config())), shelf)
+        channel = config["channels"][0]
+        self.assertIn("fal-ai/recraft/upscale/crisp", channel["models"])
+        self.assertIn("C1::fal-ai/recraft/upscale/crisp", config["models"])
+        self.assertNotIn("C1::fal-ai/recraft/upscale/crisp", config["imageModels"])
+        # 同一渠道里的普通图片模型不受影响。
+        self.assertIn("C1::m-old", config["imageModels"])
+
+
+class UnlistedSellableTest(unittest.TestCase):
+    def price(self, model_key, unit="IMAGE", sell=None, upstream=None, enabled=True):
+        return {"modelKey": model_key, "unit": unit, "sellUnitPrice": sell, "upstreamUnitPrice": upstream, "enabled": enabled}
+
+    def test_flags_a_priced_model_that_would_be_dropped(self):
+        changes = [("C12", channel_model("upscale/crisp", "image"), False)]
+        hits = pin.unlisted_sellable(changes, [self.price("C12::upscale/crisp", sell=10, upstream=3)])
+        self.assertEqual(len(hits), 1)
+        self.assertIn("10 分/张", hits[0][2])
+
+    def test_ignores_models_that_are_not_priced(self):
+        # 没有价目，说明它本来就没在卖：这次下架是有意的，不该拦。
+        changes = [("C12", channel_model("m-old", "image"), False)]
+        self.assertEqual(pin.unlisted_sellable(changes, [self.price("C12::m-other", sell=10)]), [])
+
+    def test_ignores_disabled_price_rows(self):
+        changes = [("C12", channel_model("m-old", "image"), False)]
+        self.assertEqual(pin.unlisted_sellable(changes, [self.price("C12::m-old", sell=10, enabled=False)]), [])
+
+    def test_ignores_models_being_put_on_the_shelf(self):
+        changes = [("C12", channel_model("m-old", "image"), True)]
+        self.assertEqual(pin.unlisted_sellable(changes, [self.price("C12::m-old", sell=10)]), [])
+
+    def test_falls_back_to_upstream_price(self):
+        # sell 为空不是 0：售价按倍率解析，这时仍要认出"已定价"。
+        self.assertIn("上游最高 29 分/张", pin.describe_price([self.price("x", upstream=29)]))
 
 
 class RegisterMissingChannelsTest(unittest.TestCase):
