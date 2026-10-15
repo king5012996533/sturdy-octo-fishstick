@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""上架火山方舟（Ark）三款 Seedream 5.0 生图模型。
+"""上架火山方舟（Ark）两款 Seedream 5.0 生图模型。
 
 型号（上游 Model ID 即渠道模型标识、价目归属）：
 
@@ -7,7 +7,8 @@
 | --- | --- | --- | --- |
 | Seedream 5.0 Pro | doubao-seedream-5-0-pro-260628 | 1K、1.5K、2K | 单图 ≤261 万像素 0.30，>261 万像素 0.60 |
 | Seedream 5.0 Flash | doubao-seedream-5-0-flash-260915 | 1K、1.5K、2K | 0.12（不分档） |
-| Seedream 5.0 Lite | doubao-seedream-5-0-260128 | 2K、3K、4K | 0.22（不分档） |
+
+`doubao-seedream-5-0-260128`（5.0 初版，2026-10-16 曾被按 Lite 上架）官方公告即将下线，2026-10-16 已连同价目一起从平台下架，本脚本不再上架该型号。
 
 用法（默认预览，不加 --apply 不写任何东西）：
 
@@ -39,35 +40,39 @@
 | --- | --- | --- |
 | Seedream 5.0 Pro | [921600, 4624220] | 1K（1.05M–1.87M）、2K（3.98M–4.23M） |
 | Seedream 5.0 Flash | 官方未公布，暂按 Pro 的口径 | 1K、2K |
-| Seedream 5.0 Lite | [3686400, 16777216] | 2K（3.98M–4.23M）、4K（6.21M–8.29M） |
 
-Lite 的 3K 与官方 4K（4096x4096 = 16.7M）不进面板：面板只有 1K/2K/4K 三档且上限 8.29M，
-16.7M 的尺寸会被前台直接丢掉。用 3840x2160 这一档 4K 顶上，既在官方接受的像素范围内，也是
-用户真正会用的规格。
+下架 `doubao-seedream-5-0-260128` 后，本渠道没有 4K 档：Pro 与 Flash 都只到 2K，需要 4K 得另接官方 `doubao-seedream-5-0-lite`（注意它与被下线的 260128 不是同一个 Model ID）。
 
 Flash 的宽高像素范围官方没写；先按 Pro 的口径（≤4.62M）取 1K/2K，上线前用一张真图核对——若
 上游回参数错误，把 FLASH 的尺寸表换成档位写法（`["auto", "1K", "1.5K", "2K"]`）即可。
 
-## 定价：上游成本 × 5
+## 定价
 
-口径与图片线其它模型一致（见 seed-image-model-prices.py）：售价 = 上游成本 × 固定倍率，倍率 5
-对应约 80% 毛利。上游成本取方舟"模型服务价格"页的输出图单价，按平台的尺寸档折算：
+Flash 沿用图片线的成本倍数口径（见 seed-image-model-prices.py）：售价 = 上游成本 × 固定倍率，
+倍率 5 对应约 80% 毛利。上游成本取方舟"模型服务价格"页的输出图单价，按平台的尺寸档折算。
+Pro 不跟倍率走，是按市场定的价，见下面第 2 点：
 
 | 模型 | 档位 | 上游成本 | 售价 | 毛利 |
 | --- | --- | --- | --- | --- |
-| Pro | SIZE_1K | 30 分 | 150 分 | 80% |
-| Pro | SIZE_2K | 60 分 | 300 分 | 80% |
-| Flash | SIZE_1K / SIZE_2K | 12 分 | 60 分 | 80% |
-| Lite | SIZE_2K / SIZE_4K | 22 分 | 110 分 | 80% |
+| Pro | SIZE_1K | 30 分 | 80 分 | 62% |
+| Pro | SIZE_2K | 60 分 | 100 分 | 40% |
+| Flash | SIZE_1K | 12 分 | 60 分 | 80% |
+| Flash | SIZE_2K | 12 分 | 70 分 | 83% |
 
-两点要记住：
+四点要记住：
 
 - 上游只公布了两种成本（Pro ≤261 万像素 0.30、>261 万像素 0.60），所以 Pro 的两行价差是真实
-  存在的成本差，不是运营口径。Flash / Lite 不分档，两行同价是照抄上游，不是抄错。
+  存在的成本差，不是运营口径。Flash 不分档，两行同成本。
+- Pro 按 ×5 应是 150 / 300 分，现在定成 80 / 100 分：300 分等于 3 元一张，这个价位段没人用。
+  代价是 2K 只剩 40% 毛利，这是有意让价，不要按倍率"修"回 300。
 - 空档必须留：`auto`、比例串、以及自定义尺寸之外的请求算不出像素档，没有这一行会直接变成
   "未定价"。空档按该模型最贵的一档兜底（Pro 按 2K）。
+- Flash 的两档价不一样（1K 60 分、2K 70 分）是刻意的：上游对 Flash 是一口价 0.12 元/张，同价
+  时用户没有任何理由不选 2K，等于把最高成本当默认档卖。上游既然不分档，这 10 分就是我们自己
+  的引导价，两档都还在 5 倍以上。空档跟着 2K 走同样有依据：实测 Flash 的 `2K` 档输出
+  2048x2048，面板上的 `auto` 正好落到它，空档留在 60 分等于给"自动"开一条绕开涨价的通道。
 
-输入图方面 Pro 第 2 张起收 0.02 元/张（Flash / Lite 免费），量级太小，不单独定价。
+输入图方面 Pro 第 2 张起收 0.02 元/张（Flash 免费），量级太小，不单独定价。
 """
 
 from __future__ import annotations
@@ -107,10 +112,6 @@ STD_2K = [
     "2048x2048", "1792x2240", "2240x1792", "2496x1664", "1664x2496",
     "2304x1728", "1728x2304", "2752x1536", "1536x2752", "3136x1344",
 ]
-STD_4K = [
-    "2880x2880", "2560x3200", "3200x2560", "3504x2336", "2336x3504",
-    "3264x2448", "2448x3264", "3840x2160", "2160x3840", "3808x1632",
-]
 
 TIER_LABEL = {"SIZE_1K": "1K", "SIZE_2K": "2K", "SIZE_4K": "4K", "": "未指定尺寸"}
 
@@ -131,19 +132,13 @@ MODELS: list[ArkModel] = [
         model_key="doubao-seedream-5-0-pro-260628",
         display_name="Seedream 5.0 Pro",
         sizes=["auto", *STD_1K, *STD_2K],
-        price_tiers=[("SIZE_1K", 30, 150), ("SIZE_2K", 60, 300), ("", 60, 300)],
+        price_tiers=[("SIZE_1K", 30, 80), ("SIZE_2K", 60, 100), ("", 60, 100)],
     ),
     ArkModel(
         model_key="doubao-seedream-5-0-flash-260915",
         display_name="Seedream 5.0 Flash",
         sizes=["auto", *STD_1K, *STD_2K],
-        price_tiers=[("SIZE_1K", 12, 60), ("SIZE_2K", 12, 60), ("", 12, 60)],
-    ),
-    ArkModel(
-        model_key="doubao-seedream-5-0-260128",
-        display_name="Seedream 5.0 Lite",
-        sizes=["auto", *STD_2K, *STD_4K],
-        price_tiers=[("SIZE_2K", 22, 110), ("SIZE_4K", 22, 110), ("", 22, 110)],
+        price_tiers=[("SIZE_1K", 12, 60), ("SIZE_2K", 12, 70), ("", 12, 70)],
     ),
 ]
 
@@ -283,7 +278,7 @@ def find_channel(base_url: str, cookie: str) -> dict | None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="上架火山方舟 Seedream 5.0 三款生图模型（默认只预览）")
+    parser = argparse.ArgumentParser(description="上架火山方舟 Seedream 5.0 两款生图模型（默认只预览）")
     parser.add_argument("--apply", action="store_true", help="真正写入；不加则只打印将要做的变更")
     parser.add_argument("--base-url", default=os.environ.get("KINO_BASE_URL", "http://127.0.0.1:8080/api"))
     parser.add_argument("--cookie", default=os.environ.get("KINO_ADMIN_COOKIE", ""))
