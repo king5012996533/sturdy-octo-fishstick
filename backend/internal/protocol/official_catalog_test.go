@@ -631,11 +631,13 @@ func TestOfficialArkSeedreamMapsAspectRatioToPixelSize(t *testing.T) {
 	tests := []struct {
 		name, aspectRatio, wantSize string
 	}{
-		{name: "ratio maps to 2K pixels", aspectRatio: "1:1", wantSize: "2048x2048"},
-		{name: "landscape ratio", aspectRatio: "16:9", wantSize: "2560x1440"},
-		{name: "auto maps to 2k tier", aspectRatio: "auto", wantSize: "2k"},
+		{name: "ratio maps to official 2K pixels", aspectRatio: "1:1", wantSize: "2048x2048"},
+		{name: "landscape ratio", aspectRatio: "16:9", wantSize: "2816x1584"},
+		{name: "portrait ratio", aspectRatio: "9:16", wantSize: "1584x2816"},
+		{name: "auto maps to 2K tier", aspectRatio: "auto", wantSize: "2K"},
 		{name: "pixel size passes through", aspectRatio: "1920x1080", wantSize: "1920x1080"},
-		{name: "tier passes through", aspectRatio: "4k", wantSize: "4k"},
+		{name: "tier passes through uppercased", aspectRatio: "4k", wantSize: "4K"},
+		{name: "tier with padding is trimmed", aspectRatio: " 1.5k ", wantSize: "1.5K"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -657,6 +659,76 @@ func TestOfficialArkSeedreamMapsAspectRatioToPixelSize(t *testing.T) {
 	}
 	if _, ok := manifestTestBody(t, create)["size"]; ok {
 		t.Fatalf("Seedream must omit size when no ratio is requested")
+	}
+}
+
+func TestOfficialArkSeedreamMapsOfficialFieldsFromProviderOptions(t *testing.T) {
+	adapter := officialPackageAdapter(t, "volcengine-ark-seedream.beeftv-plugin", "volcengine-ark-image")
+	create, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model: "doubao-seedream-5-0-pro-260628", Prompt: "portrait", AspectRatio: "1:1", Watermark: false,
+		ProviderOptions: map[string]map[string]any{
+			"volcengine-ark-image": {
+				"layer_decomposition":                 true,
+				"output_format":                       "png",
+				"background":                          "transparent",
+				"optimize_prompt_options":             map[string]any{"mode": "fast"},
+				"tools":                               []any{map[string]any{"type": "web_search"}},
+				"sequential_image_generation":         "auto",
+				"sequential_image_generation_options": map[string]any{"max_images": 4},
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := manifestTestBody(t, create)
+	if body["layer_decomposition"] != true {
+		t.Fatalf("layer_decomposition = %#v", body["layer_decomposition"])
+	}
+	if body["output_format"] != "png" {
+		t.Fatalf("output_format = %#v", body["output_format"])
+	}
+	if body["background"] != "transparent" {
+		t.Fatalf("background = %#v", body["background"])
+	}
+	if !reflect.DeepEqual(body["optimize_prompt_options"], map[string]any{"mode": "fast"}) {
+		t.Fatalf("optimize_prompt_options = %#v", body["optimize_prompt_options"])
+	}
+	if !reflect.DeepEqual(body["tools"], []any{map[string]any{"type": "web_search"}}) {
+		t.Fatalf("tools = %#v", body["tools"])
+	}
+	if body["sequential_image_generation"] != "auto" {
+		t.Fatalf("sequential_image_generation = %#v", body["sequential_image_generation"])
+	}
+	if body["watermark"] != false {
+		t.Fatalf("watermark = %#v", body["watermark"])
+	}
+	if body["response_format"] != "b64_json" {
+		t.Fatalf("response_format = %#v", body["response_format"])
+	}
+	// output_format 是唯一显式补齐的可选字段：官方响应不回传它，不显式下发就只能把 JPEG 标成 PNG。
+	if body["output_format"] != "png" {
+		t.Fatalf("providerOptions 指定的 output_format 应覆盖默认值：%#v", body["output_format"])
+	}
+	if _, ok := body["seed"]; ok {
+		t.Fatalf("官方图片生成参数表没有 seed，插件不应下发：%#v", body["seed"])
+	}
+	if _, ok := body["stream"]; ok {
+		t.Fatalf("插件按同步响应解析，不应下发 stream：%#v", body["stream"])
+	}
+
+	plain, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{Model: "doubao-seedream-5-0-260128", Prompt: "circle", AspectRatio: "2K"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	optionalBody := manifestTestBody(t, plain)
+	for _, key := range []string{"layer_decomposition", "optimize_prompt_options", "background", "tools", "sequential_image_generation", "sequential_image_generation_options"} {
+		if _, ok := optionalBody[key]; ok {
+			t.Fatalf("未配置的可选字段必须交给上游默认值，%s = %#v", key, optionalBody[key])
+		}
+	}
+	if optionalBody["output_format"] != "jpeg" {
+		t.Fatalf("未配置时必须显式下发官方默认的 jpeg：%#v", optionalBody["output_format"])
 	}
 }
 
@@ -855,16 +927,27 @@ func TestOfficialArkSeedreamParsesB64JSONAsDataURL(t *testing.T) {
 	} {
 		t.Run(tc.providerID, func(t *testing.T) {
 			adapter := officialPackageAdapter(t, tc.packageName, tc.providerID)
-			result, err := adapter.ParseCreate(context.Background(), []byte(`{"created":1,"data":[{"b64_json":"aW1hZ2U=","output_format":"jpeg","size":"1824x1024"}]}`))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if result.Result == nil || len(result.Result.Images) != 1 {
-				t.Fatalf("result = %#v", result.Result)
-			}
-			dataURL := result.Result.Images[0].DataURL
-			if dataURL != "data:image/jpeg;base64,aW1hZ2U=" {
-				t.Fatalf("DataURL = %q, want jpeg data URL from b64_json + output_format", dataURL)
+			// 官方 5.0 全系的真实响应只有 b64_json / size，不回传 output_format；
+			// 若按宿主默认值标注就会把 JPEG 当成 PNG，这里断言按插件下发的默认格式标注。
+			for _, tc := range []struct {
+				name, payload, want string
+			}{
+				{name: "官方实际响应形状", payload: `{"created":1,"data":[{"b64_json":"aW1hZ2U=","size":"1824x1024"}]}`, want: "data:image/jpeg;base64,aW1hZ2U="},
+				{name: "回传 jpeg", payload: `{"created":1,"data":[{"b64_json":"aW1hZ2U=","output_format":"jpeg"}]}`, want: "data:image/jpeg;base64,aW1hZ2U="},
+				{name: "回传 png", payload: `{"created":1,"data":[{"b64_json":"aW1hZ2U=","output_format":"png"}]}`, want: "data:image/png;base64,aW1hZ2U="},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					result, err := adapter.ParseCreate(context.Background(), []byte(tc.payload))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if result.Result == nil || len(result.Result.Images) != 1 {
+						t.Fatalf("result = %#v", result.Result)
+					}
+					if dataURL := result.Result.Images[0].DataURL; dataURL != tc.want {
+						t.Fatalf("DataURL = %q, want %q", dataURL, tc.want)
+					}
+				})
 			}
 		})
 	}

@@ -21,6 +21,7 @@ const inList = (value, items) => ({ $in: [value, items] });
 const concat = (...values) => ({ $concat: values });
 const len = (value) => ({ $len: value });
 const lower = (value) => ({ $lower: value });
+const upper = (value) => ({ $upper: value });
 const trim = (value) => ({ $trim: value });
 const toFloat = (value) => ({ $toFloat: value });
 const toInt = (value) => ({ $toInt: value });
@@ -377,41 +378,84 @@ add({
   response: { status: "succeeded", images: map(ref("response.data"), "item", { url: omit(ref("item.url")), dataUrl: conditional(ref("item.b64_json"), { $concat: ["data:image/png;base64,", ref("item.b64_json")] }) }), errorPaths: ["error.code"], messagePaths: ["error.message"] }
 });
 
+// 官方 Seedream 5.0 的 size 两种写法不可混用：分辨率档位（1K/1.5K/2K/3K/4K）或 宽x高。
+// 统一层下发的是像素串，原样透传；档位词大小写无关，归一成官方的大写写法；比例串按官方
+// 5.0 的 2K 档参考像素换算；auto 落到 5.0 全系都在售的 2K 档。
+const arkSeedreamSizeTiers = ["1K", "1.5K", "2K", "3K", "4K"];
 const arkSeedreamRatioSizes = [
-  ["auto", "2k"], ["1:1", "2048x2048"], ["4:3", "2304x1728"], ["3:4", "1728x2304"], ["16:9", "2560x1440"], ["9:16", "1440x2560"],
-  ["3:2", "2496x1664"], ["2:3", "1664x2496"], ["21:9", "3024x1296"]
+  ["1:1", "2048x2048"], ["4:3", "2368x1776"], ["3:4", "1776x2368"], ["16:9", "2816x1584"], ["9:16", "1584x2816"],
+  ["3:2", "2496x1664"], ["2:3", "1664x2496"], ["21:9", "3136x1344"]
 ];
 
-const arkSeedreamImageBody = (optionNamespace) => ({
-  model: ref("request.model"), prompt: ref("request.prompt"),
-  // Ark 的 size 只接受 WIDTHxHEIGHT 或 2k/3k/4k；统一层的比例值在这里换算成 2K 档像素尺寸，像素或档位值原样透传。
-  size: omit({ $switch: { cases: arkSeedreamRatioSizes.map(([ratio, size]) => ({ when: eq(ref("request.aspectRatio"), ratio), then: size })), default: ref("request.aspectRatio") } }),
-  image: omit(conditional(
-    eq(len(ref("request.images")), 1),
-    first(map(ref("request.images"), "media", ref("media.value"))),
-    conditional(gt(len(ref("request.images")), 1), map(ref("request.images"), "media", ref("media.value")), null)
-  )),
-  sequential_image_generation: omit(ref(`request.providerOptions.${optionNamespace}.sequential_image_generation`)),
-  sequential_image_generation_options: omit(ref(`request.providerOptions.${optionNamespace}.sequential_image_generation_options`)),
-  watermark: coalesce(ref(`request.providerOptions.${optionNamespace}.watermark`), ref("request.watermark"), false),
-  seed: omit(ref(`request.providerOptions.${optionNamespace}.seed`)),
-  response_format: coalesce(ref(`request.providerOptions.${optionNamespace}.response_format`), "b64_json")
-});
+// 官方 5.0 请求体字段：prompt、image、size、model 必给，其余（layer_decomposition、
+// optimize_prompt_options、output_format、background、tools）按需下发，缺省时交给上游默认值。
+// 官方还有 stream，但声明式插件按同步 JSON 解析响应，没有 SSE 解包，所以不下发（等价官方默认 false）。
+// 去掉了旧版的 seed：官方图片生成参数表里没有这个字段。
+const arkSeedreamImageBody = (optionNamespace) => {
+  const option = (name) => ref(`request.providerOptions.${optionNamespace}.${name}`);
+  const aspectRatio = trim(ref("request.aspectRatio"));
+  return {
+    model: ref("request.model"), prompt: ref("request.prompt"),
+    size: omit({ $switch: {
+      cases: [
+        { when: eq(upper(aspectRatio), "AUTO"), then: "2K" },
+        { when: inList(upper(aspectRatio), arkSeedreamSizeTiers), then: upper(aspectRatio) },
+        ...arkSeedreamRatioSizes.map(([ratio, size]) => ({ when: eq(aspectRatio, ratio), then: size }))
+      ],
+      default: aspectRatio
+    }}),
+    image: omit(conditional(
+      eq(len(ref("request.images")), 1),
+      first(map(ref("request.images"), "media", ref("media.value"))),
+      conditional(gt(len(ref("request.images")), 1), map(ref("request.images"), "media", ref("media.value")), null)
+    )),
+    layer_decomposition: omit(option("layer_decomposition")),
+    optimize_prompt_options: omit(option("optimize_prompt_options")),
+    // 官方默认输出就是 jpeg，但响应不回传 output_format；显式下发才能让响应侧的 MIME 标注有依据。
+    output_format: coalesce(option("output_format"), "jpeg"),
+    background: omit(option("background")),
+    tools: omit(option("tools")),
+    sequential_image_generation: omit(option("sequential_image_generation")),
+    sequential_image_generation_options: omit(option("sequential_image_generation_options")),
+    watermark: coalesce(option("watermark"), ref("request.watermark"), false),
+    response_format: coalesce(option("response_format"), "b64_json")
+  };
+};
+
+// 官方响应只回 b64_json / url，不回 output_format（实测 5.0 全系如此）。若原样透传，
+// 宿主只能按默认值把产物标成 PNG，而字节是 JPEG——素材库的类型、下载扩展名会一起错。
+// 这里按请求侧同一份默认值（output_format 缺省 jpeg）给产物打 MIME，官方回传了就以其为准。
+// 官方 output_format 只有 png / jpeg 两种，其余取值一律按 jpeg 标注。
+const arkSeedreamInlineMime = (alias) => ({ $switch: {
+  cases: [{ when: eq(lower(coalesce(ref(`${alias}.output_format`), "jpeg")), "png"), then: "image/png" }],
+  default: "image/jpeg"
+}});
+
+const arkSeedreamImageResponse = {
+  status: "succeeded",
+  images: map(ref("response.data"), "item", {
+    url: omit(ref("item.url")),
+    dataUrl: conditional(ref("item.b64_json"), concat("data:", arkSeedreamInlineMime("item"), ";base64,", ref("item.b64_json")), null)
+  }),
+  usage: ref("response.usage"), errorPaths: ["error.code"], messagePaths: ["error.message"], resultEphemeral: true
+};
+
+const arkSeedreamNotes = "官方 Ark 推理接入：Base URL 使用 /api/v3，API Key 来自方舟推理接入控制台。请求体对齐官方图片生成 API：size 接受分辨率档位（1K/1.5K/2K/3K/4K）或 宽x高，二者不可混用，比例串按 2K 档换算，auto 落 2K；layer_decomposition、optimize_prompt_options、background、tools 从 providerOptions 按需透传，缺省时交给官方默认值；官方 stream 需要 SSE 解包，本插件按同步 JSON 解析响应，因此不下发。两处与官方默认值的有意差异：watermark 默认 false（平台不对用户图片加 AI 生成水印）、response_format 默认 b64_json（避免把会过期的下载链接当产物）。output_format 也走 providerOptions，但插件会显式补上官方默认的 jpeg：官方响应不回传这个字段，产物 MIME 只能按插件下发的值标注，不显式下发就会把 JPEG 标成 PNG。改这个值（例如透明背景需要 png）时，产物标注不会自动跟着变，需要一并改这里。5.0 pro / flash 不支持组图与联网搜索，sequential_image_generation 与 tools 只对 5.0 lite 及更早型号有意义。";
 
 add({
   id: "volcengine-ark-seedream", providerId: "volcengine-ark-image", name: "Volcengine Ark Seedream Images", vendor: "Volcengine", capability: "image",
   baseUrl: "https://ark.cn-beijing.volces.com", auth: bearer, params: imageParams,
-  notes: "官方 Ark 推理接入：Base URL 使用 /api/v3，API Key 来自方舟推理接入控制台，不可与 Agent Plan 专属 Key 混用。",
+  notes: arkSeedreamNotes,
   create: jsonCreate("/api/v3/images/generations", arkSeedreamImageBody("volcengine-ark-image")),
-  response: { status: "succeeded", images: ref("response.data"), usage: ref("response.usage"), errorPaths: ["error.code"], messagePaths: ["error.message"] }
+  response: arkSeedreamImageResponse
 });
 
 add({
   id: "volcengine-ark-agent-plan-seedream", providerId: "volcengine-ark-agent-plan-image", name: "Volcengine Ark Agent Plan Seedream Images", vendor: "Volcengine", capability: "image",
   baseUrl: "https://ark.cn-beijing.volces.com", auth: bearer, params: imageParams,
-  notes: "Agent Plan 专属接入：请求路径为 /api/plan/v3/images/generations，必须使用 Agent Plan 控制台专属 API Key；请求体与官方 Seedream 协议一致，但凭证与额度按 AFP 套餐结算，不能与 /api/v3 官方 Key 混用。",
+  notes: `Agent Plan 专属接入：请求路径为 /api/plan/v3/images/generations，必须使用 Agent Plan 控制台专属 API Key；请求体与官方 Seedream 协议一致，但凭证与额度按 AFP 套餐结算，不能与 /api/v3 官方 Key 混用。${arkSeedreamNotes}`,
   create: jsonCreate("/api/plan/v3/images/generations", arkSeedreamImageBody("volcengine-ark-agent-plan-image")),
-  response: { status: "succeeded", images: ref("response.data"), usage: ref("response.usage"), errorPaths: ["error.code"], messagePaths: ["error.message"] }
+  response: arkSeedreamImageResponse
 });
 
 const arkSeedanceValidations = [

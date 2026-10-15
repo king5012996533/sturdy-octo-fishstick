@@ -98,16 +98,19 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
     const isVolcengineArk = isVolcengineArkImageProtocol(requestConfig.interfaceType);
     const normalizedRequestSize = requestSize?.parameter === "size" && isVolcengineArk ? { ...requestSize, value: normalizeVolcengineArkImageSize(requestSize.value)! } : requestSize;
     try {
-        const payload = isVolcengineArk
-            ? {
-                  model: requestConfig.model,
-                  prompt: withSystemPrompt(requestConfig, prompt),
-                  n,
-                  response_format: "b64_json",
-                  watermark: false,
-                  ...(normalizedRequestSize ? { [normalizedRequestSize.parameter]: normalizedRequestSize.value } : {}),
-              }
-            : {
+        // 火山方舟的图片生成参数表里没有 n，一次请求只出一张；要几张就发几次，与"按张计费"同一口径。
+        if (isVolcengineArk) {
+            const payload = {
+                model: requestConfig.model,
+                prompt: withSystemPrompt(requestConfig, prompt),
+                response_format: "b64_json",
+                watermark: false,
+                ...(normalizedRequestSize ? { [normalizedRequestSize.parameter]: normalizedRequestSize.value } : {}),
+            };
+            const responses = await Promise.all(Array.from({ length: n }, () => postVolcengineArkImage(requestConfig, payload, options)));
+            return responses.flatMap((response) => parseImagePayload(response));
+        }
+        const payload = {
                   model: requestConfig.model,
                   prompt: withSystemPrompt(requestConfig, prompt),
                   n,
@@ -117,7 +120,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                   ...(imageProfile.outputFormat.supported ? { output_format: IMAGE_OUTPUT_FORMAT } : {}),
                   ...(imageProfile.transparentBackground.supported && normalizedImage.transparentBackground === "true" ? { background: "transparent" } : {}),
               };
-        const responseData = isVolcengineArk ? await postVolcengineArkImage(requestConfig, payload, options) : await postChannelJSON<ImageApiResponse>(requestConfig, aiApiUrl(requestConfig, "/images/generations"), payload, options);
+        const responseData = await postChannelJSON<ImageApiResponse>(requestConfig, aiApiUrl(requestConfig, "/images/generations"), payload, options);
         const images = parseImagePayload(responseData);
         return images;
     } catch (error) {
@@ -182,20 +185,17 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
         const requestSize = sizeRequest?.parameter === "size" ? { ...sizeRequest, value: normalizeVolcengineArkImageSize(sizeRequest.value)! } : sizeRequest;
         try {
             const images = await Promise.all(references.map((image) => imageToDataUrl(image)));
-            const response = await postVolcengineArkImage(
-                requestConfig,
-                {
-                    model: requestConfig.model,
-                    prompt: withSystemPrompt(requestConfig, requestPrompt),
-                    n,
-                    response_format: "b64_json",
-                    watermark: false,
-                    ...(requestSize ? { [requestSize.parameter]: requestSize.value } : {}),
-                    ...(images.length === 1 ? { image: images[0] } : images.length > 1 ? { image: images } : {}),
-                },
-                options,
-            );
-            return parseImagePayload(response);
+            const payload = {
+                model: requestConfig.model,
+                prompt: withSystemPrompt(requestConfig, requestPrompt),
+                response_format: "b64_json",
+                watermark: false,
+                ...(requestSize ? { [requestSize.parameter]: requestSize.value } : {}),
+                ...(images.length === 1 ? { image: images[0] } : images.length > 1 ? { image: images } : {}),
+            };
+            // 同文生图：官方参数表没有 n，多图按张发多次请求。
+            const responses = await Promise.all(Array.from({ length: n }, () => postVolcengineArkImage(requestConfig, payload, options)));
+            return responses.flatMap((response) => parseImagePayload(response));
         } catch (error) {
             throw new Error(readAxiosError(error, "火山方舟图片生成失败"));
         }
