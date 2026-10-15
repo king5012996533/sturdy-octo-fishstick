@@ -202,6 +202,27 @@ describe("generation error classification", () => {
             expect(shouldBlockAutomaticRetry({ code })).toBe(true);
         }
         expect(shouldBlockAutomaticRetry({ code: "throttled" })).toBe(false);
+        expect(shouldBlockAutomaticRetry({ code: "provider_no_output" })).toBe(false);
+    });
+    test("refunded no-output settlements keep their own reason and reopen retry", () => {
+        const messages = [
+            "提交结果始终未确认，上游也查不到对应的任务，本次消耗的积分已退回。可以重新提交一次。",
+            "上游已终止这次生成且没有产出，本次消耗的积分已退回。",
+            "上游任务长时间没有出片，本次消耗的积分已退回。可以重新提交一次。",
+        ];
+        for (const message of messages) {
+            for (const error of [message, { code: "provider_no_output", message }]) {
+                const failure = explainGenerationError(error);
+                expect(failure.category).toBe("provider_no_output");
+                // 正文照原样回显，与改动前走 unknown 分支时逐字相同（joinSentences 只在拼接多段时补句号）。
+                expect(failure.message).toBe(message.replace(/。$/, ""));
+                expect(failure.uncertain).toBe(false);
+                expect(failure.blockAutomaticRetry).toBe(false);
+            }
+            expect(shouldBlockAutomaticRetry(message, "任务失败")).toBe(false);
+        }
+        // 问不出结论的交人工路径仍然挡着重试：产物可能还在上游，重发就是又花一笔钱。
+        expect(shouldBlockAutomaticRetry(messages[2], "submission_unknown")).toBe(true);
     });
     test("openai json keeps structured invalid params", () => {
         const explained = explainGenerationError({

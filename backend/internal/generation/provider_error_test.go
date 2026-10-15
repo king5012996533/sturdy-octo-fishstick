@@ -303,7 +303,8 @@ func TestCanonicalCategoriesRoundTripAndRetryPolicy(t *testing.T) {
 		generation.CategoryNetwork, generation.CategoryTimeout, generation.CategorySubmissionUncertain,
 		generation.CategoryAsyncFailed, generation.CategoryCancelled, generation.CategoryPartialSuccess,
 		generation.CategoryDownloadFailed, generation.CategoryResultsMissing,
-		generation.CategoryMalformedResponse, generation.CategoryUnknown,
+		generation.CategoryMalformedResponse, generation.CategoryProviderNoOutput,
+		generation.CategoryUnknown,
 	}
 	for _, category := range categories {
 		t.Run(string(category), func(t *testing.T) {
@@ -316,7 +317,9 @@ func TestCanonicalCategoriesRoundTripAndRetryPolicy(t *testing.T) {
 			if persisted.Category != category {
 				t.Errorf("persisted category = %s, want %s", persisted.Category, category)
 			}
-			allowAutomaticRetry := category == generation.CategoryThrottled || category == generation.CategoryConcurrency || category == generation.CategoryProviderUnavailable || category == generation.CategoryCancelled
+			allowAutomaticRetry := category == generation.CategoryThrottled || category == generation.CategoryConcurrency ||
+				category == generation.CategoryProviderUnavailable || category == generation.CategoryCancelled ||
+				category == generation.CategoryProviderNoOutput
 			if coded.BlocksAutomaticRetry() == allowAutomaticRetry {
 				t.Errorf("automatic retry block = %v, allowed = %v", coded.BlocksAutomaticRetry(), allowAutomaticRetry)
 			}

@@ -100,4 +100,10 @@ describe("canvas generation failure consumers", () => {
         expect(taskRetryBlocked({ ...task, errorCode: "throttled" })).toBe(false);
         expect(taskRetryBlocked({ ...task, errorCode: "throttled", stage: "submission_unknown" })).toBe(true);
     });
+    test("refunded no-output settlements keep the reason readable and the retry button live", () => {
+        const settled = { ...task, errorCode: "provider_no_output", error: "上游任务长时间没有出片，本次消耗的积分已退回。可以重新提交一次。" };
+        expect(taskAttentionReason(settled)).toContain("上游任务长时间没有出片");
+        expect(taskAttentionReason(settled)).toContain("可以重新提交一次");
+        expect(taskRetryBlocked(settled)).toBe(false);
+    });
 });

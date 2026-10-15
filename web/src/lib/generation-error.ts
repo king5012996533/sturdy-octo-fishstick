@@ -31,6 +31,7 @@ export const GENERATION_ERROR_CATEGORIES = [
     "download_failed",
     "results_missing",
     "malformed_response",
+    "provider_no_output",
     "unknown",
 ] as const;
 
@@ -95,6 +96,7 @@ const CATEGORY_COPY: Record<GenerationErrorCategory, CategoryCopy> = {
     download_failed: { reason: "生成结果下载失败", action: "请稍后重新加载，不要立即重新提交" },
     results_missing: { reason: "任务结束但没有可用结果", action: "请查看详情后再决定是否重试" },
     malformed_response: { reason: "模型服务返回了无法解析的内容", action: "请查看详情并核对原任务状态后，再决定是否重新生成" },
+    provider_no_output: { reason: "上游没有产出", action: "本次消耗的积分已退回，可以重新提交" },
     unknown: { reason: "生成失败", action: "请查看详情后再决定是否重试" },
 };
 
@@ -243,7 +245,9 @@ export function explainGenerationError(error: unknown, context: GenerationFailur
         taskId: sanitizeDebugId(classified.taskId || context.taskId) || undefined,
         retryable: Boolean(classified.retryable) && !uncertain && !moderation,
         uncertain,
-        blockAutomaticRetry: uncertain || moderation || !["throttled", "concurrency", "provider_unavailable", "cancelled"].includes(classified.category),
+        // provider_no_output 是平台自己结清的"上游没有产出、预扣已退回"：没有产物也没有未结的账，
+        // 重跑一次不会重复计费，所以不挡（其余 unknown 一律挡，避免用户对着必然再失败的任务烧积分）。
+        blockAutomaticRetry: uncertain || moderation || !["throttled", "concurrency", "provider_unavailable", "cancelled", "provider_no_output"].includes(classified.category),
         moderation,
     };
 }
@@ -413,9 +417,26 @@ function classifyHttp(status: number | undefined, body: unknown): Classified {
     return classified;
 }
 
+// noOutputRefundMarker 是无产出结清文案里的稳定标记，取文案里唯一由类目决定的那一句。
+//
+// 三条结清文案的前半句各不相同（查不到上游任务 / 上游终止了这次生成 / 长时间没有出片），
+// 只有"钱退了"是共有的。正文照原样回显，用户看到的还是那句具体原因；类目固定成
+// provider_no_output，重试入口才不会被当成 unknown 关掉。
+const noOutputRefundMarker = "本次消耗的积分已退回";
+
+function noOutputRefundCopy(text: string): CategoryCopy | undefined {
+    if (!text.includes(noOutputRefundMarker)) return undefined;
+    const reason = sanitizeProviderText(text);
+    return reason ? { reason, action: "" } : undefined;
+}
+
 function classifyText(raw: string): Classified {
     const text = raw.trim();
     if (!text) return { category: "unknown", retryable: false };
+    if (!/^[{[]/.test(text)) {
+        const noOutput = noOutputRefundCopy(text);
+        if (noOutput) return { category: "provider_no_output", ...noOutput, retryable: false };
+    }
     const taskCopy = persistedTaskConstraintCopy(text);
     if (taskCopy) return { category: "invalid_params", ...taskCopy, requestId: sanitizeDebugId(text.match(/请求 ([A-Za-z0-9._:-]{6,127})/)?.[1]), taskId: sanitizeDebugId(text.match(/任务 ([A-Za-z0-9._:-]{6,127})/)?.[1]), retryable: false };
     const moderationCopy = persistedModerationCopy(text);
@@ -476,6 +497,10 @@ function classifyText(raw: string): Classified {
 
 function specialize(classified: Classified, fields: ExtractedFields): Classified {
     fields = { ...fields, message: sanitizeProviderText(fields.message) };
+    if (classified.category === "provider_no_output") {
+        const persisted = classifyText(fields.message);
+        if (persisted.category === "provider_no_output") return { ...classified, ...persisted };
+    }
     classified.requestId ||= sanitizeDebugId(fields.message.match(/\brequest\s*id:\s*([A-Za-z0-9_-]{6,127})\b/i)?.[1]);
     const taskConstraint = persistedTaskConstraintCopy(fields.message) || taskConstraintCopy(`${fields.code} ${fields.message}`);
     if (taskConstraint && ["unknown", "invalid_params"].includes(classified.category))

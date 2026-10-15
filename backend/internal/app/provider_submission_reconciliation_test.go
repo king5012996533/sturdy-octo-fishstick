@@ -380,3 +380,25 @@ func TestSubmissionReconciliationSettledCopyLeavesUncertainState(t *testing.T) {
 		}
 	}
 }
+
+// 结清文案与"重试入口"是同一个契约的两端：文案里那句退款既是对用户的结论，也是分类器认回
+// provider_no_output 的凭据。文案改了却没同步扫描逻辑，用户就会看着"可以重新提交"却点不动
+// 按钮——所以这里把三条结清文案的类目和重试开关一起钉住。
+func TestSubmissionReconciliationSettledCopyUnlocksRetry(t *testing.T) {
+	for _, message := range []string{unreconciledSubmissionMessage, providerNoOutputSubmissionMessage, providerNoOutputLongRunningMessage} {
+		if code := persistedFailureErrorCode(message, "任务失败"); code != string(generation.CategoryProviderNoOutput) {
+			t.Fatalf("结清文案没有认回 provider_no_output：%q → %q", message, code)
+		}
+		if persistedFailureBlocksRetry(message, "任务失败") {
+			t.Fatalf("已退款结清的任务仍然挡着重试：%q", message)
+		}
+		// 正文照原样回显：用户看到的还是那句具体原因，不能被换成类目通用文案。
+		if shown := generation.ClassifyText(message).UserMessage(); shown != strings.TrimSuffix(message, "。") {
+			t.Fatalf("结清文案的展示正文被改写：%q → %q", message, shown)
+		}
+		// 结清之前任务停在 submission_unknown：那时候产物可能还在上游，必须继续挡。
+		if !persistedFailureBlocksRetry(message, "submission_unknown") {
+			t.Fatalf("提交结果未确认的状态被放开了重试：%q", message)
+		}
+	}
+}

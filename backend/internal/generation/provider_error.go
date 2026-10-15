@@ -45,6 +45,10 @@ const (
 	CategoryResultsMissing      FailureCategory = "results_missing"
 	CategoryMalformedResponse   FailureCategory = "malformed_response"
 	CategoryUnknown             FailureCategory = "unknown"
+
+	// CategoryProviderNoOutput 是平台自己结清的"上游没有产出、预扣已退回"：用户手上既没有
+	// 产物、也没有未结的预扣，按原输入重跑一次不会重复计费，所以这一类不挡重试。
+	CategoryProviderNoOutput FailureCategory = "provider_no_output"
 )
 
 const (
@@ -118,6 +122,7 @@ var categoryCopies = map[FailureCategory]categoryCopy{
 	CategoryPartialSuccess:      {Reason: "部分结果已生成，其余失败", Action: "请查看已有结果后再决定是否补做"},
 	CategoryDownloadFailed:      {Reason: "生成结果下载失败", Action: "请稍后重新加载，不要立即重新提交"},
 	CategoryResultsMissing:      {Reason: "任务结束但没有可用结果", Action: "请查看详情后再决定是否重试"},
+	CategoryProviderNoOutput:    {Reason: "上游没有产出", Action: "本次消耗的积分已退回，可以重新提交"},
 	CategoryMalformedResponse:   {Reason: "模型服务返回了无法解析的内容", Action: "请查看详情并核对原任务状态后，再决定是否重新生成"},
 	CategoryUnknown:             {Reason: "生成失败", Action: "请查看详情后再决定是否重试"},
 }
@@ -228,6 +233,7 @@ var providerCodeCategories = map[string]FailureCategory{
 	"provider_submission_unknown":      CategorySubmissionUncertain,
 	"video_submission_unknown":         CategorySubmissionUncertain,
 	"provider_reference_invalid":       CategoryInputInaccessible,
+	"provider_no_output":               CategoryProviderNoOutput,
 	"rate_limited":                     CategoryThrottled,
 	"bad_gateway":                      CategoryProviderUnavailable,
 	"internal":                         CategoryProviderUnavailable,
@@ -298,12 +304,17 @@ func (f Failure) IsModeration() bool {
 	return f.Category == CategoryModerationInput || f.Category == CategoryModerationReference || f.Category == CategoryModerationOutput
 }
 
+// BlocksAutomaticRetry 判断这条失败该不该挡住"重试原任务"。
+//
+// 默认挡是有意的：重试一条会再失败的任务只是在替用户多花一笔钱。放行的都是"这次
+// 没成，但按原输入再来一次不会白花钱"的类目，其中 provider_no_output 是平台自己
+// 结清的结论——上游没有产出、预扣已经退回，用户手上既没有产物也没有未结的账。
 func (f Failure) BlocksAutomaticRetry() bool {
 	if f.Uncertain {
 		return true
 	}
 	switch f.Category {
-	case CategoryThrottled, CategoryConcurrency, CategoryProviderUnavailable, CategoryCancelled:
+	case CategoryThrottled, CategoryConcurrency, CategoryProviderUnavailable, CategoryCancelled, CategoryProviderNoOutput:
 		return false
 	default:
 		return true
@@ -529,6 +540,11 @@ func ClassifyText(raw string) Failure {
 		failure.FromCode = true
 		if matched == CategoryTimeout || matched == CategoryDownloadFailed || matched == CategorySubmissionUncertain {
 			failure.Uncertain = true
+		}
+		// 无产出结清的正文按原样回显：三条结清文案分别说清了是哪种无产出（查不到上游任务 /
+		// 上游终止了这次生成 / 长时间没有出片），套用类目文案会把这点区别抹掉。
+		if matched == CategoryProviderNoOutput {
+			failure.Reason = sanitizeProviderText(text)
 		}
 		return normalizeFailure(failure)
 	}
@@ -1271,9 +1287,19 @@ func isResultsMissingText(value string) bool {
 	return strings.Contains(value, "没有返回图片") || strings.Contains(value, "没有返回视频") || strings.Contains(value, "没有可用结果") || strings.Contains(value, "接口没有返回")
 }
 
+// noOutputRefundMarker 是无产出结清文案里的稳定标记。
+//
+// 三条结清文案的前半句各不相同（查不到上游任务 / 上游终止了这次生成 / 长时间没有出片），
+// 共同点只有"钱退了"这一句。类目要认回 provider_no_output，用户可见的重试入口才不会被
+// 当成 unknown 关掉——结清文案与"可以重试"是同一个契约的两端，改文案就得同步这里。
+const noOutputRefundMarker = "本次消耗的积分已退回"
+
 func matchPersistedCategory(text string) FailureCategory {
 	if strings.HasPrefix(text, "提示词或参考素材未通过内容安全审核") {
 		return CategoryModerationInput
+	}
+	if strings.Contains(text, noOutputRefundMarker) {
+		return CategoryProviderNoOutput
 	}
 	if strings.HasPrefix(text, "视频时长不符合模型要求") {
 		return CategoryInvalidParams
