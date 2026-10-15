@@ -56,6 +56,16 @@ test("the quoted output size follows the real 4x result instead of the canvas ce
     expect(capped).toEqual({ width: 4096, height: 2048, factor: 2, capped: true });
 });
 
+test("the dialog waits for the quote instead of calling the channel unpriced", () => {
+    // 弹窗打开的第一帧还没有报价（试算要防抖 + 一次往返）。那一帧若显示"该通道尚未定价"，
+    // 用户看到的是"这个功能坏了"，而事实只是"还没问到"。
+    expect(DIALOG).not.toContain("estimate.loading && !estimate.quote");
+    expect(DIALOG).toContain("if (!estimate.quote) {");
+    expect(DIALOG).toContain("正在试算消耗…");
+    // 未定价分支直接读 quote 自己的字段，挂了可选链就会把 quote 为空也归进这一支。
+    expect(DIALOG).toContain("if (!estimate.quote.priced) {");
+});
+
 test("the confirm dialog quotes the charge through the backend", () => {
     // 价格只能由后端试算：前端写死数字会在运营调价后停在旧值上。
     expect(DIALOG).toContain("useTaskChargeQuote");

@@ -124,10 +124,13 @@ function SuperResolveCharge({ estimate, available }: { estimate: TaskChargeEstim
             </div>
         );
     }
-    if (estimate.loading && !estimate.quote) {
+    // 试算要等防抖加一次往返，这期间 quote 一定是空的。按 loading 有没有置位来分流，会让
+    // 弹窗每次打开都先闪一句"该通道尚未定价"再变成真实价格——把"还没问到"说成"没定价"，
+    // 用户看到的是"这个功能坏了"。未定价只能在后端明确回了 priced=false 之后才说。
+    if (!estimate.quote) {
         return <div className="rounded-xl border px-4 py-3 opacity-60">正在试算消耗…</div>;
     }
-    if (!estimate.quote?.priced) {
+    if (!estimate.quote.priced) {
         return (
             <div className="rounded-xl border px-4 py-3 text-status-error">
                 该通道尚未定价，暂时无法使用
