@@ -79,8 +79,11 @@ func (f submissionReconciliationFixture) reload(t *testing.T) model.Task {
 
 // 上游任务号始终捞不到：过了兜底期限就按"无产出"退预扣，并留下结清标记，
 // 否则下一轮扫描会把同一条任务反复捞起来。
+//
+// 期限只有几分钟：这条任务的上游任务号不会再出现，产物也不会自己回来，用户拿不到东西
+// 就该当场拿回积分，而不是等到第二天。
 func TestSubmissionReconciliationRefundsWhenProviderTaskIsUnrecoverable(t *testing.T) {
-	fixture := newSubmissionReconciliationFixture(t, 25*time.Hour)
+	fixture := newSubmissionReconciliationFixture(t, 20*time.Minute)
 	claimed := fixture.claim(t)
 	if claimed == nil {
 		t.Fatal("超过兜底期限的任务应当被领取")
@@ -103,9 +106,10 @@ func TestSubmissionReconciliationRefundsWhenProviderTaskIsUnrecoverable(t *testi
 	}
 }
 
-// 兜底期限之前不退钱：上游可能还在跑，也可能下一秒就出片。
+// 兜底期限之前不退钱：终态与请求日志的落库有先后，先让写入次序自证，
+// 也避免把"日志还没写完"当成"上游没这个任务"。
 func TestSubmissionReconciliationWaitsUntilRefundDeadline(t *testing.T) {
-	fixture := newSubmissionReconciliationFixture(t, 3*time.Hour)
+	fixture := newSubmissionReconciliationFixture(t, 3*time.Minute)
 	claimed := fixture.claim(t)
 	if claimed == nil {
 		t.Fatal("失败后过了宽限期的任务应当被领取")
@@ -120,8 +124,9 @@ func TestSubmissionReconciliationWaitsUntilRefundDeadline(t *testing.T) {
 	if latest.Stage != "submission_unknown" || latest.NextPollAt == nil {
 		t.Fatalf("应保留原阶段并排下一轮，实际 stage=%q nextPollAt=%v", latest.Stage, latest.NextPollAt)
 	}
-	if !latest.NextPollAt.After(time.Now().Add(providerSubmissionReconcileInterval - time.Minute)) {
-		t.Fatalf("下一轮应排在一个对账间隔之后，实际 %v", latest.NextPollAt)
+	deadline := fixture.task.CreatedAt.Add(providerSubmissionReconcileRefundAfter)
+	if latest.NextPollAt.Before(deadline.Add(-time.Second)) || latest.NextPollAt.After(deadline.Add(time.Second)) {
+		t.Fatalf("下一轮对账应压在结算期限上，实际 %v，期限 %v", latest.NextPollAt, deadline)
 	}
 }
 
@@ -288,12 +293,56 @@ func TestSubmissionReconciliationRestoresOutputWhenUpstreamCompleted(t *testing.
 	}
 }
 
-// 上游任务还在、但长期不出结果：自动对账到此为止并转人工，而且不能顺手放行重试——
-// 上游那条任务还活着，用户手一抖重发就是又花一笔上游的钱。
-func TestSubmissionReconciliationHandsOffLongRunningUpstreamTask(t *testing.T) {
+// 上游任务还在、但问到期限还是没有产物：用户从头到尾什么都没拿到，预扣按无产出退回，
+// 同时留下转人工的日志（上游那条任务的账单要平台自己核对）。
+func TestSubmissionReconciliationSettlesLongRunningUpstreamTask(t *testing.T) {
 	allowLoopbackProviderTest(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":{"id":"vid-1","status":"running"}}`))
+	}))
+	defer server.Close()
+
+	fixture := newSubmissionReconciliationFixture(t, 8*24*time.Hour)
+	if err := fixture.db.AutoMigrate(&model.TaskLog{}); err != nil {
+		t.Fatal(err)
+	}
+	fixture.attachProviderTask(t, server.URL, "vid-1")
+	claimed := fixture.claim(t)
+	if claimed == nil {
+		t.Fatal("任务应当被领取")
+	}
+	if err := fixture.service.reconcileSubmissionUncertainTask(t.Context(), claimed); err != nil {
+		t.Fatalf("对账失败: %v", err)
+	}
+	if len(fixture.ledger.refunds) != 1 || !strings.Contains(fixture.ledger.refunds[0], providerNoOutputLongRunningNote) {
+		t.Fatalf("长期没有产物应退回预扣，实际 %v", fixture.ledger.refunds)
+	}
+	latest := fixture.reload(t)
+	if latest.Stage != "任务失败" || latest.Error != providerNoOutputLongRunningMessage {
+		t.Fatalf("结清后应落在普通失败态，实际 stage=%q error=%q", latest.Stage, latest.Error)
+	}
+	if latest.PollStage != submissionReconciledPollStage {
+		t.Fatalf("结清后应停掉自动对账，实际 pollStage=%q", latest.PollStage)
+	}
+	// 结清文案不能再落到"提交未确认"那一类：钱已经退了，那句"上游可能仍在执行、不要立即
+	// 重新提交"既误导用户又说不清结果。
+	if persistedFailureErrorCode(latest.Error, latest.Stage) == string(generation.CategorySubmissionUncertain) {
+		t.Fatalf("结清文案仍被判成提交未确认：%q", latest.Error)
+	}
+	if logs := strings.Join(fixture.logLines(t), "\n"); !strings.Contains(logs, providerSubmissionHandoffMessage) {
+		t.Fatalf("应留下转人工的痕迹，实际日志 %v", fixture.logLines(t))
+	}
+	if again := fixture.claim(t); again != nil {
+		t.Fatalf("已结清的任务不应再由自动对账领取: %#v", again)
+	}
+}
+
+// 到期但这次问不出结论（上游查询失败）：产物可能真实存在，所以不退钱，只交还人工。
+func TestSubmissionReconciliationHandsOffExpiredTaskWithoutUpstreamVerdict(t *testing.T) {
+	allowLoopbackProviderTest(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":{"message":"upstream unavailable"}}`))
 	}))
 	defer server.Close()
 
@@ -307,24 +356,21 @@ func TestSubmissionReconciliationHandsOffLongRunningUpstreamTask(t *testing.T) {
 		t.Fatalf("对账失败: %v", err)
 	}
 	if len(fixture.ledger.refunds) != 0 {
-		t.Fatalf("上游任务还活着，不应退款，实际 %v", fixture.ledger.refunds)
+		t.Fatalf("问不出结论时不应退款，实际 %v", fixture.ledger.refunds)
 	}
 	latest := fixture.reload(t)
 	if latest.Stage != "submission_unknown" || latest.PollStage != submissionReconciledPollStage {
 		t.Fatalf("应交人工并停掉自动对账，实际 stage=%q pollStage=%q", latest.Stage, latest.PollStage)
 	}
 	if !persistedFailureBlocksRetry(latest.Error, latest.Stage) {
-		t.Fatal("上游任务仍在跑，重试必须继续被挡住")
-	}
-	if again := fixture.claim(t); again != nil {
-		t.Fatalf("已转人工的任务不应再由自动对账领取: %#v", again)
+		t.Fatal("产物可能还在上游，重试必须继续被挡住")
 	}
 }
 
 // 结清之后任务落回普通失败态，用户看到的文案不能再是"上游可能仍在执行、不要重新提交"：
 // 这时候平台已经查证过没有产出，钱也退了，那句提示既误导又堵着重试入口。
 func TestSubmissionReconciliationSettledCopyLeavesUncertainState(t *testing.T) {
-	for _, message := range []string{unreconciledSubmissionMessage, providerNoOutputSubmissionMessage} {
+	for _, message := range []string{unreconciledSubmissionMessage, providerNoOutputSubmissionMessage, providerNoOutputLongRunningMessage} {
 		shown := generation.ClassifyText(message).UserMessage()
 		if strings.Contains(shown, "不要立即重新提交") || strings.Contains(shown, "上游任务可能仍在执行") {
 			t.Fatalf("结清文案仍被归类成提交未确认：%q → %q", message, shown)
