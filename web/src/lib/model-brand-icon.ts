@@ -6,7 +6,9 @@ const BRAND_ICON_RULES: Array<[RegExp, string]> = [
     [/nano-?banana/, "NanoBanana"],
     [/seedance|seedream|doubao|jimeng/, "ByteDance"],
     [/flux|black-forest-labs|\bbfl\b/, "Flux"],
-    [/hunyuan/, "Hunyuan"],
+    // 腾讯混元的型号分两条线：CAPI 走 hunyuan-*，TokenHub 走 hy-image-* 这类前缀。
+    // 两条线的型号里都没有厂商名，只按 hunyuan 认会把 TokenHub 那批漏成空白图标位。
+    [/\bhy-(?:image|video|tts|text|vision)|hunyuan/, "Hunyuan"],
     [/ideogram/, "Ideogram"],
     [/pixverse/, "PixVerse"],
     [/kling|kwaivgi/, "Kling"],

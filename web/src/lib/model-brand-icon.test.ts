@@ -12,6 +12,9 @@ test("平台模型按厂商标识兜底到真实品牌图标", () => {
     assert.equal(modelBrandIconId("minimax/hailuo-02"), "Hailuo");
     assert.equal(modelBrandIconId("wan-video/wan-2.5-t2v"), "Alibaba");
     assert.equal(modelBrandIconId("deepseek-flash"), "DeepSeek");
+    // 腾讯混元两条线都要出图标：CAPI 的 hunyuan-*，以及 TokenHub 的 hy-image-*。
+    assert.equal(modelBrandIconId("hunyuan-image-3.5"), "Hunyuan");
+    assert.equal(modelBrandIconId("hy-image-v3.5-preview"), "Hunyuan");
 });
 
 test("具体模型优先于厂商通配", () => {
@@ -30,6 +33,8 @@ test("渠道名带厂商时品牌列表也能出行标", () => {
 
 test("识别不出来的模型返回空串，交给调用方用占位图标", () => {
     assert.equal(modelBrandIconId("my-finetune-v3"), "");
+    // hy- 前缀只在后面接媒体类型时才算混元，别的 hy 开头型号不能被顺手吃进来。
+    assert.equal(modelBrandIconId("hyperbolic-image-v2"), "");
     assert.equal(modelBrandIconId(""), "");
     assert.equal(modelBrandIconId(undefined), "");
 });
