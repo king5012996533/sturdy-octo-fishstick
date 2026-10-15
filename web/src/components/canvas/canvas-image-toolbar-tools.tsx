@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Brush, Camera, Copy, FileText, Globe2, Grid2x2, Lock, LockOpen, Maximize2, PencilLine, Crop, SlidersHorizontal, Smile, Sun, Upload, Scaling } from "lucide-react";
+import { Brush, Camera, Copy, FileText, Globe2, Grid2x2, Lock, LockOpen, Maximize2, PencilLine, Crop, SlidersHorizontal, Smile, Sparkles, Sun, Upload, Scaling } from "lucide-react";
 
 import type { CanvasNodeData } from "@/types/canvas";
 import type { NodeToolbarGroup } from "@/lib/canvas/tool-registry";
@@ -92,6 +92,15 @@ const imageToolDefinitions: ImageToolDefinition[] = [
         group: "primary",
         order: 10,
         run: (node, handlers) => handlers.onMaskEdit(node),
+    },
+    {
+        id: "superResolve",
+        label: "AI 超分",
+        description: "交给上游放大并补足细节（最多 4 倍），生成新图片",
+        icon: () => <Sparkles className="size-3.5" />,
+        group: "primary",
+        order: 20,
+        run: (node, handlers) => handlers.onSuperResolve(node),
     },
     {
         id: "emotion",

@@ -1384,6 +1384,7 @@ function InfiniteCanvasPage() {
         setUpscaleNodeId,
         splitImageNode,
         upscaleImageNode,
+        superResolveImageNode,
         upscaleNodeId,
     } = useCanvasMediaTools({
         projectId,
@@ -1464,6 +1465,7 @@ function InfiniteCanvasPage() {
             setMaskEditNodeId,
             setInlineTrimNodeId,
             setUpscaleNodeId,
+            setSuperResolveNodeId,
             setRunningNodeId,
         ],
     );
@@ -3903,8 +3905,8 @@ function InfiniteCanvasPage() {
                             retrievingTaskId={retrievingTaskId}
                             superResolveNode={superResolveNode}
                             onCloseSuperResolve={() => setSuperResolveNodeId(null)}
-                            onUseLocalUpscale={() => {
-                                if (superResolveNode) void upscaleImageNode(superResolveNode, { targetLongEdge: 2048, algorithm: "high" });
+                            onConfirmSuperResolve={(node) => {
+                                void superResolveImageNode(node);
                                 setSuperResolveNodeId(null);
                             }}
                             previewNode={previewNode}

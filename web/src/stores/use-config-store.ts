@@ -568,6 +568,9 @@ export function filterModelsByCapability(models: string[], capability?: ModelCap
         const channel = decoded ? channels?.find((item) => item.id === decoded.channelId) : undefined;
         const modelName = decoded?.model || modelOptionName(model);
         const costEntry = channel?.modelProfiles?.find((item) => item.model === modelName);
+        // 工具专用模型（toolOnly）不进选择面：这类模型少一张原图就发不出去，摆进下拉只会让
+        // 用户选中一次必然失败的生成。它仍在渠道目录里，画布工具按模型标识取渠道。
+        if (costEntry?.capabilityConfig?.image?.toolOnly) return false;
         // 协议层优先级最高：协议决定 API 端点，明确属于其他能力时直接排除，
         // 防止用户将 video/image/audio 协议的模型误标为 text 后混入文本下拉。
         const protocolCapability = modelProtocolCapability(costEntry?.protocol);

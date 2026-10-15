@@ -13,7 +13,8 @@ import type { CanvasImageEmotionPayload } from "@/components/canvas/canvas-node-
 import type { PanoramaGenerateConfig } from "@/components/canvas/canvas-panorama-config-modal";
 import type { CanvasVideoFrameParams } from "@/components/canvas/canvas-video-frame-dialog";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
-import { cropDataUrl, splitDataUrl, upscaleDataUrl } from "@/lib/canvas/canvas-image-data";
+import { cropDataUrl, MAX_UPSCALE_LONG_EDGE, reencodeImageDataUrl, splitDataUrl, upscaleDataUrl } from "@/lib/canvas/canvas-image-data";
+import { resolveSuperResolveConfig, SUPER_RESOLVE_PROMPT } from "@/lib/canvas/canvas-image-super-resolve";
 import { normalizeVideoCropForEncoding } from "@/lib/canvas/video-crop-geometry";
 import { isValidGridSplit, layoutGridSplitCells } from "@/lib/canvas/canvas-grid-split";
 import { audioMetadata, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-generation-task-sync";
@@ -929,6 +930,50 @@ export function useCanvasMediaTools({
         await persistMediaNodes([child]);
     }, [persistMediaNodes, setConnections, setDialogNodeId, setNodes, setSelectedNodeIds]);
 
+    const superResolveImageNode = useCallback(async (node: CanvasNodeData) => {
+        if (!node.metadata?.content) return;
+        // 超分走平台登记的固定端点，模型与参数都在 resolveSuperResolveConfig 里定死；
+        // 目录里没有这条模型说明渠道没配好，此时不该退回到用户当前选中的图片模型上。
+        const generationConfig = resolveSuperResolveConfig(effectiveConfig);
+        if (!generationConfig) {
+            message.error("当前未配置 AI 超分通道，请联系平台管理员");
+            return;
+        }
+        const source = nodeReferenceImage(node);
+        if (!source) return;
+        const childId = nanoid();
+        const imageSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
+        const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, [source]);
+        setRunningNodeId(childId);
+        setNodes((current) => [...current, { id: childId, type: CanvasNodeType.Image, title: `${node.title || "图片"} · AI 超分`, position: { x: node.position.x + node.width + 96, y: node.position.y }, width: imageSpec.width, height: imageSpec.height, metadata: { prompt: SUPER_RESOLVE_PROMPT, status: NODE_STATUS_LOADING, ...generationMetadata } }]);
+        setConnections((current) => [...current, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
+        setSelectedNodeIds(new Set([childId]));
+        setDialogNodeId(childId);
+        const controller = startGenerationRequest(childId, node.id, childId);
+        try {
+            const result = await runBackendCanvasGenerationTask({ projectId, nodeId: childId, mode: "image", prompt: SUPER_RESOLVE_PROMPT, config: generationConfig, referenceImages: [source], signal: controller.signal, metadata: { sourceNodeId: node.id, edit: "super_resolve" }, onTaskCreated: (task) => bindGenerationTask(childId, task) });
+            const image = result.images?.[0];
+            if (!image?.dataUrl) throw new Error("后端任务没有返回图片");
+            // 上游按 4 倍放大且只出无损格式，2048² 就有几兆、4096² 十几兆；
+            // 落库前先按画布能接受的长边重编码，否则每张超分图都在吃磁盘和渲染。
+            const reencoded = await reencodeImageDataUrl(image.dataUrl, { maxLongEdge: MAX_UPSCALE_LONG_EDGE });
+            const uploaded = await uploadImage(reencoded);
+            const size = fitNodeSize(uploaded.width, uploaded.height, imageSpec.width, imageSpec.height);
+            const currentNode = nodesRef.current.find((item) => item.id === childId);
+            if (!currentNode) throw new Error("超分节点已被删除");
+            const finalizedNode = { ...currentNode, width: size.width, height: size.height, metadata: { ...currentNode.metadata, ...imageMetadata(uploaded), prompt: SUPER_RESOLVE_PROMPT, ...generationMetadata } };
+            setNodes((current) => current.map((item) => item.id === childId ? finalizedNode : item));
+            await persistMediaNodes([finalizedNode]);
+        } catch (error) {
+            if (isGenerationCanceled(error)) return;
+            const details = generationErrorMessage(error);
+            setNodes((current) => current.map((item) => item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: details } } : item));
+        } finally {
+            finishGenerationRequest(childId, controller);
+            setRunningNodeId(null);
+        }
+    }, [bindGenerationTask, effectiveConfig, finishGenerationRequest, message, nodesRef, persistMediaNodes, projectId, setConnections, setDialogNodeId, setNodes, setRunningNodeId, setSelectedNodeIds, startGenerationRequest]);
+
     const generateAngleNode = useCallback(async (node: CanvasNodeData, params: CanvasImageAngleParams) => {
         if (!node.metadata?.content) return;
         const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1" };
@@ -1118,6 +1163,7 @@ export function useCanvasMediaTools({
         setUpscaleNodeId,
         splitImageNode,
         upscaleImageNode,
+        superResolveImageNode,
         upscaleNodeId,
     };
 }

@@ -327,7 +327,7 @@ export function CanvasNodeToolbar({
     // Image nodes use a deliberately small, stable action hierarchy. Keep the
     // underlying handlers/tool definitions intact, but only expose the actions
     // that belong to the four image workflows in the primary dock.
-    const imagePrimaryTools = primary.filter((tool) => tool.id === "maskEdit");
+    const imagePrimaryTools = primary.filter((tool) => tool.id === "maskEdit" || tool.id === "superResolve");
     const portraitTools = compact ? [] : isImage ? inGroup("portrait").filter((tool) => tool.id === "emotion") : inGroup("portrait");
     const viewpointLightingTools = compact ? [] : isImage ? [...inGroup("viewpoint"), ...inGroup("lighting")].filter((tool) => tool.id === "angle" || tool.id === "lighting") : [...inGroup("viewpoint"), ...inGroup("lighting")];
     const panoramaTools = compact || isImage ? [] : inGroup("panorama");

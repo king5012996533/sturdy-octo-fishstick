@@ -66,6 +66,14 @@ type ImageCapabilityConfig struct {
 	ResponseFormat        ParameterSupport     `json:"responseFormat"`
 	OutputFormat          ParameterSupport     `json:"outputFormat"`
 	MaxOutputs            int                  `json:"maxOutputs"`
+	// ToolOnly 表示这个模型不是给用户在模型下拉里直接选的，而是某个画布工具固定调用的
+	// 那一条端点（例如 AI 超分）。它仍然是一行正常的渠道模型——要有能力合同、要有价目，
+	// 计费与路由都按普通模型走——只是不该出现在"我要用什么模型生成"的选项里：
+	// 超分模型没有参考图就发不出去，用户在面板上选中它只会得到一次必然失败的生成。
+	//
+	// 隐藏发生在客户端的选择面上，不在目录里：目录一旦下发，模型会被当作可选模型注册，
+	// 工具侧反而取不到渠道。见 web 侧 selectableModelsByCapability。
+	ToolOnly bool `json:"toolOnly,omitempty"`
 }
 
 type ImageReferenceConfig struct {

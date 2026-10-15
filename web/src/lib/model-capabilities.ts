@@ -56,6 +56,8 @@ export type ImageCapabilityConfig = {
     responseFormat: { supported: boolean };
     outputFormat: { supported: boolean };
     maxOutputs: number;
+    // 工具专用模型（如 AI 超分）：不进模型下拉，只由画布上的固定工具调用。
+    toolOnly?: boolean;
 };
 
 export type VideoDurationConfig = {

@@ -26,7 +26,7 @@ function Harness() {
         <button onClick={() => setHasId(false)}>missing receipt</button>
         <button onClick={() => { void generation.retrieveTaskResult(task); void generation.retrieveTaskResult(task); }}>double retrieve</button>
         <pre id="snapshot">{JSON.stringify({ projectId, nodes, retrieving: generation.retrievingTaskId })}</pre>
-        <CanvasProjectStatusDialogs theme={{ node: { stroke: "gray", panel: "white", muted: "gray", fill: "white" } }} task={projectId === "canvas-a" ? task : null} taskLogs={[{ id: "log", level: "error", summary: "视频下载中断，请取回结果", createdAt: task.createdAt }]} taskLoading={false} onCloseTask={() => {}} onRetrieveTask={generation.retrieveTaskResult} retrievingTaskId={generation.retrievingTaskId} superResolveNode={null} onCloseSuperResolve={() => {}} onUseLocalUpscale={() => {}} previewNode={null} onClosePreview={() => {}} clearConfirmOpen={false} onCancelClear={() => {}} onConfirmClear={() => {}} />
+        <CanvasProjectStatusDialogs theme={{ node: { stroke: "gray", panel: "white", muted: "gray", fill: "white" } }} task={projectId === "canvas-a" ? task : null} taskLogs={[{ id: "log", level: "error", summary: "视频下载中断，请取回结果", createdAt: task.createdAt }]} taskLoading={false} onCloseTask={() => {}} onRetrieveTask={generation.retrieveTaskResult} retrievingTaskId={generation.retrievingTaskId} superResolveNode={null} onCloseSuperResolve={() => {}} onConfirmSuperResolve={() => {}} previewNode={null} onClosePreview={() => {}} clearConfirmOpen={false} onCancelClear={() => {}} onConfirmClear={() => {}} />
     </>;
 }
 createRoot(document.getElementById("root")!).render(<QueryClientProvider client={new QueryClient()}><App><Harness /></App></QueryClientProvider>);

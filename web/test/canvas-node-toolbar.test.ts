@@ -87,7 +87,8 @@ describe("canvas node toolbar model", () => {
 
         expect(tools.find((tool) => tool.id === "angle")?.group).toBe("viewpoint");
         expect(tools.find((tool) => tool.id === "maskEdit")?.group).toBe("primary");
-        expect(tools.some((tool) => tool.id === "superResolve")).toBe(false);
+        // AI 超分与局部重绘同属一级按钮：它是一次付费动作，藏在菜单里等于把它埋掉。
+        expect(tools.find((tool) => tool.id === "superResolve")?.group).toBe("primary");
         expect(tools.find((tool) => tool.id === "emotion")?.group).toBe("portrait");
         expect(tools.find((tool) => tool.id === "upscale")?.description).toContain("不是 AI 超分");
         expect(tools.find((tool) => tool.id === "crop")?.section).toBe("构图与尺寸");

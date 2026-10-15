@@ -115,6 +115,34 @@ export function resolveUpscaleSize(width: number, height: number, targetLongEdge
     return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 
+export type ImageReencodeParams = {
+    /** 输出长边上限：只缩不放，已经在上限内的图保持原尺寸。 */
+    maxLongEdge: number;
+    /** 有损重编码的目标格式。默认 WebP：保留透明通道，体积只有无损 PNG 的零头。 */
+    type?: "image/webp" | "image/jpeg";
+    quality?: number;
+};
+
+/**
+ * 把一张图重编码后返回新的 data URL。
+ *
+ * 用途是"上游给的图太大、不能原样落库"：AI 超分返回的是无损 WebP，2048² 就有 4MB、
+ * 4096² 到 17MB，直接存进资源库等于每张图都吃一份十几兆的磁盘，画布渲染也跟着卡。
+ * 这里只做缩边与有损重编码，不做插值放大——放大是上游的活。
+ *
+ * 浏览器不支持目标格式时 `toDataURL` 会静默回退成 PNG：结果依然正确，只是体积没压下来，
+ * 所以调用方拿到的尺寸与内容都以实际返回值为准，不假设格式。
+ */
+export async function reencodeImageDataUrl(dataUrl: string, params: ImageReencodeParams) {
+    const image = await loadImage(dataUrl);
+    const target = Math.max(1, Math.round(params.maxLongEdge));
+    const scale = Math.min(1, target / Math.max(1, image.width, image.height));
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+    const canvas = drawResizeCanvas(image, image.width, image.height, width, height, "high");
+    return canvas.toDataURL(params.type || "image/webp", params.quality ?? 0.92);
+}
+
 function drawCrop(image: HTMLImageElement, sx: number, sy: number, sw: number, sh: number) {
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, sw);

@@ -1,8 +1,9 @@
 import { Button, Modal } from "antd";
-import { ImagePlus, XCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { XCircle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { CanvasImagePreview } from "@/components/canvas/canvas-image-preview";
+import { CanvasNodeSuperResolveDialog } from "@/components/canvas/canvas-node-super-resolve-dialog";
 import { TaskDetailItem } from "./canvas-project-feedback";
 import { generationTaskShowsProgress, generationTaskStageLabel } from "@/lib/generation-task-display";
 import { canRetrieveVideoResult, formatTaskLog, type GenerationTask, type TaskLog } from "@/services/api/task-center";
@@ -13,6 +14,7 @@ import { modelDisplayName, useEffectiveConfig } from "@/stores/use-config-store"
 import { resolveImageUrl } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
 import { buildLibTVVideoSourceUrl } from "@/lib/canvas/libtv-import";
+import { resolveSuperResolveConfig } from "@/lib/canvas/canvas-image-super-resolve";
 
 type CanvasProjectStatusDialogsProps = {
     theme: { node: { stroke: string; panel: string; muted: string; fill: string } };
@@ -25,7 +27,7 @@ type CanvasProjectStatusDialogsProps = {
     retrievingTaskId?: string | null;
     superResolveNode: CanvasNodeData | null;
     onCloseSuperResolve: () => void;
-    onUseLocalUpscale: () => void;
+    onConfirmSuperResolve: (node: CanvasNodeData) => void;
     previewNode: CanvasNodeData | null;
     onClosePreview: () => void;
     clearConfirmOpen: boolean;
@@ -33,9 +35,11 @@ type CanvasProjectStatusDialogsProps = {
     onConfirmClear: () => void;
 };
 
-export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading, superResolveNode, previewNode, clearConfirmOpen, onCloseTask, onCancelTask, onRetrieveTask, retrievingTaskId, onCloseSuperResolve, onUseLocalUpscale, onClosePreview, onCancelClear, onConfirmClear }: CanvasProjectStatusDialogsProps) {
+export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading, superResolveNode, previewNode, clearConfirmOpen, onCloseTask, onCancelTask, onRetrieveTask, retrievingTaskId, onCloseSuperResolve, onConfirmSuperResolve, onClosePreview, onCancelClear, onConfirmClear }: CanvasProjectStatusDialogsProps) {
     const config = useEffectiveConfig();
     const previewSource = useResolvedPreviewSource(previewNode);
+    const superResolveSource = useResolvedPreviewSource(superResolveNode);
+    const superResolveConfig = useMemo(() => resolveSuperResolveConfig(config), [config]);
     return (
         <>
             <Modal title="任务详情" open={Boolean(task)} footer={null} width="min(920px, calc(100vw - 32px))" onCancel={onCloseTask}>
@@ -86,17 +90,14 @@ export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading,
                 ) : null}
             </Modal>
 
-            <Modal title="AI 超分" open={Boolean(superResolveNode?.metadata?.content)} centered footer={null} onCancel={onCloseSuperResolve}>
-                <div className="space-y-4 py-3">
-                    <div className="rounded-lg border p-3 text-sm leading-6" style={{ borderColor: theme.node.stroke, background: theme.node.panel, color: theme.node.muted }}>
-                        当前部署未配置独立的 AI 超分模型。你仍可以使用本地高质量插值放大，原图会保留，结果将作为新的图片节点放回画布。
-                    </div>
-                    <div className="flex justify-end gap-2">
-                        <Button onClick={onCloseSuperResolve}>取消</Button>
-                        <Button type="primary" icon={<ImagePlus className="size-4" />} onClick={onUseLocalUpscale}>使用本地高质量放大</Button>
-                    </div>
-                </div>
-            </Modal>
+            <CanvasNodeSuperResolveDialog
+                source={superResolveSource}
+                config={superResolveConfig}
+                onClose={onCloseSuperResolve}
+                onConfirm={() => {
+                    if (superResolveNode) onConfirmSuperResolve(superResolveNode);
+                }}
+            />
 
             <AppModal
                 title="视频预览"
