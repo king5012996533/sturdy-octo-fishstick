@@ -79,6 +79,10 @@ CATALOG: dict[str, set[str]] = {
         # 不是给用户在下拉里挑的模型（capabilityConfig.toolOnly=true）。仍必须列在这里：
         # 它要按张计价，而货架是"能不能卖"的唯一开关，漏了就等于按钮点不动。
         "fal-ai/recraft/upscale/crisp",
+        # 移除背景（fal BiRefNet v2）：与超分同一条路径——画布工具的一级按钮、按张计价、
+        # toolOnly 不进下拉。漏在这里的后果不是"用户看不到"，而是货架脚本把它当超纲品类
+        # 下架，按钮直接点不动。
+        "fal-ai/birefnet/v2",
     },
     "video": {
         # 已退役、不要再加回来：Aigen 的 seedance-2.0 / seedance-2.5（CHANNEL_000007）。
