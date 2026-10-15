@@ -69,6 +69,12 @@ class ManagedProfileTest(unittest.TestCase):
         # 少改一次前台就认不出这条画像。
         self.assertEqual(profile["model"], "openai/gpt-image-2")
 
+    def test_omits_an_absent_capability_config(self):
+        # 后台与前台写入的画像里没有这个空键，写出来会让每次预览都报一条假的"同步画像"。
+        model = channel_model("m-old", "audio")
+        model["capabilityConfig"] = None
+        self.assertNotIn("capabilityConfig", pin.managed_profile(model))
+
 
 class ReconcileListTest(unittest.TestCase):
     def test_preserves_order_and_appends_new(self):

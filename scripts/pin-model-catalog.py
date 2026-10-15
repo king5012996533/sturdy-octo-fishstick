@@ -68,6 +68,8 @@ CATALOG: dict[str, set[str]] = {
         # Replicate 备用（连字符标识，与上面两条是同一个逻辑模型的两条通路）
         "openai/gpt-image-2.5-sunburst",
         "openai/gpt-image-2.5-flare",
+        # 已退役、不要再加回来：google/imagen-4 与 imagen-4-fast（Replicate）。这两条
+        # 是早期接入的备选，跑下来不如 fal 的两个 2.5 系，2026-10 起不再对外出售。
         # 火山方舟 Seedream 5.0：2026-10 起只卖 pro / flash 两个型号，Lite 已下架。
         "doubao-seedream-5-0-pro-260628",
         "doubao-seedream-5-0-flash-260915",
@@ -79,6 +81,8 @@ CATALOG: dict[str, set[str]] = {
         "fal-ai/recraft/upscale/crisp",
     },
     "video": {
+        # 已退役、不要再加回来：Aigen 的 seedance-2.0 / seedance-2.5（CHANNEL_000007）。
+        # 2026-10 起不再对外出售，渠道模型保持停用。
         # 秘塔 MiniMax-H3：同一模型的两个分辨率档各占一条货架记录，
         # 漏一个就会被这个脚本当成"超纲"下架，前台少一档。
         "MiniMax-H3",
@@ -226,14 +230,19 @@ def managed_profile(model: dict) -> dict:
     多写的字段——`id`、`variants`、时间戳——会跟着配置一起被下发到前台。字段名写错
     不会报错，只会让前台按"没有画像"回落到默认能力合同，等于模型悄悄降级。
     """
-    return {
+    capability_config = model.get("capabilityConfig")
+    profile = {
         "model": model.get("modelKey", ""),
         "displayName": model.get("displayName", ""),
         "icon": model.get("icon", ""),
         "capability": model.get("capability", ""),
         "protocol": model.get("protocol", ""),
-        "capabilityConfig": model.get("capabilityConfig"),
     }
+    # 没有能力配置时不要写出这个空键。前台与后台写入画像时都不带它，只有这里带上，
+    # 结果是每次预览都报一条"同步 N 条模型画像"的假变更——真正该看见的差异被淹在里面。
+    if capability_config is not None:
+        profile["capabilityConfig"] = capability_config
+    return profile
 
 
 def register_missing_channels(config: dict, shelf: dict[str, list[dict]], meta: dict[str, dict]) -> list[str]:
