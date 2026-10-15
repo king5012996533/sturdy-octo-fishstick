@@ -90,8 +90,11 @@ def capability_config() -> dict:
                 "maxImageBytes": MAX_IMAGE_BYTES,
                 "maskSupported": False,
             },
-            "size": {"parameter": "none", "values": [], "default": "", "allowCustom": False},
-            "quality": {"supported": False, "values": [], "default": ""},
+            # default 写 "auto" 而不是空串：接口落库时会把空串规范化成 "auto"，声明空串会让
+            # 每次复跑都比出"能力配置有变化"、白白多发一次 PUT（2026-10-16 线上实测）。
+            # 这里声明的就是存储层最终保留的那个值。
+            "size": {"parameter": "none", "values": [], "default": "auto", "allowCustom": False},
+            "quality": {"supported": False, "values": [], "default": "auto"},
             "transparentBackground": {"supported": False, "default": False},
             "responseFormat": {"supported": False},
             "outputFormat": {"supported": False},

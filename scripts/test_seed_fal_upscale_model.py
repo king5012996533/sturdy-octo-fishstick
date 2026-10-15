@@ -65,6 +65,17 @@ class FalUpscaleSeedTest(unittest.TestCase):
         self.assertTrue(payload["enabled"])
         self.assertEqual(payload["capabilityConfig"], seed.capability_config())
 
+    def test_normalised_defaults_do_not_look_like_drift(self):
+        # 接口会把空串 default 规范化成 "auto" 再落库，所以脚本声明的必须就是落库后的那个值：
+        # 否则每次复跑都判成"能力配置有变化"，对生产重复发一次 PUT（2026-10-16 线上实测过）。
+        stored = seed.model_payload()
+        stored["id"] = "MODEL_000232"
+        self.assertFalse(seed.model_drift(stored, seed.model_payload()))
+        # 真正的开关变化仍要能识别出来：toolOnly 被关掉必须写回，否则模型会重新出现在下拉里。
+        drifted = seed.model_payload()
+        drifted["capabilityConfig"]["image"]["toolOnly"] = False
+        self.assertTrue(seed.model_drift(drifted, seed.model_payload()))
+
     def test_price_row_is_by_image_and_keyed_by_channel(self):
         row = seed.price_payload(CHANNEL_ID)
         self.assertEqual(row["modelKey"], f"{CHANNEL_ID}::{seed.MODEL_KEY}")
