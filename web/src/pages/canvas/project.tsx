@@ -422,6 +422,7 @@ function InfiniteCanvasPage() {
     const [subtitleNodeId, setSubtitleNodeId] = useState<string | null>(null);
     const [timelineNodeId, setTimelineNodeId] = useState<string | null>(null);
     const [superResolveNodeId, setSuperResolveNodeId] = useState<string | null>(null);
+    const [removeBackgroundNodeId, setRemoveBackgroundNodeId] = useState<string | null>(null);
     const [previewNodeId, setPreviewNodeId] = useState<string | null>(null);
     const [scriptEditorNodeId, setScriptEditorNodeId] = useState<string | null>(null);
     const [artCritiqueNodeId, setArtCritiqueNodeId] = useState<string | null>(null);
@@ -1385,6 +1386,7 @@ function InfiniteCanvasPage() {
         splitImageNode,
         upscaleImageNode,
         superResolveImageNode,
+        removeBackgroundImageNode,
         upscaleNodeId,
     } = useCanvasMediaTools({
         projectId,
@@ -1428,6 +1430,7 @@ function InfiniteCanvasPage() {
             setLightingNodeId(clearDeletedId);
             setEmotionNodeId(clearDeletedId);
             setSuperResolveNodeId(clearDeletedId);
+            setRemoveBackgroundNodeId(clearDeletedId);
             setPreviewNodeId(clearDeletedId);
             setRunningNodeId(clearDeletedId);
             setScriptEditorNodeId(clearDeletedId);
@@ -1466,6 +1469,7 @@ function InfiniteCanvasPage() {
             setInlineTrimNodeId,
             setUpscaleNodeId,
             setSuperResolveNodeId,
+            setRemoveBackgroundNodeId,
             setRunningNodeId,
         ],
     );
@@ -2010,6 +2014,7 @@ function InfiniteCanvasPage() {
         selectedVideoNodes,
         skillMentionReferences,
         superResolveNode,
+        removeBackgroundNode,
         toolbarNode,
         upscaleNode,
         versionCompareNodes,
@@ -2033,6 +2038,7 @@ function InfiniteCanvasPage() {
         splitNodeId: null,
         upscaleNodeId,
         superResolveNodeId,
+        removeBackgroundNodeId,
         angleNodeId,
         lightingNodeId,
         emotionNodeId,
@@ -3559,6 +3565,7 @@ function InfiniteCanvasPage() {
                             onSplit={(node, params) => void splitImageNode(node, params)}
                             onUpscale={(node) => setUpscaleNodeId(node.id)}
                             onSuperResolve={(node) => setSuperResolveNodeId(node.id)}
+                            onRemoveBackground={(node) => setRemoveBackgroundNodeId(node.id)}
                             onAngle={(node) => {
                                 setDialogNodeId(null);
                                 setAngleNodeId((current) => (current === node.id ? null : node.id));
@@ -3908,6 +3915,12 @@ function InfiniteCanvasPage() {
                             onConfirmSuperResolve={(node) => {
                                 void superResolveImageNode(node);
                                 setSuperResolveNodeId(null);
+                            }}
+                            removeBackgroundNode={removeBackgroundNode}
+                            onCloseRemoveBackground={() => setRemoveBackgroundNodeId(null)}
+                            onConfirmRemoveBackground={(node) => {
+                                void removeBackgroundImageNode(node);
+                                setRemoveBackgroundNodeId(null);
                             }}
                             previewNode={previewNode}
                             onClosePreview={() => setPreviewNodeId(null)}

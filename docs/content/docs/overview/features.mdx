@@ -118,6 +118,25 @@ description: 当前项目已实现的核心工作台能力与使用入口
 - `plugin-packages/fal-upscale/`：`fal-upscale` 协议插件，路径写死 `/fal-ai/recraft/upscale/crisp`。
 - `scripts/seed-fal-upscale-model.py`：上架这条模型与价目（默认预览，加 `--apply` 写入）。
 
+## 画布图片移除背景
+
+节点快捷工具里，「移除背景」与「AI 超分」并列：点开弹窗即见原图尺寸、输出格式与本次消耗，确认后异步生成一张透明底新图挂在原图右侧，原图保留。抠图在服务端完成（fal BiRefNet v2），上游只接受一张原图、不改尺寸，输出分辨率与输入一致。
+
+交付物是**带 alpha 通道的 PNG，且刻意不做有损重编码**。这与超分相反：那边放大 4 倍后必须把十几兆的结果压下来，而这里产物本身只有几兆（1024² 约 0.58 MB、4096×2731 约 2.74 MB），而透明边缘对压缩极敏感——有损压过一次，主体轮廓就会出现灰边和噪点，抠图的交付物正是一圈边缘。数据实测见 `plugin-packages/fal-remove-background/docs/interface.md`。
+
+按张计费（一张一价，与尺寸档无关），价格同样来自后端试算，弹窗不写死数字；余额不足或通道未定价时按钮禁用并说明原因。计价单位是 `IMAGE`（张）。上游按算力秒计费（$0.000575/s），成本随分辨率浮动，因此上架脚本记的是按实测耗时估的上限口径（见 `scripts/seed-fal-remove-background-model.py` 的定价说明）。
+
+与超分一样，这条模型是**工具专用**（`toolOnly`）：照常下发目录、定价与计费，但不进用户的模型下拉。上架同样要同时改渠道开关、平台模型清单与 `scripts/pin-model-catalog.py` 的 `CATALOG` 白名单——漏掉最后一项会在下次跑货架脚本时被当成"超纲"下架，表现是按钮点不动。
+
+### 相关实现
+
+- `web/src/components/canvas/canvas-image-toolbar-tools.tsx`：节点快捷工具里的「移除背景」入口。
+- `web/src/components/canvas/canvas-node-remove-background-dialog.tsx`：确认弹窗（原图尺寸、输出格式、试算价与余额）。
+- `web/src/lib/canvas/canvas-image-remove-background.ts`：固定调用口径（模型标识、渠道解析、参数收敛）。
+- `web/src/pages/canvas/use-canvas-media-tools.ts`：提交任务与子节点落库（结果直传，不重编码）。
+- `plugin-packages/fal-remove-background/`：`fal-remove-background` 协议插件，路径写死 `/fal-ai/birefnet/v2`。
+- `scripts/seed-fal-remove-background-model.py`：上架这条模型与价目（默认预览，加 `--apply` 写入）。
+
 ## 系统渠道排序与前台别名
 
 后台系统渠道及渠道模型列表通过“设置排序”打开完整列表，支持拖动、上移和下移，点击“保存排序”统一生效；取消不会修改线上顺序。渠道行的“更多”菜单支持复制渠道，复制会生成独立的渠道、模型和价格档，并保留原连接配置与凭证。界面不显示内部排序数字，排序不受筛选及分页影响；并发修改会提示重新加载，避免覆盖其他管理员的调整。系统渠道模式下，用户端模型选择器沿用同一渠道及模型顺序。模型排序独立保存，不改变价格、能力版本或启用状态。

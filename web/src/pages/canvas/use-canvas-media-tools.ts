@@ -15,6 +15,7 @@ import type { CanvasVideoFrameParams } from "@/components/canvas/canvas-video-fr
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { cropDataUrl, MAX_UPSCALE_LONG_EDGE, reencodeImageDataUrl, splitDataUrl, upscaleDataUrl } from "@/lib/canvas/canvas-image-data";
 import { resolveSuperResolveConfig, SUPER_RESOLVE_PROMPT } from "@/lib/canvas/canvas-image-super-resolve";
+import { REMOVE_BACKGROUND_PROMPT, resolveRemoveBackgroundConfig } from "@/lib/canvas/canvas-image-remove-background";
 import { normalizeVideoCropForEncoding } from "@/lib/canvas/video-crop-geometry";
 import { isValidGridSplit, layoutGridSplitCells } from "@/lib/canvas/canvas-grid-split";
 import { audioMetadata, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-generation-task-sync";
@@ -974,6 +975,49 @@ export function useCanvasMediaTools({
         }
     }, [bindGenerationTask, effectiveConfig, finishGenerationRequest, message, nodesRef, persistMediaNodes, projectId, setConnections, setDialogNodeId, setNodes, setRunningNodeId, setSelectedNodeIds, startGenerationRequest]);
 
+    const removeBackgroundImageNode = useCallback(async (node: CanvasNodeData) => {
+        if (!node.metadata?.content) return;
+        // 抠图走平台登记的固定端点，模型与参数都在 resolveRemoveBackgroundConfig 里定死；
+        // 目录里没有这条模型说明渠道没配好，此时不该退回到用户当前选中的图片模型上。
+        const generationConfig = resolveRemoveBackgroundConfig(effectiveConfig);
+        if (!generationConfig) {
+            message.error("当前未配置移除背景通道，请联系平台管理员");
+            return;
+        }
+        const source = nodeReferenceImage(node);
+        if (!source) return;
+        const childId = nanoid();
+        const imageSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
+        const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, [source]);
+        setRunningNodeId(childId);
+        setNodes((current) => [...current, { id: childId, type: CanvasNodeType.Image, title: `${node.title || "图片"} · 移除背景`, position: { x: node.position.x + node.width + 96, y: node.position.y }, width: imageSpec.width, height: imageSpec.height, metadata: { prompt: REMOVE_BACKGROUND_PROMPT, status: NODE_STATUS_LOADING, ...generationMetadata } }]);
+        setConnections((current) => [...current, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
+        setSelectedNodeIds(new Set([childId]));
+        setDialogNodeId(childId);
+        const controller = startGenerationRequest(childId, node.id, childId);
+        try {
+            const result = await runBackendCanvasGenerationTask({ projectId, nodeId: childId, mode: "image", prompt: REMOVE_BACKGROUND_PROMPT, config: generationConfig, referenceImages: [source], signal: controller.signal, metadata: { sourceNodeId: node.id, edit: "remove_background" }, onTaskCreated: (task) => bindGenerationTask(childId, task) });
+            const image = result.images?.[0];
+            if (!image?.dataUrl) throw new Error("后端任务没有返回图片");
+            // 抠图不改尺寸，上游回的 PNG（带 alpha）本身就只有几兆，直接落库。
+            // 这里刻意不做有损重编码：透明边缘被有损压过一次就会出现灰边，抠图的交付物正是一圈边缘。
+            const uploaded = await uploadImage(image.dataUrl);
+            const size = fitNodeSize(uploaded.width, uploaded.height, imageSpec.width, imageSpec.height);
+            const currentNode = nodesRef.current.find((item) => item.id === childId);
+            if (!currentNode) throw new Error("抠图节点已被删除");
+            const finalizedNode = { ...currentNode, width: size.width, height: size.height, metadata: { ...currentNode.metadata, ...imageMetadata(uploaded), prompt: REMOVE_BACKGROUND_PROMPT, ...generationMetadata } };
+            setNodes((current) => current.map((item) => item.id === childId ? finalizedNode : item));
+            await persistMediaNodes([finalizedNode]);
+        } catch (error) {
+            if (isGenerationCanceled(error)) return;
+            const details = generationErrorMessage(error);
+            setNodes((current) => current.map((item) => item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: details } } : item));
+        } finally {
+            finishGenerationRequest(childId, controller);
+            setRunningNodeId(null);
+        }
+    }, [bindGenerationTask, effectiveConfig, finishGenerationRequest, message, nodesRef, persistMediaNodes, projectId, setConnections, setDialogNodeId, setNodes, setRunningNodeId, setSelectedNodeIds, startGenerationRequest]);
+
     const generateAngleNode = useCallback(async (node: CanvasNodeData, params: CanvasImageAngleParams) => {
         if (!node.metadata?.content) return;
         const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1" };
@@ -1164,6 +1208,7 @@ export function useCanvasMediaTools({
         splitImageNode,
         upscaleImageNode,
         superResolveImageNode,
+        removeBackgroundImageNode,
         upscaleNodeId,
     };
 }

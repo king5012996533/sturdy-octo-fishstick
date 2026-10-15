@@ -1,16 +1,17 @@
 import type { ReactNode } from "react";
-import { Brush, Camera, Copy, FileText, Globe2, Grid2x2, Lock, LockOpen, Maximize2, PencilLine, Crop, SlidersHorizontal, Smile, Sparkles, Sun, Upload, Scaling } from "lucide-react";
+import { Brush, Camera, Copy, Eraser, FileText, Globe2, Grid2x2, Lock, LockOpen, Maximize2, PencilLine, Crop, SlidersHorizontal, Smile, Sparkles, Sun, Upload, Scaling } from "lucide-react";
 
 import type { CanvasNodeData } from "@/types/canvas";
 import type { NodeToolbarGroup } from "@/lib/canvas/tool-registry";
 
-type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "annotation" | "maskEdit" | "emotion" | "portraitTexture" | "crop" | "split" | "upscale" | "superResolve" | "angle" | "lighting" | "panorama" | "view";
+type ImageNodeActionToolId = "copyPrompt" | "reversePrompt" | "replace" | "resize" | "annotation" | "maskEdit" | "removeBackground" | "emotion" | "portraitTexture" | "crop" | "split" | "upscale" | "superResolve" | "angle" | "lighting" | "panorama" | "view";
 
 type ImageToolHandlers = {
     onUpload: (node: CanvasNodeData) => void;
     onToggleFreeResize: (node: CanvasNodeData) => void;
     onAnnotate: (node: CanvasNodeData) => void;
     onMaskEdit: (node: CanvasNodeData) => void;
+    onRemoveBackground: (node: CanvasNodeData) => void;
     onEmotion: (node: CanvasNodeData) => void;
     onPortraitTexture: (node: CanvasNodeData) => void;
     onCrop: (node: CanvasNodeData) => void;
@@ -101,6 +102,15 @@ const imageToolDefinitions: ImageToolDefinition[] = [
         group: "primary",
         order: 20,
         run: (node, handlers) => handlers.onSuperResolve(node),
+    },
+    {
+        id: "removeBackground",
+        label: "移除背景",
+        description: "抠掉背景，生成透明底 PNG，尺寸不变",
+        icon: () => <Eraser className="size-3.5" />,
+        group: "primary",
+        order: 30,
+        run: (node, handlers) => handlers.onRemoveBackground(node),
     },
     {
         id: "emotion",

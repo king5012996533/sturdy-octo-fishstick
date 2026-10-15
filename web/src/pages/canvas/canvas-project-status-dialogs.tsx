@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { CanvasImagePreview } from "@/components/canvas/canvas-image-preview";
 import { CanvasNodeSuperResolveDialog } from "@/components/canvas/canvas-node-super-resolve-dialog";
+import { CanvasNodeRemoveBackgroundDialog } from "@/components/canvas/canvas-node-remove-background-dialog";
 import { TaskDetailItem } from "./canvas-project-feedback";
 import { generationTaskShowsProgress, generationTaskStageLabel } from "@/lib/generation-task-display";
 import { canRetrieveVideoResult, formatTaskLog, type GenerationTask, type TaskLog } from "@/services/api/task-center";
@@ -15,6 +16,7 @@ import { resolveImageUrl } from "@/services/image-storage";
 import { resolveMediaUrl } from "@/services/file-storage";
 import { buildLibTVVideoSourceUrl } from "@/lib/canvas/libtv-import";
 import { resolveSuperResolveConfig } from "@/lib/canvas/canvas-image-super-resolve";
+import { resolveRemoveBackgroundConfig } from "@/lib/canvas/canvas-image-remove-background";
 
 type CanvasProjectStatusDialogsProps = {
     theme: { node: { stroke: string; panel: string; muted: string; fill: string } };
@@ -28,6 +30,9 @@ type CanvasProjectStatusDialogsProps = {
     superResolveNode: CanvasNodeData | null;
     onCloseSuperResolve: () => void;
     onConfirmSuperResolve: (node: CanvasNodeData) => void;
+    removeBackgroundNode: CanvasNodeData | null;
+    onCloseRemoveBackground: () => void;
+    onConfirmRemoveBackground: (node: CanvasNodeData) => void;
     previewNode: CanvasNodeData | null;
     onClosePreview: () => void;
     clearConfirmOpen: boolean;
@@ -35,11 +40,13 @@ type CanvasProjectStatusDialogsProps = {
     onConfirmClear: () => void;
 };
 
-export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading, superResolveNode, previewNode, clearConfirmOpen, onCloseTask, onCancelTask, onRetrieveTask, retrievingTaskId, onCloseSuperResolve, onConfirmSuperResolve, onClosePreview, onCancelClear, onConfirmClear }: CanvasProjectStatusDialogsProps) {
+export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading, superResolveNode, removeBackgroundNode, previewNode, clearConfirmOpen, onCloseTask, onCancelTask, onRetrieveTask, retrievingTaskId, onCloseSuperResolve, onConfirmSuperResolve, onCloseRemoveBackground, onConfirmRemoveBackground, onClosePreview, onCancelClear, onConfirmClear }: CanvasProjectStatusDialogsProps) {
     const config = useEffectiveConfig();
     const previewSource = useResolvedPreviewSource(previewNode);
     const superResolveSource = useResolvedPreviewSource(superResolveNode);
     const superResolveConfig = useMemo(() => resolveSuperResolveConfig(config), [config]);
+    const removeBackgroundSource = useResolvedPreviewSource(removeBackgroundNode);
+    const removeBackgroundConfig = useMemo(() => resolveRemoveBackgroundConfig(config), [config]);
     return (
         <>
             <Modal title="任务详情" open={Boolean(task)} footer={null} width="min(920px, calc(100vw - 32px))" onCancel={onCloseTask}>
@@ -96,6 +103,15 @@ export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading,
                 onClose={onCloseSuperResolve}
                 onConfirm={() => {
                     if (superResolveNode) onConfirmSuperResolve(superResolveNode);
+                }}
+            />
+
+            <CanvasNodeRemoveBackgroundDialog
+                source={removeBackgroundSource}
+                config={removeBackgroundConfig}
+                onClose={onCloseRemoveBackground}
+                onConfirm={() => {
+                    if (removeBackgroundNode) onConfirmRemoveBackground(removeBackgroundNode);
                 }}
             />
 

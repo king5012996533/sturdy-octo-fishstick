@@ -42,6 +42,7 @@ type CanvasNodeToolbarProps = {
     onSplit: (node: CanvasNodeData, params: ImageSplitParams) => void;
     onUpscale: (node: CanvasNodeData) => void;
     onSuperResolve: (node: CanvasNodeData) => void;
+    onRemoveBackground: (node: CanvasNodeData) => void;
     onAngle: (node: CanvasNodeData) => void;
     onLighting: (node: CanvasNodeData) => void;
     onPanorama: (node: CanvasNodeData) => void;
@@ -103,6 +104,7 @@ export function CanvasNodeToolbar({
     onSplit,
     onUpscale,
     onSuperResolve,
+    onRemoveBackground,
     onAngle,
     onLighting,
     onPanorama,
@@ -236,6 +238,7 @@ export function CanvasNodeToolbar({
         onCrop,
         onUpscale,
         onSuperResolve,
+        onRemoveBackground,
         onAngle,
         onLighting,
         onPanorama,
@@ -265,6 +268,7 @@ export function CanvasNodeToolbar({
         onNodeSplit: (target) => onSplit(target, { rows: 2, columns: 2 }),
         onNodeUpscale: onUpscale,
         onNodeSuperResolve: onSuperResolve,
+        onNodeRemoveBackground: onRemoveBackground,
         onNodeAngle: onAngle,
         onNodeViewImage: onViewImage,
         onNodeExtractVideoFrames: onExtractVideoFrames,
@@ -327,7 +331,7 @@ export function CanvasNodeToolbar({
     // Image nodes use a deliberately small, stable action hierarchy. Keep the
     // underlying handlers/tool definitions intact, but only expose the actions
     // that belong to the four image workflows in the primary dock.
-    const imagePrimaryTools = primary.filter((tool) => tool.id === "maskEdit" || tool.id === "superResolve");
+    const imagePrimaryTools = primary.filter((tool) => tool.id === "maskEdit" || tool.id === "superResolve" || tool.id === "removeBackground");
     const portraitTools = compact ? [] : isImage ? inGroup("portrait").filter((tool) => tool.id === "emotion") : inGroup("portrait");
     const viewpointLightingTools = compact ? [] : isImage ? [...inGroup("viewpoint"), ...inGroup("lighting")].filter((tool) => tool.id === "angle" || tool.id === "lighting") : [...inGroup("viewpoint"), ...inGroup("lighting")];
     const panoramaTools = compact || isImage ? [] : inGroup("panorama");

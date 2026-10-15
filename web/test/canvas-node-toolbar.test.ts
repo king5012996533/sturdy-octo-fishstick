@@ -89,6 +89,8 @@ describe("canvas node toolbar model", () => {
         expect(tools.find((tool) => tool.id === "maskEdit")?.group).toBe("primary");
         // AI 超分与局部重绘同属一级按钮：它是一次付费动作，藏在菜单里等于把它埋掉。
         expect(tools.find((tool) => tool.id === "superResolve")?.group).toBe("primary");
+        // 移除背景同理：电商主图的一天里要用很多次，埋进菜单等于让用户每次都多点两下。
+        expect(tools.find((tool) => tool.id === "removeBackground")?.group).toBe("primary");
         expect(tools.find((tool) => tool.id === "emotion")?.group).toBe("portrait");
         expect(tools.find((tool) => tool.id === "upscale")?.description).toContain("不是 AI 超分");
         expect(tools.find((tool) => tool.id === "crop")?.section).toBe("构图与尺寸");

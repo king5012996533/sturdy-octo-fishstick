@@ -91,6 +91,7 @@ export type ToolbarHandlers = {
     onNodeSplit: (node: CanvasNodeData) => void;
     onNodeUpscale: (node: CanvasNodeData) => void;
     onNodeSuperResolve: (node: CanvasNodeData) => void;
+    onNodeRemoveBackground: (node: CanvasNodeData) => void;
     onNodeAngle: (node: CanvasNodeData) => void;
     onNodeViewImage: (node: CanvasNodeData) => void;
     onNodeExtractVideoFrames: (node: CanvasNodeData, preset?: "current" | "first" | "last") => void;

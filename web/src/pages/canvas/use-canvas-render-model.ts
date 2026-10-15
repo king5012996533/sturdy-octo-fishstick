@@ -33,6 +33,7 @@ type UseCanvasRenderModelOptions = {
     splitNodeId: string | null;
     upscaleNodeId: string | null;
     superResolveNodeId: string | null;
+    removeBackgroundNodeId: string | null;
     angleNodeId: string | null;
     lightingNodeId: string | null;
     emotionNodeId: string | null;
@@ -63,6 +64,7 @@ export function useCanvasRenderModel({
     splitNodeId,
     upscaleNodeId,
     superResolveNodeId,
+    removeBackgroundNodeId,
     angleNodeId,
     lightingNodeId,
     emotionNodeId,
@@ -225,6 +227,7 @@ export function useCanvasRenderModel({
     const splitNode = splitNodeId ? nodeById.get(splitNodeId) || null : null;
     const upscaleNode = upscaleNodeId ? nodeById.get(upscaleNodeId) || null : null;
     const superResolveNode = superResolveNodeId ? nodeById.get(superResolveNodeId) || null : null;
+    const removeBackgroundNode = removeBackgroundNodeId ? nodeById.get(removeBackgroundNodeId) || null : null;
     const angleNode = angleNodeId ? nodeById.get(angleNodeId) || null : null;
     const lightingNode = lightingNodeId ? nodeById.get(lightingNodeId) || null : null;
     const emotionNode = emotionNodeId ? nodeById.get(emotionNodeId) || null : null;
@@ -384,6 +387,7 @@ export function useCanvasRenderModel({
         skillMentionReferences,
         splitNode,
         superResolveNode,
+        removeBackgroundNode,
         toolbarNode,
         upscaleNode,
         versionCompareNodes,
