@@ -46,6 +46,7 @@ import { mergeVideos, warmFFmpeg, type MergeVideoProgress } from "@/lib/canvas/c
 import { cropVideo, extractVideoAudio, removeAudioFromVideo, trimVideoSegment } from "@/lib/canvas/canvas-video-segment";
 import { applyInlineVideoTrimMetadata, normalizeInlineVideoTrimRange, type InlineVideoTrimRange } from "@/lib/canvas/canvas-video-inline-trim";
 import { generationErrorMessage } from "@/lib/generation-error";
+import { isGenerationTaskCapacityError } from "@/lib/canvas/canvas-generation-batch";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
 import { defaultImageParamsForModel } from "@/lib/model-selection";
 import { navigateToSettings } from "@/lib/settings-navigation";
@@ -58,6 +59,7 @@ import { syncLocalCanvasSnapshotForAgent } from "@/services/local-workspace-sync
 import { openLocalCanvasProjectFromBackend } from "@/services/local-workspace-repository";
 import { http } from "@/services/api/request";
 import { flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use-canvas-store";
+import { useUserStore } from "@/stores/use-user-store";
 import type { GenerationTask } from "@/services/api/task-center";
 
 function normalizeMaskEditQuality(quality: string | undefined, size: string | undefined) {
@@ -93,6 +95,11 @@ type UseCanvasMediaToolsOptions = {
     bindGenerationTask: (targetNodeId: string, task: GenerationTask) => void;
 };
 
+// 批量抠图撞上并行任务上限时的退让节奏。等的是别人腾槽位，所以在短内间里重试就够了；
+// 30 次 × 2 秒 = 1 分钟，超过就如实报错，不让用户对着一个转圈的节点无限等。
+const REMOVE_BACKGROUND_CAPACITY_RETRY_LIMIT = 30;
+const REMOVE_BACKGROUND_CAPACITY_RETRY_DELAY_MS = 2_000;
+
 const NODE_STATUS_LOADING = "loading" as const;
 const NODE_STATUS_SUCCESS = "success" as const;
 const NODE_STATUS_ERROR = "error" as const;
@@ -120,6 +127,7 @@ export function useCanvasMediaTools({
 }: UseCanvasMediaToolsOptions) {
     const { message } = App.useApp();
     const effectiveConfig = useEffectiveConfig();
+    const activeTaskLimit = useUserStore((state) => state.runtimeLimits.activeTaskLimit);
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const extractingVideoFramesNodeIdRef = useRef<string | null>(null);
     const mergeVideoRunningRef = useRef(false);
@@ -134,6 +142,8 @@ export function useCanvasMediaTools({
     const [frameDialogNodeId, setFrameDialogNodeId] = useState<string | null>(null);
     const [extractingVideoFramesNodeId, setExtractingVideoFramesNodeId] = useState<string | null>(null);
     const [mergeVideoProgress, setMergeVideoProgress] = useState<MergeVideoProgress | null>(null);
+    const batchRemoveBackgroundRunningRef = useRef(false);
+    const [batchRemovingBackground, setBatchRemovingBackground] = useState(false);
     const [segmentRunningMode, setSegmentRunningMode] = useState<"audio" | null>(null);
     const segmentRunningRef = useRef(false);
     const [inlineTrimNodeId, setInlineTrimNodeId] = useState<string | null>(null);
@@ -975,48 +985,121 @@ export function useCanvasMediaTools({
         }
     }, [bindGenerationTask, effectiveConfig, finishGenerationRequest, message, nodesRef, persistMediaNodes, projectId, setConnections, setDialogNodeId, setNodes, setRunningNodeId, setSelectedNodeIds, startGenerationRequest]);
 
-    const removeBackgroundImageNode = useCallback(async (node: CanvasNodeData) => {
-        if (!node.metadata?.content) return;
+    const runRemoveBackgroundNode = useCallback(async (node: CanvasNodeData, options?: { focus?: boolean; waitForCapacity?: boolean }): Promise<boolean> => {
+        if (!node.metadata?.content) return false;
         // 抠图走平台登记的固定端点，模型与参数都在 resolveRemoveBackgroundConfig 里定死；
         // 目录里没有这条模型说明渠道没配好，此时不该退回到用户当前选中的图片模型上。
         const generationConfig = resolveRemoveBackgroundConfig(effectiveConfig);
         if (!generationConfig) {
             message.error("当前未配置移除背景通道，请联系平台管理员");
-            return;
+            return false;
         }
         const source = nodeReferenceImage(node);
-        if (!source) return;
+        if (!source) return false;
+        // 批量时不去抢画布焦点：N 张一起提交，最后一个落地的会把选中态和弹窗甩到用户脸上，
+        // 而他正在看的是整批的进度。
+        const focus = options?.focus ?? true;
         const childId = nanoid();
         const imageSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
         const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, [source]);
-        setRunningNodeId(childId);
+        if (focus) setRunningNodeId(childId);
         setNodes((current) => [...current, { id: childId, type: CanvasNodeType.Image, title: `${node.title || "图片"} · 移除背景`, position: { x: node.position.x + node.width + 96, y: node.position.y }, width: imageSpec.width, height: imageSpec.height, metadata: { prompt: REMOVE_BACKGROUND_PROMPT, status: NODE_STATUS_LOADING, ...generationMetadata } }]);
         setConnections((current) => [...current, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
-        setSelectedNodeIds(new Set([childId]));
-        setDialogNodeId(childId);
-        const controller = startGenerationRequest(childId, node.id, childId);
+        if (focus) {
+            setSelectedNodeIds(new Set([childId]));
+            setDialogNodeId(childId);
+        }
+        let capacityRetry = 0;
         try {
-            const result = await runBackendCanvasGenerationTask({ projectId, nodeId: childId, mode: "image", prompt: REMOVE_BACKGROUND_PROMPT, config: generationConfig, referenceImages: [source], signal: controller.signal, metadata: { sourceNodeId: node.id, edit: "remove_background" }, onTaskCreated: (task) => bindGenerationTask(childId, task) });
-            const image = result.images?.[0];
-            if (!image?.dataUrl) throw new Error("后端任务没有返回图片");
-            // 抠图不改尺寸，上游回的 PNG（带 alpha）本身就只有几兆，直接落库。
-            // 这里刻意不做有损重编码：透明边缘被有损压过一次就会出现灰边，抠图的交付物正是一圈边缘。
-            const uploaded = await uploadImage(image.dataUrl);
-            const size = fitNodeSize(uploaded.width, uploaded.height, imageSpec.width, imageSpec.height);
-            const currentNode = nodesRef.current.find((item) => item.id === childId);
-            if (!currentNode) throw new Error("抠图节点已被删除");
-            const finalizedNode = { ...currentNode, width: size.width, height: size.height, metadata: { ...currentNode.metadata, ...imageMetadata(uploaded), prompt: REMOVE_BACKGROUND_PROMPT, ...generationMetadata } };
-            setNodes((current) => current.map((item) => item.id === childId ? finalizedNode : item));
-            await persistMediaNodes([finalizedNode]);
-        } catch (error) {
-            if (isGenerationCanceled(error)) return;
-            const details = generationErrorMessage(error);
-            setNodes((current) => current.map((item) => item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: details } } : item));
+            // 循环只有一个用途：撞上平台的并行任务上限时退让后重投。
+            // 重投复用同一个子节点，不会在画布上堆一串失败节点。
+            for (;;) {
+                const controller = startGenerationRequest(childId, node.id, childId);
+                try {
+                    const result = await runBackendCanvasGenerationTask({ projectId, nodeId: childId, mode: "image", prompt: REMOVE_BACKGROUND_PROMPT, config: generationConfig, referenceImages: [source], signal: controller.signal, metadata: { sourceNodeId: node.id, edit: "remove_background" }, onTaskCreated: (task) => bindGenerationTask(childId, task) });
+                    const image = result.images?.[0];
+                    if (!image?.dataUrl) throw new Error("后端任务没有返回图片");
+                    // 抠图不改尺寸，上游回的 PNG（带 alpha）本身就只有几兆，直接落库。
+                    // 这里刻意不做有损重编码：透明边缘被有损压过一次就会出现灰边，抠图的交付物正是一圈边缘。
+                    const uploaded = await uploadImage(image.dataUrl);
+                    const size = fitNodeSize(uploaded.width, uploaded.height, imageSpec.width, imageSpec.height);
+                    const currentNode = nodesRef.current.find((item) => item.id === childId);
+                    if (!currentNode) throw new Error("抠图节点已被删除");
+                    const finalizedNode = { ...currentNode, width: size.width, height: size.height, metadata: { ...currentNode.metadata, ...imageMetadata(uploaded), prompt: REMOVE_BACKGROUND_PROMPT, ...generationMetadata } };
+                    setNodes((current) => current.map((item) => item.id === childId ? finalizedNode : item));
+                    await persistMediaNodes([finalizedNode]);
+                    return true;
+                } catch (error) {
+                    if (isGenerationCanceled(error)) return false;
+                    // 并行任务满员时这次提交根本没到上游，不是这张图的错。把子节点收回 loading
+                    // 等下一轮，而不是记成失败——用户看到失败会去点重试，反而更慢。
+                    if (options?.waitForCapacity && isGenerationTaskCapacityError(error) && capacityRetry < REMOVE_BACKGROUND_CAPACITY_RETRY_LIMIT) {
+                        capacityRetry += 1;
+                        setNodes((current) => current.map((item) => item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item));
+                        await new Promise((resolve) => window.setTimeout(resolve, REMOVE_BACKGROUND_CAPACITY_RETRY_DELAY_MS));
+                        continue;
+                    }
+                    const details = generationErrorMessage(error);
+                    setNodes((current) => current.map((item) => item.id === childId ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails: details } } : item));
+                    return false;
+                } finally {
+                    finishGenerationRequest(childId, controller);
+                }
+            }
         } finally {
-            finishGenerationRequest(childId, controller);
-            setRunningNodeId(null);
+            if (focus) setRunningNodeId(null);
         }
     }, [bindGenerationTask, effectiveConfig, finishGenerationRequest, message, nodesRef, persistMediaNodes, projectId, setConnections, setDialogNodeId, setNodes, setRunningNodeId, setSelectedNodeIds, startGenerationRequest]);
+
+    const removeBackgroundImageNode = useCallback(async (node: CanvasNodeData) => {
+        await runRemoveBackgroundNode(node, { focus: true });
+    }, [runRemoveBackgroundNode]);
+
+    /**
+     * 批量抠图：选中多张图，一次提交 N 个任务。
+     *
+     * 上游端点只吃一张原图（见插件的接口说明），所以批量不是“一个任务带 N 张”，
+     * 而是 N 个独立任务：每张单独预扣、单独判定成败，败一张不影响其余。
+     *
+     * 并发不自己发明：收口到平台的“单用户并行任务”策略上，因为那就是服务端会拒绝的线；
+     * 超出的在队列里等前一批腾出槽位再投，而不是把用户自己在跑的任务挤掉。
+     */
+    const removeBackgroundImageNodes = useCallback(async (nodeIds: string[]) => {
+        if (batchRemoveBackgroundRunningRef.current) return;
+        const generationConfig = resolveRemoveBackgroundConfig(effectiveConfig);
+        if (!generationConfig) {
+            message.error("当前未配置移除背景通道，请联系平台管理员");
+            return;
+        }
+        const requested = new Set(nodeIds);
+        const targets = nodesRef.current.filter((node) => requested.has(node.id) && Boolean(node.metadata?.content) && Boolean(nodeReferenceImage(node)));
+        if (!targets.length) {
+            message.warning("选中的节点里没有可抠图的图片");
+            return;
+        }
+        batchRemoveBackgroundRunningRef.current = true;
+        setBatchRemovingBackground(true);
+        try {
+            let cursor = 0;
+            let succeeded = 0;
+            const worker = async () => {
+                while (cursor < targets.length) {
+                    const node = targets[cursor];
+                    cursor += 1;
+                    if (await runRemoveBackgroundNode(node, { focus: false, waitForCapacity: true })) succeeded += 1;
+                }
+            };
+            const concurrency = Math.max(1, Math.min(targets.length, activeTaskLimit));
+            await Promise.all(Array.from({ length: concurrency }, () => worker()));
+            const failed = targets.length - succeeded;
+            if (!failed) message.success(`已完成 ${succeeded} 张抠图`);
+            else if (succeeded) message.warning(`已完成 ${succeeded} 张，${failed} 张失败；失败原因写在各自的子节点上`);
+            else message.error(`${failed} 张抠图都失败了，请稍后重试`);
+        } finally {
+            batchRemoveBackgroundRunningRef.current = false;
+            setBatchRemovingBackground(false);
+        }
+    }, [activeTaskLimit, effectiveConfig, message, nodesRef, runRemoveBackgroundNode]);
 
     const generateAngleNode = useCallback(async (node: CanvasNodeData, params: CanvasImageAngleParams) => {
         if (!node.metadata?.content) return;
@@ -1209,6 +1292,8 @@ export function useCanvasMediaTools({
         upscaleImageNode,
         superResolveImageNode,
         removeBackgroundImageNode,
+        removeBackgroundImageNodes,
+        batchRemovingBackground,
         upscaleNodeId,
     };
 }

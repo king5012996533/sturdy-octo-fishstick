@@ -26,7 +26,9 @@ function Harness() {
         <button onClick={() => setHasId(false)}>missing receipt</button>
         <button onClick={() => { void generation.retrieveTaskResult(task); void generation.retrieveTaskResult(task); }}>double retrieve</button>
         <pre id="snapshot">{JSON.stringify({ projectId, nodes, retrieving: generation.retrievingTaskId })}</pre>
-        <CanvasProjectStatusDialogs theme={{ node: { stroke: "gray", panel: "white", muted: "gray", fill: "white" } }} task={projectId === "canvas-a" ? task : null} taskLogs={[{ id: "log", level: "error", summary: "视频下载中断，请取回结果", createdAt: task.createdAt }]} taskLoading={false} onCloseTask={() => {}} onRetrieveTask={generation.retrieveTaskResult} retrievingTaskId={generation.retrievingTaskId} superResolveNode={null} onCloseSuperResolve={() => {}} onConfirmSuperResolve={() => {}} previewNode={null} onClosePreview={() => {}} clearConfirmOpen={false} onCancelClear={() => {}} onConfirmClear={() => {}} />
+        {/* 弹窗组件的 props 是必填的：漏一个在这里不会报类型错（构建不做类型检查），
+            但会在浏览器里抛异常把整个夹具页渲染掉，表现是后续断言全部超时。 */}
+        <CanvasProjectStatusDialogs theme={{ node: { stroke: "gray", panel: "white", muted: "gray", fill: "white" } }} task={projectId === "canvas-a" ? task : null} taskLogs={[{ id: "log", level: "error", summary: "视频下载中断，请取回结果", createdAt: task.createdAt }]} taskLoading={false} onCloseTask={() => {}} onRetrieveTask={generation.retrieveTaskResult} retrievingTaskId={generation.retrievingTaskId} superResolveNode={null} onCloseSuperResolve={() => {}} onConfirmSuperResolve={() => {}} removeBackgroundNode={null} onCloseRemoveBackground={() => {}} onConfirmRemoveBackground={() => {}} batchRemoveBackgroundNodes={[]} onCloseBatchRemoveBackground={() => {}} onConfirmBatchRemoveBackground={() => {}} previewNode={null} onClosePreview={() => {}} clearConfirmOpen={false} onCancelClear={() => {}} onConfirmClear={() => {}} />
     </>;
 }
 createRoot(document.getElementById("root")!).render(<QueryClientProvider client={new QueryClient()}><App><Harness /></App></QueryClientProvider>);

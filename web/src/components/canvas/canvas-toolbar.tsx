@@ -205,12 +205,14 @@ export function CanvasToolbar({
         onNodeMaskEdit: () => {}, onNodeEmotion: () => {}, onNodePortraitTexture: () => {}, onNodeCrop: () => {}, onNodeSplit: () => {}, onNodeUpscale: () => {},
         onNodeSuperResolve: () => {}, onNodeRemoveBackground: () => {}, onNodeAngle: () => {}, onNodeViewImage: () => {}, onNodeExtractVideoFrames: () => {}, onNodeExtractAudioFromVideo: () => {}, onNodeTrimVideoSegments: () => {}, onNodeCropVideo: () => {}, onNodeSubtitles: () => {}, onNodeTimeline: () => {}, onNodeReversePrompt: () => {},
         onNodeToggleFreeResize: () => {}, onNodeToggleLocked: () => {}, onNodeCopyPrompt: () => {},
+        onBatchRemoveBackground: () => {},
     } as ToolbarHandlers;
 
     const ctx: ToolContext = {
         selectedCount,
         selectedNodeTypes: new Set(),
         selectedVideoCount: 0,
+        selectedImageCount: 0,
         canvasTool,
         workspaceMode,
         isProjectLinked,
@@ -220,6 +222,7 @@ export function CanvasToolbar({
         extractingAudio: false,
         trimmingVideo: false,
         mergingVideos: false,
+        batchRemovingBackground: false,
         addPanelOpen: addOpen,
         appearancePanelOpen: appearanceOpen,
         settingsPanelOpen: settingsOpen,

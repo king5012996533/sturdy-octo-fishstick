@@ -1,10 +1,11 @@
 import { Button, Modal } from "antd";
 import { XCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CanvasImagePreview } from "@/components/canvas/canvas-image-preview";
 import { CanvasNodeSuperResolveDialog } from "@/components/canvas/canvas-node-super-resolve-dialog";
 import { CanvasNodeRemoveBackgroundDialog } from "@/components/canvas/canvas-node-remove-background-dialog";
+import { CanvasBatchRemoveBackgroundDialog } from "@/components/canvas/canvas-batch-remove-background-dialog";
 import { TaskDetailItem } from "./canvas-project-feedback";
 import { generationTaskShowsProgress, generationTaskStageLabel } from "@/lib/generation-task-display";
 import { canRetrieveVideoResult, formatTaskLog, type GenerationTask, type TaskLog } from "@/services/api/task-center";
@@ -33,6 +34,9 @@ type CanvasProjectStatusDialogsProps = {
     removeBackgroundNode: CanvasNodeData | null;
     onCloseRemoveBackground: () => void;
     onConfirmRemoveBackground: (node: CanvasNodeData) => void;
+    batchRemoveBackgroundNodes: CanvasNodeData[];
+    onCloseBatchRemoveBackground: () => void;
+    onConfirmBatchRemoveBackground: () => void;
     previewNode: CanvasNodeData | null;
     onClosePreview: () => void;
     clearConfirmOpen: boolean;
@@ -40,13 +44,14 @@ type CanvasProjectStatusDialogsProps = {
     onConfirmClear: () => void;
 };
 
-export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading, superResolveNode, removeBackgroundNode, previewNode, clearConfirmOpen, onCloseTask, onCancelTask, onRetrieveTask, retrievingTaskId, onCloseSuperResolve, onConfirmSuperResolve, onCloseRemoveBackground, onConfirmRemoveBackground, onClosePreview, onCancelClear, onConfirmClear }: CanvasProjectStatusDialogsProps) {
+export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading, superResolveNode, removeBackgroundNode, batchRemoveBackgroundNodes, previewNode, clearConfirmOpen, onCloseTask, onCancelTask, onRetrieveTask, retrievingTaskId, onCloseSuperResolve, onConfirmSuperResolve, onCloseRemoveBackground, onConfirmRemoveBackground, onCloseBatchRemoveBackground, onConfirmBatchRemoveBackground, onClosePreview, onCancelClear, onConfirmClear }: CanvasProjectStatusDialogsProps) {
     const config = useEffectiveConfig();
     const previewSource = useResolvedPreviewSource(previewNode);
     const superResolveSource = useResolvedPreviewSource(superResolveNode);
     const superResolveConfig = useMemo(() => resolveSuperResolveConfig(config), [config]);
     const removeBackgroundSource = useResolvedPreviewSource(removeBackgroundNode);
     const removeBackgroundConfig = useMemo(() => resolveRemoveBackgroundConfig(config), [config]);
+    const batchRemoveBackgroundSources = useResolvedPreviewSources(batchRemoveBackgroundNodes);
     return (
         <>
             <Modal title="任务详情" open={Boolean(task)} footer={null} width="min(920px, calc(100vw - 32px))" onCancel={onCloseTask}>
@@ -113,6 +118,13 @@ export function CanvasProjectStatusDialogs({ theme, task, taskLogs, taskLoading,
                 onConfirm={() => {
                     if (removeBackgroundNode) onConfirmRemoveBackground(removeBackgroundNode);
                 }}
+            />
+
+            <CanvasBatchRemoveBackgroundDialog
+                sources={batchRemoveBackgroundSources}
+                config={removeBackgroundConfig}
+                onClose={onCloseBatchRemoveBackground}
+                onConfirm={onConfirmBatchRemoveBackground}
             />
 
             <AppModal
@@ -182,6 +194,41 @@ function useResolvedPreviewSource(node: CanvasNodeData | null) {
         return () => { cancelled = true; };
     }, [node]);
     return source;
+}
+
+/**
+ * 批量预览地址：一次解析整批。
+ *
+ * 不给每张套一个 hook——hook 不能在循环里调用，而"每张一个组件"会把一个确认弹窗拆成
+ * 一堆各自为政的 effect。依赖用序列化后的签名而不是数组身份：画布在批量执行期间每帧都
+ * 会有新数组，用数组身份会让这个 effect 一直重跑。
+ */
+function useResolvedPreviewSources(nodes: CanvasNodeData[]) {
+    const nodesRef = useRef(nodes);
+    nodesRef.current = nodes;
+    const signature = nodes.map((node) => [node.id, node.metadata?.storageKey || "", node.metadata?.content || "", node.metadata?.previewContent || ""].join("\u0000")).join("\u0001");
+    const [sources, setSources] = useState<string[]>([]);
+    useEffect(() => {
+        let cancelled = false;
+        if (!nodesRef.current.length) {
+            setSources([]);
+            return;
+        }
+        void Promise.all(
+            nodesRef.current.map((node) => {
+                const content = node.metadata?.content || "";
+                const fallback = node.metadata?.previewContent || content;
+                if (!node.metadata?.storageKey) return Promise.resolve(fallback);
+                return resolveImageUrl(node.metadata.storageKey, fallback, { cacheMiss: true })
+                    .then((resolved) => resolved || fallback)
+                    .catch(() => fallback);
+            }),
+        ).then((resolved) => {
+            if (!cancelled) setSources(resolved.filter((source) => Boolean(source)));
+        });
+        return () => { cancelled = true; };
+    }, [signature]);
+    return sources;
 }
 
 function TaskGenerationParameters({ inputJson, theme }: { inputJson?: string; theme: CanvasProjectStatusDialogsProps["theme"] }) {

@@ -13,27 +13,31 @@ type CanvasProjectSelectionToolbarProps = {
     containerRef: RefObject<HTMLDivElement | null>;
     count: number;
     selectedVideoCount: number;
+    selectedImageCount: number;
     mergingVideos: boolean;
+    batchRemovingBackground: boolean;
     onAlign: (mode: CanvasAlignmentMode) => void;
     onArrange: (mode: "row" | "column" | "grid" | "flow") => void;
     onCreateStoryboard: () => void;
     onCreateReferenceGroup: () => void;
     onBatchConnect: () => void;
     onMergeVideos: () => void;
+    onBatchRemoveBackground: () => void;
     onSendSelectionToAgent: () => void;
 };
 
-export function CanvasProjectSelectionToolbar({ anchorRef, containerRef, count, selectedVideoCount, mergingVideos, onAlign, onArrange, onCreateStoryboard, onCreateReferenceGroup, onBatchConnect, onMergeVideos, onSendSelectionToAgent }: CanvasProjectSelectionToolbarProps) {
+export function CanvasProjectSelectionToolbar({ anchorRef, containerRef, count, selectedVideoCount, selectedImageCount, mergingVideos, batchRemovingBackground, onAlign, onArrange, onCreateStoryboard, onCreateReferenceGroup, onBatchConnect, onMergeVideos, onBatchRemoveBackground, onSendSelectionToAgent }: CanvasProjectSelectionToolbarProps) {
     const theme = canvasThemes[useCanvasThemeStore((state) => state.theme)];
 
     const handlers = {
-        onAlign, onArrange, onCreateStoryboard, onCreateReferenceGroup, onBatchConnect, onMergeVideos, onSendSelectionToAgent,
+        onAlign, onArrange, onCreateStoryboard, onCreateReferenceGroup, onBatchConnect, onMergeVideos, onBatchRemoveBackground, onSendSelectionToAgent,
     } as Partial<ToolbarHandlers> as ToolbarHandlers;
 
     const ctx: ToolContext = {
         selectedCount: count,
         selectedNodeTypes: new Set(),
         selectedVideoCount,
+        selectedImageCount,
         canvasTool: "move",
         workspaceMode: "professional",
         isProjectLinked: false,
@@ -43,6 +47,7 @@ export function CanvasProjectSelectionToolbar({ anchorRef, containerRef, count, 
         extractingAudio: false,
         trimmingVideo: false,
         mergingVideos,
+        batchRemovingBackground,
         addPanelOpen: false,
         appearancePanelOpen: false,
         settingsPanelOpen: false,

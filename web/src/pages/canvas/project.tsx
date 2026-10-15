@@ -423,6 +423,7 @@ function InfiniteCanvasPage() {
     const [timelineNodeId, setTimelineNodeId] = useState<string | null>(null);
     const [superResolveNodeId, setSuperResolveNodeId] = useState<string | null>(null);
     const [removeBackgroundNodeId, setRemoveBackgroundNodeId] = useState<string | null>(null);
+    const [batchRemoveBackgroundNodeIds, setBatchRemoveBackgroundNodeIds] = useState<string[]>([]);
     const [previewNodeId, setPreviewNodeId] = useState<string | null>(null);
     const [scriptEditorNodeId, setScriptEditorNodeId] = useState<string | null>(null);
     const [artCritiqueNodeId, setArtCritiqueNodeId] = useState<string | null>(null);
@@ -1387,6 +1388,8 @@ function InfiniteCanvasPage() {
         upscaleImageNode,
         superResolveImageNode,
         removeBackgroundImageNode,
+        removeBackgroundImageNodes,
+        batchRemovingBackground,
         upscaleNodeId,
     } = useCanvasMediaTools({
         projectId,
@@ -1431,6 +1434,8 @@ function InfiniteCanvasPage() {
             setEmotionNodeId(clearDeletedId);
             setSuperResolveNodeId(clearDeletedId);
             setRemoveBackgroundNodeId(clearDeletedId);
+            // 批量抠图的快照同理：源图被删掉之后，那个批次里就没有可提交的对象了。
+            setBatchRemoveBackgroundNodeIds((current) => (current.length ? current.filter((id) => !removedIds.has(id)) : current));
             setPreviewNodeId(clearDeletedId);
             setRunningNodeId(clearDeletedId);
             setScriptEditorNodeId(clearDeletedId);
@@ -1470,6 +1475,7 @@ function InfiniteCanvasPage() {
             setUpscaleNodeId,
             setSuperResolveNodeId,
             setRemoveBackgroundNodeId,
+            setBatchRemoveBackgroundNodeIds,
             setRunningNodeId,
         ],
     );
@@ -2011,10 +2017,12 @@ function InfiniteCanvasPage() {
         relatedHighlight,
         resourceReferenceByNodeId,
         selectedNodeBounds,
+        selectedImageNodes,
         selectedVideoNodes,
         skillMentionReferences,
         superResolveNode,
         removeBackgroundNode,
+        batchRemoveBackgroundNodes,
         toolbarNode,
         upscaleNode,
         versionCompareNodes,
@@ -2039,6 +2047,7 @@ function InfiniteCanvasPage() {
         upscaleNodeId,
         superResolveNodeId,
         removeBackgroundNodeId,
+        batchRemoveBackgroundNodeIds,
         angleNodeId,
         lightingNodeId,
         emotionNodeId,
@@ -3522,13 +3531,16 @@ function InfiniteCanvasPage() {
                                 containerRef={containerRef}
                                 count={selectedNodeBounds.count}
                                 selectedVideoCount={selectedVideoNodes.length}
+                                selectedImageCount={selectedImageNodes.length}
                                 mergingVideos={Boolean(mergeVideoProgress)}
+                                batchRemovingBackground={batchRemovingBackground}
                                 onAlign={alignSelectedNodes}
                                 onArrange={arrangeSelectedNodes}
                                 onCreateStoryboard={createStoryboardGroup}
                                 onCreateReferenceGroup={createReferenceGroup}
                                 onBatchConnect={() => beginBatchConnectionMode(Array.from(selectedNodeIds))}
                                 onMergeVideos={() => void mergeSelectedVideos()}
+                                onBatchRemoveBackground={() => setBatchRemoveBackgroundNodeIds(selectedImageNodes.map((node) => node.id))}
                                 onSendSelectionToAgent={() => sendSelectionToAgent()}
                             />
                         ) : null}
@@ -3921,6 +3933,12 @@ function InfiniteCanvasPage() {
                             onConfirmRemoveBackground={(node) => {
                                 void removeBackgroundImageNode(node);
                                 setRemoveBackgroundNodeId(null);
+                            }}
+                            batchRemoveBackgroundNodes={batchRemoveBackgroundNodes}
+                            onCloseBatchRemoveBackground={() => setBatchRemoveBackgroundNodeIds([])}
+                            onConfirmBatchRemoveBackground={() => {
+                                void removeBackgroundImageNodes(batchRemoveBackgroundNodeIds);
+                                setBatchRemoveBackgroundNodeIds([]);
                             }}
                             previewNode={previewNode}
                             onClosePreview={() => setPreviewNodeId(null)}

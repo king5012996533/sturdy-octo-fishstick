@@ -70,6 +70,7 @@ export type ToolbarHandlers = {
     onCreateReferenceGroup: () => void;
     onBatchConnect: () => void;
     onMergeVideos: () => void;
+    onBatchRemoveBackground: () => void;
     onSendSelectionToAgent: () => void;
     // 节点悬停工具栏——节点操作（均接收当前节点）
     onNodeInfo: (node: CanvasNodeData) => void;
@@ -111,6 +112,13 @@ export type ToolContext = {
     selectedCount: number;
     selectedNodeTypes: Set<CanvasNodeTypeId>;
     selectedVideoCount: number;
+    /**
+     * 选中项里"有成品、能直接抠掉背景"的图片数量。
+     *
+     * 只数图片节点，且要求已经有内容：抠图没有原图就发不出去，把空节点算进来只会让
+     * 用户点到一个必然失败的按钮。多选工具栏据此决定批量入口出不出现。
+     */
+    selectedImageCount: number;
     canvasTool: CanvasToolMode;
     workspaceMode: CanvasWorkspaceMode;
     isProjectLinked: boolean;
@@ -127,6 +135,8 @@ export type ToolContext = {
     trimmingVideo: boolean;
     /** 合并视频中（多选工具栏用） */
     mergingVideos: boolean;
+    /** 批量移除背景中（多选工具栏用） */
+    batchRemovingBackground: boolean;
     /** 主工具栏面板开关状态（仅主工具栏使用） */
     addPanelOpen: boolean;
     appearancePanelOpen: boolean;

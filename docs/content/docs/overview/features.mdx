@@ -128,12 +128,22 @@ description: 当前项目已实现的核心工作台能力与使用入口
 
 与超分一样，这条模型是**工具专用**（`toolOnly`）：照常下发目录、定价与计费，但不进用户的模型下拉。上架同样要同时改渠道开关、平台模型清单与 `scripts/pin-model-catalog.py` 的 `CATALOG` 白名单——漏掉最后一项会在下次跑货架脚本时被当成"超纲"下架，表现是按钮点不动。
 
+### 批量抠图
+
+在多选工具栏上选中两张以上**有成品**的图片，会出现「批量移除背景（N）」。弹窗按"张数 × 单张价"给出合计与余额，确认后逐张提交。
+
+批量不是"一个任务带 N 张图"——上游端点只接受一张原图，所以它是 N 个独立任务：每张单独预扣、单独判定成败，坏一张不影响其余，失败的那张按既有退款判据退回。并发收口到平台的「单用户并行任务」策略上：超出的在队列里等前一批腾出槽位，撞上上限时退让后重投（30 次 × 2 秒），而不是把用户自己在跑的任务挤掉，也不是把"平台忙"记成这张图的失败。
+
+合计是前端按"张数 × 后端试算出的单张价"写的。这个乘法之所以成立，是因为抠图是一任务一张图的固定端点（`count` 固定为 1、只有一行不分档的价目、没有参考图加收）；哪天这条线上档位或加收，总价就必须改由后端给出。
+
 ### 相关实现
 
 - `web/src/components/canvas/canvas-image-toolbar-tools.tsx`：节点快捷工具里的「移除背景」入口。
 - `web/src/components/canvas/canvas-node-remove-background-dialog.tsx`：确认弹窗（原图尺寸、输出格式、试算价与余额）。
+- `web/src/lib/canvas/tool-registry/definitions/selection-toolbar-tools.tsx`：多选工具栏上的「批量移除背景」入口。
+- `web/src/components/canvas/canvas-batch-remove-background-dialog.tsx`：批量确认弹窗（张数、单张价、合计与余额）。
 - `web/src/lib/canvas/canvas-image-remove-background.ts`：固定调用口径（模型标识、渠道解析、参数收敛）。
-- `web/src/pages/canvas/use-canvas-media-tools.ts`：提交任务与子节点落库（结果直传，不重编码）。
+- `web/src/pages/canvas/use-canvas-media-tools.ts`：提交任务与子节点落库（结果直传，不重编码）；批量提交与并行上限退让也在这里。
 - `plugin-packages/fal-remove-background/`：`fal-remove-background` 协议插件，路径写死 `/fal-ai/birefnet/v2`。
 - `scripts/seed-fal-remove-background-model.py`：上架这条模型与价目（默认预览，加 `--apply` 写入）。
 

@@ -1,4 +1,4 @@
-import { AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd, AlignHorizontalJustifyStart, AlignHorizontalSpaceAround, AlignHorizontalSpaceBetween, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart, AlignVerticalSpaceAround, AlignVerticalSpaceBetween, AtSign, Film, FolderTree, Grid3X3, LayoutTemplate, Link2, LoaderCircle, Workflow } from "lucide-react";
+import { AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd, AlignHorizontalJustifyStart, AlignHorizontalSpaceAround, AlignHorizontalSpaceBetween, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart, AlignVerticalSpaceAround, AlignVerticalSpaceBetween, AtSign, Eraser, Film, FolderTree, Grid3X3, LayoutTemplate, Link2, LoaderCircle, Workflow } from "lucide-react";
 
 import { registerToolbarTools, type ToolDefinition } from "@/lib/canvas/tool-registry";
 
@@ -18,6 +18,20 @@ export const selectionToolbarTools: ToolDefinition[] = [
     { id: "selection-create-storyboard", toolbar: "selection", category: "selection", label: "创建分镜组", icon: <LayoutTemplate />, defaultVisible: true, defaultOrder: 130, disabled: (ctx) => ctx.selectedCount < 2, run: (ctx) => ctx.handlers.onCreateStoryboard() },
     { id: "selection-create-reference-group", toolbar: "selection", category: "selection", label: "创建引用组", icon: <FolderTree />, defaultVisible: false, defaultOrder: 140, disabled: (ctx) => ctx.selectedCount < 2, run: (ctx) => ctx.handlers.onCreateReferenceGroup() },
     { id: "selection-batch-connect", toolbar: "selection", category: "selection", label: "批量连接", icon: <Link2 />, defaultVisible: true, defaultOrder: 145, disabled: (ctx) => ctx.selectedCount < 2, run: (ctx) => ctx.handlers.onBatchConnect() },
+    {
+        id: "selection-remove-background",
+        toolbar: "selection",
+        category: "selection",
+        label: (ctx) => `批量移除背景（${ctx.selectedImageCount}）`,
+        icon: (ctx) => (ctx.batchRemovingBackground ? <LoaderCircle className="animate-spin" /> : <Eraser />),
+        defaultVisible: true,
+        defaultOrder: 146,
+        // 抠图是"一个任务一张图"（上游端点只吃一张原图），所以这个入口的价签就是"张数"。
+        // 少于两张时不出现：那种场景用节点工具栏上的单张入口更直接，摆在这里只是重复。
+        applicable: (ctx) => ctx.selectedImageCount >= 2,
+        disabled: (ctx) => ctx.batchRemovingBackground,
+        run: (ctx) => ctx.handlers.onBatchRemoveBackground(),
+    },
     { id: "selection-send-to-agent", toolbar: "selection", category: "selection", label: "发送到 Agent", icon: <AtSign />, defaultVisible: true, defaultOrder: 148, disabled: (ctx) => ctx.selectedCount < 1, run: (ctx) => ctx.handlers.onSendSelectionToAgent() },
     {
         id: "selection-merge-videos",

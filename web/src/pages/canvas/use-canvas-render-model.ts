@@ -34,6 +34,7 @@ type UseCanvasRenderModelOptions = {
     upscaleNodeId: string | null;
     superResolveNodeId: string | null;
     removeBackgroundNodeId: string | null;
+    batchRemoveBackgroundNodeIds: string[];
     angleNodeId: string | null;
     lightingNodeId: string | null;
     emotionNodeId: string | null;
@@ -65,6 +66,7 @@ export function useCanvasRenderModel({
     upscaleNodeId,
     superResolveNodeId,
     removeBackgroundNodeId,
+    batchRemoveBackgroundNodeIds,
     angleNodeId,
     lightingNodeId,
     emotionNodeId,
@@ -228,6 +230,13 @@ export function useCanvasRenderModel({
     const upscaleNode = upscaleNodeId ? nodeById.get(upscaleNodeId) || null : null;
     const superResolveNode = superResolveNodeId ? nodeById.get(superResolveNodeId) || null : null;
     const removeBackgroundNode = removeBackgroundNodeId ? nodeById.get(removeBackgroundNodeId) || null : null;
+    const batchRemoveBackgroundNodes = useMemo(
+        () =>
+            batchRemoveBackgroundNodeIds
+                .map((nodeId) => nodeById.get(nodeId))
+                .filter((node): node is CanvasNodeData => Boolean(node && node.type === CanvasNodeType.Image && !renderHiddenNodeIds.has(node.id))),
+        [batchRemoveBackgroundNodeIds, nodeById, renderHiddenNodeIds],
+    );
     const angleNode = angleNodeId ? nodeById.get(angleNodeId) || null : null;
     const lightingNode = lightingNodeId ? nodeById.get(lightingNodeId) || null : null;
     const emotionNode = emotionNodeId ? nodeById.get(emotionNodeId) || null : null;
@@ -257,6 +266,16 @@ export function useCanvasRenderModel({
                     const shotB = b.metadata?.shotIndex ?? Number.MAX_SAFE_INTEGER;
                     return shotA - shotB || a.position.y - b.position.y || a.position.x - b.position.x;
                 }),
+        [nodeById, renderHiddenNodeIds, selectedNodeIds],
+    );
+    // 批量抠图的选中口径：只数"有成品"的图片。空节点算进来会让用户点到一个必然失败的按钮，
+    // 所以张数在进入批量入口之前就已经收敛好了。
+    const selectedImageNodes = useMemo(
+        () =>
+            [...selectedNodeIds]
+                .map((nodeId) => nodeById.get(nodeId))
+                .filter((node): node is CanvasNodeData => Boolean(node && node.type === CanvasNodeType.Image && node.metadata?.content && !renderHiddenNodeIds.has(node.id)))
+                .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x),
         [nodeById, renderHiddenNodeIds, selectedNodeIds],
     );
     const relatedHighlight = useMemo(() => {
@@ -382,12 +401,14 @@ export function useCanvasRenderModel({
         relatedHighlight,
         resourceReferenceByNodeId,
         selectedNodeBounds,
+        selectedImageNodes,
         selectedVideoNodes,
         semanticNodes,
         skillMentionReferences,
         splitNode,
         superResolveNode,
         removeBackgroundNode,
+        batchRemoveBackgroundNodes,
         toolbarNode,
         upscaleNode,
         versionCompareNodes,
