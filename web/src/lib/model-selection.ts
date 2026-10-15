@@ -236,14 +236,21 @@ export function compatibleModelInGroup(config: AiConfig, models: string[], requi
     const compatible = models.filter((model) => !modelCompatibilityError(config, model, requirements));
     if (!compatible.length) return "";
     if (compatible.length === 1) return compatible[0];
-    return compatible.sort((left, right) => (left === preferred ? -1 : right === preferred ? 1 : 0))[0];
+    // 候选全在平台自有渠道时，渠道名对用户不可见，落点只能由平台渠道顺序决定。
+    // 继续沿用"上次选中的那条"会把用户永久钉在旧渠道上：平台把成本更低的那条提到前面后，
+    // 老用户的旧落点照旧生效，等于默认渠道没换。
+    const sticky = preferred && compatible.some((model) => !isPlatformOwnedModel(config, model)) ? preferred : "";
+    return compatible.sort((left, right) => (left === sticky ? -1 : right === sticky ? 1 : 0))[0];
 }
 
 export function resolveCompatibleModel(config: AiConfig, selected: string, requirements?: ModelRequirements) {
     if (!requirements?.capability) return selected;
     const options = selectableModelsByCapability(config, requirements.capability);
     if (!options.length) return selected;
-    const selectedGroup = groupModelsByDisplayName(config, options).find((group) => group.models.includes(selected));
+    // 平台目录下同名型号跨渠道合并成一行，这里必须用同一个分组找落点，
+    // 否则已保存的渠道落点会绕过渠道顺序，一直覆盖平台的新默认渠道。
+    const groups = isPlatformOnlyCatalog(config, options) ? flattenModelGroupsByDisplayName(config, options) : groupModelsByDisplayName(config, options);
+    const selectedGroup = groups.find((group) => group.models.includes(selected));
     if (!selectedGroup) return selected;
     return compatibleModelInGroup(config, selectedGroup.models, requirements, selected);
 }

@@ -7,7 +7,7 @@
 - 能力：`image`。
 - 默认 Base URL：`https://fal.run`。
 - 鉴权驱动：`bearer`（`Authorization: Bearer <apiKey>`）。
-- 创建：`POST /{model}/edit`（带参考图）或 `POST /{model}/text-to-image`（不带参考图），同步返回最终图片。
+- 创建：`POST /{model}/edit`（带参考图）或 `POST /{model}`／`POST /{model}/text-to-image`（不带参考图），同步返回最终图片。
   路径由 `pathTemplate` 拼接，不能用 `{{model}}` 占位：模型 ID 里的斜杠会被转义成 `%2F`。
 
 ## 文生图与图生图是两条端点
@@ -22,11 +22,28 @@ fal 把同一个模型的能力拆成两条端点，`openai/gpt-image-2.5/sunbur
 对用户来说这是一个模型的两条路，不该在模型列表里拆成两个。插件按请求里有没有参考图自动选端点：
 
 - 有参考图 → `POST /{model}/edit`
-- 没有参考图 → `POST /{model}/text-to-image`
+- 没有参考图 → `POST /{model}/text-to-image`，若模型属于"文生图端点就是基名"的那一类，则退回 `POST /{model}`
 
 所以渠道模型登记的是**基名**（`openai/gpt-image-2.5/sunburst`），不带 `/edit` 后缀；
 这与 `openai-images` 按参考图在 `/v1/images/edits` 与 `/v1/images/generations` 之间切换是同一套写法。
 两条端点在上游同一套计费口径下（都按 `quality` 与像素计价），因此共用一份价目。
+
+### 文生图的两种命名，图生图只有一种
+
+fal 目录里文生图路径有两套写法，`/edit` 侧则一律是 `{model}/edit`：
+
+| 文生图端点 | 例子 | 插件行为 |
+| --- | --- | --- |
+| `{model}/text-to-image` | `openai/gpt-image-2.5/sunburst` | 默认路径 |
+| `{model}`（基名本身） | `openai/gpt-image-2` | 列在插件的 `BASE_PATH_TEXT_TO_IMAGE` 名单里 |
+
+名单写在 `create.pathTemplate` 的 `$switch` 里（`openai/gpt-image-2` 一项）。
+判断依据是实测：`POST https://fal.run/openai/gpt-image-2/text-to-image` 回
+`404 {"detail":"Path /text-to-image not found"}`，而 `POST https://fal.run/openai/gpt-image-2`
+用同一份根层 body 正常出图；`/edit` 侧两套命名都是 `{model}/edit`，无需分支。
+
+加新模型时先确认它属于哪一套：拿基名分别试 `{model}` 与 `{model}/text-to-image`，
+前者 200 说明要把它加进名单，否则渠道模型一上架就会在文生图路径上 404。
 
 ## 为什么用同步端点而不是队列端点
 
@@ -227,7 +244,26 @@ fal 各模型的入参名并不统一（`image_urls` / `images`、`num_images` /
                     ]
                   },
                   "then": "/edit",
-                  "else": "/text-to-image"
+                  "else": {
+                    "$switch": {
+                      "cases": [
+                        {
+                          "when": {
+                            "$in": [
+                              {
+                                "$ref": "request.model"
+                              },
+                              [
+                                "openai/gpt-image-2"
+                              ]
+                            ]
+                          },
+                          "then": ""
+                        }
+                      ],
+                      "default": "/text-to-image"
+                    }
+                  }
                 }
               }
             ]

@@ -95,6 +95,42 @@ func TestFalImageOmitsEmptyReferenceList(t *testing.T) {
 	}
 }
 
+// fal 目录里文生图有两套命名：多数模型是 `{model}/text-to-image`，另一些模型的文生图端点就是
+// 基名本身（openai/gpt-image-2）。实测 POST /openai/gpt-image-2/text-to-image 回
+// 404 {"detail":"Path /text-to-image not found"}，而 POST /openai/gpt-image-2 正常出图；
+// /edit 侧两套命名都是 {model}/edit。名单写在 pathTemplate 的 $switch 里，这里把它钉死：
+// 少一项会让该模型在文生图路径上 404，多一项会让正常模型的路径丢掉 /text-to-image。
+func TestFalImageTextToImagePathHasTwoConventions(t *testing.T) {
+	adapter := officialPackageAdapter(t, "fal-image.beeftv-plugin", "fal-image")
+	tests := []struct {
+		name      string
+		model     string
+		withImage bool
+		want      string
+	}{
+		{name: "2.5 文生图带后缀", model: "openai/gpt-image-2.5/sunburst", want: "/openai/gpt-image-2.5/sunburst/text-to-image"},
+		{name: "2.5 图生图", model: "openai/gpt-image-2.5/sunburst", withImage: true, want: "/openai/gpt-image-2.5/sunburst/edit"},
+		{name: "2.5 flare 文生图", model: "openai/gpt-image-2.5/flare", want: "/openai/gpt-image-2.5/flare/text-to-image"},
+		{name: "2 文生图就是基名", model: "openai/gpt-image-2", want: "/openai/gpt-image-2"},
+		{name: "2 图生图仍是 /edit", model: "openai/gpt-image-2", withImage: true, want: "/openai/gpt-image-2/edit"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := GenerationRequest{Model: test.model, Prompt: "x"}
+			if test.withImage {
+				request.Images = []MediaReference{{URL: "https://cdn.example/anchor.png", Role: "edit_source", Order: 0}}
+			}
+			create, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if create.Path != test.want {
+				t.Fatalf("create.Path = %q, 期望 %q", create.Path, test.want)
+			}
+		})
+	}
+}
+
 func TestFalImageMapsAspectRatioToImageSize(t *testing.T) {
 	adapter := officialPackageAdapter(t, "fal-image.beeftv-plugin", "fal-image")
 	tests := []struct {
