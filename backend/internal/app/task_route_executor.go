@@ -106,7 +106,9 @@ func (e *taskRouteExecutor) execute(ctx context.Context, task *model.Task, attem
 		// its route from this object before it reaches the repository again.
 		task.RouteID = nextAttempt.RouteID
 		attempt = nextAttempt
-		_ = e.port.log(task.UserID, task.ID, "warn", "上游未创建任务，切换备用能力路由", nextAttempt.RouteID)
+		// 直连系统渠道的任务没有 route_id，日志里改记它换到哪个渠道模型上：
+		// "换了但看不出换到哪"会让线上排查只能靠翻上游流水。
+		_ = e.port.log(task.UserID, task.ID, "warn", "上游未创建任务，切换备用能力路由", firstNonEmpty(nextAttempt.RouteID, nextAttempt.ChannelModelID))
 	}
 	execution.providerSucceeded = execution.err == nil
 	return execution, nil

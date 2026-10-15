@@ -77,11 +77,17 @@ func runProtocolAdapterTaskWithPolicy(ctx context.Context, input canvasGeneratio
 		}
 		body, err := executeProtocolRequest(withProviderRequestKind(ctx, "create"), input.Config, spec)
 		if err != nil && edgeGatewayCreateFailure(err) {
-			// 边缘网关的 502/503/504：请求还没进上游源站，上游不会建任务、也就不会计费，
+			// 边缘网关的 502/503：请求还没进上游源站，上游不会建任务、也就不会计费，
 			// 重放一次比把这次失败直接丢给用户划算。真正含糊的超时和连接中断不在这里，
 			// 重放它们可能在上游重复建立一个任务。
-			if retried, retryErr := executeProtocolRequest(withProviderRequestKind(ctx, "create"), input.Config, spec); retryErr == nil {
+			retried, retryErr := executeProtocolRequest(withProviderRequestKind(ctx, "create"), input.Config, spec)
+			switch {
+			case retryErr == nil:
 				body, err = retried, nil
+			case edgeGatewayCreateFailure(retryErr):
+				// 两次都停在网关，等于每次尝试都没有进过源站：这时可以断定上游没有建任务，
+				// 比"提交结果不明"更强的结论，渠道级兜底换发才站得住脚（见 channel_fallback.go）。
+				err = providerAttemptNotCreatedError{Cause: retryErr}
 			}
 		}
 		if err != nil {

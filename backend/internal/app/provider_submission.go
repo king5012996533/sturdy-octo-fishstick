@@ -18,6 +18,25 @@ type providerSubmissionKeyContext struct{}
 // idempotency contract may replay creation with the SAME durable attempt key.
 type providerSubmissionUnknownError struct{ Cause error }
 
+// providerAttemptNotCreatedError 表示这次创建卡在边缘网关上，而且每一次尝试都如此。
+//
+// 502/503 且正文不是供应商 JSON，说明网关自己没把请求交给源站；重放的第二次同样停在网关，
+// 就能断定上游从来没有为这次请求建立任务。这是"确定没有上游任务"的证据，比提交结果未知
+// 更强的结论：它同时是退款判据（上游没建任务就没计费）和渠道级兜底换发的前提——换渠道
+// 不复用幂等键，一旦上游其实建了任务就是重复计费。
+type providerAttemptNotCreatedError struct{ Cause error }
+
+func (e providerAttemptNotCreatedError) Error() string {
+	return fmt.Sprintf("请求没有进入上游源站：%v", e.Cause)
+}
+func (e providerAttemptNotCreatedError) Unwrap() error { return e.Cause }
+
+// providerAttemptNotCreated 报告这次失败是不是"每次尝试都停在边缘网关"。
+func providerAttemptNotCreated(err error) bool {
+	var target providerAttemptNotCreatedError
+	return errors.As(err, &target)
+}
+
 func (e providerSubmissionUnknownError) Error() string {
 	return fmt.Sprintf("提交结果尚未确认：%v", e.Cause)
 }
@@ -33,6 +52,11 @@ func (e providerSubmissionUnknownError) Unwrap() error { return e.Cause }
 // 对这三种会建立上游任务的模式统一生效。文本任务一次性返回、没有可回查的任务号，不在其列。
 func uncertainProviderSubmission(ctx context.Context, err error) error {
 	if err == nil || errors.Is(err, context.Canceled) || safeRouteRejection(err) {
+		return err
+	}
+	// 请求连源站都没进过，不属于"结果不明"：打成提交未确认会让任务卡在对账队列里等
+	// 到过期才退款，而这里已经能确定上游没有建任务。
+	if providerAttemptNotCreated(err) {
 		return err
 	}
 	var circuit providerCircuitOpenError
@@ -96,6 +120,30 @@ func withProviderSubmissionKey(ctx context.Context, attempt *model.RouteAttempt)
 	return context.WithValue(ctx, providerSubmissionKeyContext{}, key)
 }
 
+// directTaskChannelModelIdentity 从任务输入快照里取出这次执行的渠道模型身份。
+//
+// 读不出来时返回空值：尝试行上没有渠道归属只是少一条诊断线索，不该让任务执行失败。
+func (s *Service) directTaskChannelModelIdentity(task *model.Task) (string, string) {
+	if task == nil || s.repo == nil {
+		return "", ""
+	}
+	if strings.TrimSpace(task.ChannelModelID) != "" {
+		if item, err := s.repo.ChannelModel(task.ChannelModelID); err == nil && item != nil {
+			return item.ID, item.ChannelID
+		}
+		return task.ChannelModelID, ""
+	}
+	input, err := s.taskInputForChannelFallback(task)
+	if err != nil || input == nil {
+		return "", ""
+	}
+	item, err := s.currentChannelModelForDirectTask(task, input)
+	if err != nil || item == nil {
+		return "", ""
+	}
+	return item.ID, item.ChannelID
+}
+
 func (s *Service) createDirectTaskAttempt(task *model.Task) (*model.RouteAttempt, error) {
 	if task.Attempts > 1 && task.ProviderRequestID == "" {
 		return nil, routeDispatchUncertainError{"旧任务已尝试执行但缺少提交记录，为避免重复创建上游任务已停止自动重发"}
@@ -104,7 +152,11 @@ func (s *Service) createDirectTaskAttempt(task *model.Task) (*model.RouteAttempt
 	if err != nil {
 		return nil, err
 	}
-	attempt := &model.RouteAttempt{ID: id, TaskID: task.ID, RouteRun: task.RouteRun, AttemptNumber: 1, ChannelModelID: task.ChannelModelID, Status: "selected", DispatchState: "not_sent", StartedAt: time.Now()}
+	// 直连任务的落点只有输入快照里写着（channelId + channelModelKey），任务行上的
+	// channel_model_id 一直是空的。这里把它落到尝试行上，渠道级兜底才能认出"哪些渠道已经
+	// 发过"，不会在两条渠道之间来回重发。
+	channelModelID, channelID := s.directTaskChannelModelIdentity(task)
+	attempt := &model.RouteAttempt{ID: id, TaskID: task.ID, RouteRun: task.RouteRun, AttemptNumber: 1, ChannelModelID: channelModelID, ChannelID: channelID, Status: "selected", DispatchState: "not_sent", StartedAt: time.Now()}
 	if task.ProviderRequestID != "" {
 		attempt.ProviderRequestID, attempt.DispatchState = task.ProviderRequestID, "accepted"
 	}

@@ -287,6 +287,24 @@ func (r *Repository) RenewTaskLease(id string, owner string, leaseDuration time.
 	return nil
 }
 
+// SwitchTaskChannelModelSelection 改写一条直连系统渠道任务的上游落点。
+//
+// 渠道级兜底换的是同一个对外型号的另一条平台渠道，不动前台逻辑模型那套 route_id 账目，
+// 因此只改渠道模型与输入快照。expectedChannelModelID 用来挡住并发改写：另一个 worker 已经
+// 把这条任务切走时，这次切换必须失败，而不是把别人写进去的落点覆盖掉。
+func (r *Repository) SwitchTaskChannelModelSelection(id string, expectedChannelModelID string, channelModelID string, inputJSON string) error {
+	result := r.db.Model(&model.Task{}).
+		Where("id = ? AND status = ? AND COALESCE(channel_model_id, '') = ?", id, model.TaskStatusRunning, expectedChannelModelID).
+		Updates(map[string]any{"channel_model_id": channelModelID, "input_json": inputJSON, "updated_at": time.Now()})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrTaskStateConflict
+	}
+	return nil
+}
+
 func (r *Repository) UpdateTaskProviderState(id string, providerRequestID string, pollStage string, nextPollAt *time.Time) error {
 	updates := map[string]any{"poll_stage": pollStage, "next_poll_at": nextPollAt, "updated_at": time.Now()}
 	if strings.TrimSpace(providerRequestID) != "" {

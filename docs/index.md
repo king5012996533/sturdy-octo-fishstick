@@ -26,6 +26,10 @@ BeefTV 是一个本地优先、轻量、AI Native 的视频工作台。本页只
 - [积分与计费](credits-billing.md)
 - [积分中心设计规范](wallet-design-spec.md)
 
+## 运行与可靠性
+
+- [同名渠道兜底](channel-failover.md)
+
 ## 开发参考
 
 - [后端本地开发](content/docs/backend/local-development.mdx)

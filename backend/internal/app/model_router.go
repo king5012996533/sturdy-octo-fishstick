@@ -940,7 +940,15 @@ func (s *Service) beginTaskRouteAttempt(task *model.Task) (*model.RouteAttempt, 
 			return nil, routeDispatchUncertainError{"上一次提交结果不明确，为避免重复创建上游任务已停止自动重发"}
 		case "rejected_no_job":
 			if task.LogicalModelID == "" {
-				return nil, errors.New("上游已拒绝本次请求，请检查渠道配置后再试")
+				// 直连系统渠道的任务没有逻辑路由表：能换的只有同名渠道模型。
+				next, fallbackErr := s.nextChannelAttemptAfterFailure(task, existing)
+				if fallbackErr != nil {
+					return nil, fallbackErr
+				}
+				if next != nil {
+					return next, nil
+				}
+				return nil, errors.New("上游没有受理这次请求，同型号的备用渠道也不可用，请稍后重试")
 			}
 			return s.switchTaskToNextRoute(task, attempts)
 		}
@@ -1130,10 +1138,17 @@ func (s *Service) switchTaskToNextRoute(task *model.Task, attempts []model.Route
 }
 
 func (s *Service) nextRouteAttemptAfterFailure(task *model.Task, attempt *model.RouteAttempt, taskErr error) (*model.RouteAttempt, error) {
-	if task == nil || task.LogicalModelID == "" || attempt == nil || attempt.DispatchState != "rejected_no_job" {
+	if task == nil || attempt == nil {
 		return nil, nil
 	}
 	if errors.Is(taskErr, context.Canceled) || errors.Is(taskErr, context.DeadlineExceeded) {
+		return nil, nil
+	}
+	if task.LogicalModelID == "" {
+		// 直连系统渠道的任务没有逻辑路由表，兜底换的是同名的另一条平台渠道。
+		return s.nextChannelAttemptAfterFailure(task, attempt)
+	}
+	if attempt.DispatchState != "rejected_no_job" {
 		return nil, nil
 	}
 	s.blockLogicalRouteForFailure(attempt, taskErr)
@@ -1275,7 +1290,10 @@ func (s *Service) finishTaskRouteAttempt(attempt *model.RouteAttempt, task *mode
 		attempt.FailureCode = routeFailureCode(taskErr)
 		if attempt.ProviderRequestID != "" {
 			attempt.DispatchState = "accepted"
-		} else if safeRouteRejection(taskErr) {
+		} else if safeRouteRejection(taskErr) || providerAttemptNotCreated(taskErr) {
+			// rejected_no_job 是"上游没有为这次请求建任务"的唯一落点，两种证据都写在这里：
+			// 上游明确拒单（401/402/403/404/429、渠道槽位失败），以及边缘网关连续两次都没把
+			// 请求交给源站。它同时决定了退款（上游没建任务就没计费）和能不能换渠道重发。
 			attempt.DispatchState = "rejected_no_job"
 		} else if !providerRequestIssued {
 			// 失败发生在出站请求之前（本地预检、任务输入解析、请求体构建等）。上游连请求
