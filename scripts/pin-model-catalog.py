@@ -94,6 +94,12 @@ CATALOG: dict[str, set[str]] = {
         # 纵横科技 TTP-grok：按分辨率分档定价，两档价挂在同一条货架记录下
         # （价目表的视频档位就是分辨率本身），因此这里只有一条。
         "grok-imagine-video/v1.5",
+        # 纵横科技 seadan 族，由 scripts/seed-zongheng-seadanco-video.py 维护：
+        # 这两个是平台对外的名字，渠道里挂的上游标识是 Fseadanco2.0mini 与 kksedanco2.5。
+        # 同一个上游在改名换货时只换 providerModelKey，货架记录与价目都跟着这条 key 走，
+        # 所以白名单里认的是对外名，不是上游名。
+        "seadanco2.0mini",
+        "seadanco2.5",
     },
 }
 
