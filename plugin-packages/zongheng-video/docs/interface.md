@@ -422,6 +422,9 @@
                 "$ref": "response.error.message"
               },
               {
+                "$ref": "response.error_detail"
+              },
+              {
                 "$ref": "response.message"
               },
               {
@@ -429,6 +432,9 @@
               },
               {
                 "$ref": "response.error"
+              },
+              {
+                "$ref": "response.error_code"
               }
             ]
           },

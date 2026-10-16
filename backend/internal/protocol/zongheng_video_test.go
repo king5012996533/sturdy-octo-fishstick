@@ -143,3 +143,60 @@ func TestZonghengVideoErrorBodyKeepsUpstreamReason(t *testing.T) {
 		t.Fatalf("message = %#v", poll.Message)
 	}
 }
+
+// 任务级失败的原因只出现在 error_detail，四个旧路径全是空值。
+//
+// 2026-10-16 实测的失败响应形如：
+//
+//	{"code":0,"success":true,"task_id":"vid_...","status":"failed","error":null,
+//	 "error_code":"service_unavailable","error_detail":"上游生成服务暂时不可用"}
+//
+// 修复前 message 映射只认 error.message / message / fail_reason / error：同步 400 能用
+// message 兜住，但任务跑起来之后失败就没有可读原因了。上游原话还参与平台判据
+// （审核驳回、额度不足各有退款口径，见 app.classifyProtocolTaskFailure），丢了文案就只能
+// 归到最粗的 async_failed，用户看不到原因、平台也判不准。
+func TestZonghengVideoTaskFailureKeepsUpstreamDetail(t *testing.T) {
+	adapter := officialPackageAdapter(t, "zongheng-video.beeftv-plugin", "zongheng-video")
+	const detail = "上游生成服务暂时不可用，请稍后重试"
+	body := []byte(`{"code":0,"success":true,"task_id":"vid_abc","status":"failed","error":null,` +
+		`"error_code":"service_unavailable","error_detail":"` + detail + `"}`)
+	failed, err := adapter.ParsePoll(context.Background(), PollContext{TaskID: "vid_abc"}, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.Status != StatusFailed {
+		t.Fatalf("status = %q", failed.Status)
+	}
+	if failed.Message != detail {
+		t.Fatalf("message = %#v", failed.Message)
+	}
+}
+
+// 只有错误码、没有 detail 时也要出文案：上游的 detail 字段并不稳定
+// （时长与清晰度校验只给 message + error_code，画面比例校验才补 error_detail）。
+func TestZonghengVideoFallsBackToErrorCode(t *testing.T) {
+	adapter := officialPackageAdapter(t, "zongheng-video.beeftv-plugin", "zongheng-video")
+	body := []byte(`{"code":0,"success":true,"task_id":"vid_abc","status":"failed","error":null,"error_code":"invalid_parameters"}`)
+	failed, err := adapter.ParsePoll(context.Background(), PollContext{TaskID: "vid_abc"}, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.Message != "invalid_parameters" {
+		t.Fatalf("message = %#v", failed.Message)
+	}
+}
+
+// 同步错误里文案和错误码同时存在时必须选文案：机器码排在新条目末尾，不能顶掉人话。
+func TestZonghengVideoPrefersTextOverErrorCode(t *testing.T) {
+	adapter := officialPackageAdapter(t, "zongheng-video.beeftv-plugin", "zongheng-video")
+	const text = "画面比例不符合当前模型要求，请更换支持的比例后重试"
+	body := []byte(`{"code":400,"success":false,"error_code":"invalid_parameters","error_detail":"` + text + `",` +
+		`"message":"` + text + `","error":"` + text + `"}`)
+	failed, err := adapter.ParsePoll(context.Background(), PollContext{TaskID: "vid_abc"}, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.Message != text {
+		t.Fatalf("message = %#v", failed.Message)
+	}
+}
