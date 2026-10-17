@@ -23,6 +23,9 @@ test("具体模型优先于厂商通配", () => {
     // 黑森林实验室的 FLUX 用 Flux 图标，比厂商 Bfl 图标更好认。
     assert.equal(modelBrandIconId("black-forest-labs/flux-schnell"), "Flux");
     assert.equal(modelBrandIconId("prunaai/flux-fast"), "Flux");
+    // Meta 的型号标识只带 meta/ 前缀或 muse 名字，都要落到 Meta 图标。
+    assert.equal(modelBrandIconId("meta/muse-image"), "Meta");
+    assert.equal(modelBrandIconId("meta-llama/llama-3.1-405b"), "Meta");
 });
 
 test("渠道名带厂商时品牌列表也能出行标", () => {
