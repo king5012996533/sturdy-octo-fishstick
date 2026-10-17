@@ -229,3 +229,58 @@ func TestFalImageParsesSyncResponse(t *testing.T) {
 		t.Fatalf("failed.Message = %q, 要把 detail 带进错误文案", failed.Message)
 	}
 }
+
+// meta/muse-image 的入参是 aspect_ratio（"16:9" 这样的字符串），不是 image_size，
+// 而且它的 input schema 里没有 quality。按别的 fal 模型发 image_size + quality 会被上游拒掉，
+// 所以插件按模型分支：Muse 走 aspect_ratio，其余模型仍走 image_size 映射表。
+func TestFalImageMuseUsesAspectRatioWithoutQuality(t *testing.T) {
+	adapter := officialPackageAdapter(t, "fal-image.beeftv-plugin", "fal-image")
+	create, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model:       "meta/muse-image",
+		Prompt:      "一只橘猫",
+		AspectRatio: "16:9",
+		Quality:     "high",
+		ImageCount:  2,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if create.Path != "/meta/muse-image/text-to-image" {
+		t.Fatalf("create.Path = %q，没有参考图时必须走 text-to-image", create.Path)
+	}
+	body := manifestTestBody(t, create)
+	if body["aspect_ratio"] != "16:9" {
+		t.Fatalf("aspect_ratio = %#v，Muse 只认这个字段", body["aspect_ratio"])
+	}
+	if _, present := body["image_size"]; present {
+		t.Fatalf("body = %#v，Muse 不收 image_size", body)
+	}
+	if _, present := body["quality"]; present {
+		t.Fatalf("body = %#v，Muse 的 input schema 里没有 quality", body)
+	}
+	if body["num_images"] != float64(2) {
+		t.Fatalf("num_images = %#v", body["num_images"])
+	}
+
+	// 带参考图必须走 /edit，Muse 的编辑端点必填 image_urls。
+	create, err = adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model:       "meta/muse-image",
+		Prompt:      "换成蓝色背景",
+		AspectRatio: "9:16",
+		Images:      []MediaReference{{URL: "https://cdn.example/anchor.png", Role: "edit_source"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if create.Path != "/meta/muse-image/edit" {
+		t.Fatalf("create.Path = %q，带参考图时必须走 /edit", create.Path)
+	}
+	body = manifestTestBody(t, create)
+	urls, ok := body["image_urls"].([]any)
+	if !ok || len(urls) != 1 || urls[0] != "https://cdn.example/anchor.png" {
+		t.Fatalf("image_urls = %#v", body["image_urls"])
+	}
+	if body["aspect_ratio"] != "9:16" {
+		t.Fatalf("aspect_ratio = %#v", body["aspect_ratio"])
+	}
+}

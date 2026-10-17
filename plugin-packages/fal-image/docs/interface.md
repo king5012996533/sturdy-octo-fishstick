@@ -69,8 +69,8 @@ fal 的队列端点（`https://queue.fal.run`）需要三步：提交拿 `reques
 | `prompt` | string | 是 | `prompt` | 图片提示词。 |
 | `images` | media[] | 否 | `image_urls` | 参考图。有值走 `/edit`（图生图），无值走 `/text-to-image`（文生图），fal 上限 16 张。 |
 | `imageCount` | integer | 否 | `num_images` | 输出数量。 |
-| `aspectRatio` | string | 否 | `image_size` | 见下方比例映射表。 |
-| `quality` | string | 否 | `quality` | `auto`/`low`/`medium`/`high`/`xhigh`/`max`，不在白名单内时不下发。 |
+| `aspectRatio` | string | 否 | `image_size` | 见下方比例映射表；`meta/muse-image` 例外，下发 `aspect_ratio`。 |
+| `quality` | string | 否 | `quality` | `auto`/`low`/`medium`/`high`/`xhigh`/`max`，不在白名单内时不下发；`meta/muse-image` 不收这个字段，一律不下发。 |
 | `providerOptions` | object | 否 | 请求体根层字段 | 见下方扩展键。 |
 
 `resolution` 是宿主保留字段，本插件不下发：fal 用 `image_size` 同时表达比例与档位。
@@ -90,6 +90,13 @@ fal 的 `image_size` 既接受枚举，也接受 `{width, height}` 对象。插�
 | `2:3` | `{"width": 1024, "height": 1536}` |
 | `宽x高`（如 `2752x1536`） | `{"width": 2752, "height": 1536}` |
 | 其它（含 `auto`、空值） | 不下发，由 fal 用自己的默认值 |
+
+### `meta/muse-image` 的字段差异
+
+Muse 的入参是 `aspect_ratio`（`"16:9"` 这样的字符串），不是 `image_size`，而且不接受 `quality`。
+插件按 `model` 分支：模型为 `meta/muse-image` 时把 `aspectRatio` 原样写进 `aspect_ratio`、跳过 `quality`，
+其余模型仍走上面的 `image_size` 映射表。Muse 按固定约 2.5MP 渲染，比例只决定画幅形状，不决定像素数；
+因此登记这个模型时 `size.parameter` 用 `aspect_ratio`，`quality.supported` 保持关。
 
 ## 上游请求模板逐字段清单
 
@@ -309,200 +316,250 @@ fal 各模型的入参名并不统一（`image_urls` / `images`、`num_images` /
                 }
               },
               {
-                "quality": {
-                  "$omitEmpty": {
-                    "$switch": {
-                      "cases": [
-                        {
-                          "when": {
-                            "$in": [
-                              {
+                "$if": {
+                  "condition": {
+                    "$eq": [
+                      {
+                        "$ref": "request.model"
+                      },
+                      "meta/muse-image"
+                    ]
+                  },
+                  "then": {},
+                  "else": {
+                    "quality": {
+                      "$omitEmpty": {
+                        "$switch": {
+                          "cases": [
+                            {
+                              "when": {
+                                "$in": [
+                                  {
+                                    "$lower": {
+                                      "$trim": {
+                                        "$ref": "request.quality"
+                                      }
+                                    }
+                                  },
+                                  [
+                                    "auto",
+                                    "low",
+                                    "medium",
+                                    "high",
+                                    "xhigh",
+                                    "max"
+                                  ]
+                                ]
+                              },
+                              "then": {
                                 "$lower": {
                                   "$trim": {
                                     "$ref": "request.quality"
                                   }
                                 }
-                              },
-                              [
-                                "auto",
-                                "low",
-                                "medium",
-                                "high",
-                                "xhigh",
-                                "max"
-                              ]
-                            ]
-                          },
-                          "then": {
-                            "$lower": {
-                              "$trim": {
-                                "$ref": "request.quality"
                               }
                             }
-                          }
+                          ]
                         }
-                      ]
+                      }
                     }
                   }
                 }
               },
               {
-                "image_size": {
-                  "$switch": {
-                    "cases": [
-                      {
-                        "when": {
-                          "$eq": [
-                            {
-                              "$trim": {
-                                "$ref": "request.aspectRatio"
-                              }
-                            },
-                            "1:1"
-                          ]
-                        },
-                        "then": "square_hd"
-                      },
-                      {
-                        "when": {
-                          "$eq": [
-                            {
-                              "$trim": {
-                                "$ref": "request.aspectRatio"
-                              }
-                            },
-                            "16:9"
-                          ]
-                        },
-                        "then": "landscape_16_9"
-                      },
-                      {
-                        "when": {
-                          "$eq": [
-                            {
-                              "$trim": {
-                                "$ref": "request.aspectRatio"
-                              }
-                            },
-                            "9:16"
-                          ]
-                        },
-                        "then": "portrait_16_9"
-                      },
-                      {
-                        "when": {
-                          "$eq": [
-                            {
-                              "$trim": {
-                                "$ref": "request.aspectRatio"
-                              }
-                            },
-                            "4:3"
-                          ]
-                        },
-                        "then": "landscape_4_3"
-                      },
-                      {
-                        "when": {
-                          "$eq": [
-                            {
-                              "$trim": {
-                                "$ref": "request.aspectRatio"
-                              }
-                            },
-                            "3:4"
-                          ]
-                        },
-                        "then": "portrait_4_3"
-                      },
-                      {
-                        "when": {
-                          "$eq": [
-                            {
-                              "$trim": {
-                                "$ref": "request.aspectRatio"
-                              }
-                            },
-                            "3:2"
-                          ]
-                        },
-                        "then": {
-                          "width": 1536,
-                          "height": 1024
-                        }
-                      },
-                      {
-                        "when": {
-                          "$eq": [
-                            {
-                              "$trim": {
-                                "$ref": "request.aspectRatio"
-                              }
-                            },
-                            "2:3"
-                          ]
-                        },
-                        "then": {
-                          "width": 1024,
-                          "height": 1536
-                        }
-                      },
-                      {
-                        "when": {
-                          "$gt": [
-                            {
-                              "$len": {
-                                "$split": [
-                                  {
-                                    "$trim": {
-                                      "$ref": "request.aspectRatio"
-                                    }
-                                  },
-                                  "x"
-                                ]
-                              }
-                            },
-                            1
-                          ]
-                        },
-                        "then": {
-                          "width": {
-                            "$toInt": {
-                              "$at": [
-                                {
-                                  "$split": [
-                                    {
-                                      "$trim": {
-                                        "$ref": "request.aspectRatio"
-                                      }
-                                    },
-                                    "x"
-                                  ]
-                                },
-                                0
-                              ]
-                            }
+                "$switch": {
+                  "cases": [
+                    {
+                      "when": {
+                        "$and": [
+                          {
+                            "$eq": [
+                              {
+                                "$ref": "request.model"
+                              },
+                              "meta/muse-image"
+                            ]
                           },
-                          "height": {
-                            "$toInt": {
-                              "$at": [
-                                {
-                                  "$split": [
-                                    {
-                                      "$trim": {
-                                        "$ref": "request.aspectRatio"
-                                      }
-                                    },
-                                    "x"
-                                  ]
-                                },
-                                1
-                              ]
-                            }
+                          {
+                            "$ne": [
+                              {
+                                "$trim": {
+                                  "$ref": "request.aspectRatio"
+                                }
+                              },
+                              ""
+                            ]
+                          }
+                        ]
+                      },
+                      "then": {
+                        "aspect_ratio": {
+                          "$trim": {
+                            "$ref": "request.aspectRatio"
                           }
                         }
                       }
-                    ]
+                    }
+                  ],
+                  "default": {
+                    "image_size": {
+                      "$switch": {
+                        "cases": [
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$trim": {
+                                    "$ref": "request.aspectRatio"
+                                  }
+                                },
+                                "1:1"
+                              ]
+                            },
+                            "then": "square_hd"
+                          },
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$trim": {
+                                    "$ref": "request.aspectRatio"
+                                  }
+                                },
+                                "16:9"
+                              ]
+                            },
+                            "then": "landscape_16_9"
+                          },
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$trim": {
+                                    "$ref": "request.aspectRatio"
+                                  }
+                                },
+                                "9:16"
+                              ]
+                            },
+                            "then": "portrait_16_9"
+                          },
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$trim": {
+                                    "$ref": "request.aspectRatio"
+                                  }
+                                },
+                                "4:3"
+                              ]
+                            },
+                            "then": "landscape_4_3"
+                          },
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$trim": {
+                                    "$ref": "request.aspectRatio"
+                                  }
+                                },
+                                "3:4"
+                              ]
+                            },
+                            "then": "portrait_4_3"
+                          },
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$trim": {
+                                    "$ref": "request.aspectRatio"
+                                  }
+                                },
+                                "3:2"
+                              ]
+                            },
+                            "then": {
+                              "width": 1536,
+                              "height": 1024
+                            }
+                          },
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$trim": {
+                                    "$ref": "request.aspectRatio"
+                                  }
+                                },
+                                "2:3"
+                              ]
+                            },
+                            "then": {
+                              "width": 1024,
+                              "height": 1536
+                            }
+                          },
+                          {
+                            "when": {
+                              "$gt": [
+                                {
+                                  "$len": {
+                                    "$split": [
+                                      {
+                                        "$trim": {
+                                          "$ref": "request.aspectRatio"
+                                        }
+                                      },
+                                      "x"
+                                    ]
+                                  }
+                                },
+                                1
+                              ]
+                            },
+                            "then": {
+                              "width": {
+                                "$toInt": {
+                                  "$at": [
+                                    {
+                                      "$split": [
+                                        {
+                                          "$trim": {
+                                            "$ref": "request.aspectRatio"
+                                          }
+                                        },
+                                        "x"
+                                      ]
+                                    },
+                                    0
+                                  ]
+                                }
+                              },
+                              "height": {
+                                "$toInt": {
+                                  "$at": [
+                                    {
+                                      "$split": [
+                                        {
+                                          "$trim": {
+                                            "$ref": "request.aspectRatio"
+                                          }
+                                        },
+                                        "x"
+                                      ]
+                                    },
+                                    1
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
                   }
                 }
               },
