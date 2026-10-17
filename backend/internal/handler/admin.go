@@ -49,6 +49,28 @@ func RegisterAdminRoutes(r *gin.RouterGroup, svc *app.Service) {
 		ok(c, page)
 	})
 
+	// 渠道健康：上游模型目录对账与近 N 天提交失败统计。
+	//
+	// 对账用 POST 是因为它会按渠道逐个访问上游；用 GET 容易被浏览器/代理缓存成
+	// "点了没反应"，而这里的结果本来就有时效性。
+	admin.POST("/channel-health/reconcile", func(c *gin.Context) {
+		result, err := svc.ReconcileAdminChannelModels(c.Request.Context(), adminUser(c))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
+
+	admin.GET("/channel-health/stats", func(c *gin.Context) {
+		result, err := svc.AdminChannelHealth(adminUser(c), adminIntQuery(c, "days"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, result)
+	})
+
 	admin.GET("/channels/:id", func(c *gin.Context) {
 		channel, err := svc.AdminSystemChannel(adminUser(c), c.Param("id"))
 		if err != nil {

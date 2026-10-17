@@ -1,5 +1,5 @@
 import { App, ConfigProvider, theme as antdTheme } from "antd";
-import { ArrowLeft, BadgePercent, Boxes, Clapperboard, Coins, FileSignature, Gauge, Images, KeyRound, LayoutDashboard, LayoutTemplate, LifeBuoy, Package, RadioTower, Receipt, ScrollText, Send, Settings, ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, TicketPercent, Upload, Users, type LucideIcon } from "lucide-react";
+import { Activity, ArrowLeft, BadgePercent, Boxes, Clapperboard, Coins, FileSignature, Gauge, Images, KeyRound, LayoutDashboard, LayoutTemplate, LifeBuoy, Package, RadioTower, Receipt, ScrollText, Send, Settings, ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, TicketPercent, Upload, Users, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -11,6 +11,7 @@ import { AgreementsPane } from "./agreements-pane";
 import { AssetsPane } from "./assets-pane";
 import { AuditPane } from "./audit-pane";
 import { CanvasPane } from "./canvas-pane";
+import { ChannelHealthPane } from "./channel-health-pane";
 import { ChannelsPane } from "./channels-pane";
 import { CouponsPane } from "./coupons-pane";
 import { CreditsPane } from "./credits-pane";
@@ -32,7 +33,7 @@ import { TicketsPane } from "./tickets-pane";
 import { UsersPane } from "./users-pane";
 import { VendorsPane } from "./vendors-pane";
 
-type ConsoleSectionKey = "dashboard" | "users" | "roles" | "canvases" | "assets" | "resources" | "templates" | "inspirations" | "posts" | "login-methods" | "agreements" | "gateways" | "plans" | "orders" | "credits" | "coupons" | "tickets" | "settings" | "vendors" | "channels" | "pricing" | "features" | "policy" | "audit";
+type ConsoleSectionKey = "dashboard" | "users" | "roles" | "canvases" | "assets" | "resources" | "templates" | "inspirations" | "posts" | "login-methods" | "agreements" | "gateways" | "plans" | "orders" | "credits" | "coupons" | "tickets" | "settings" | "vendors" | "channels" | "channel-health" | "pricing" | "features" | "policy" | "audit";
 
 const consoleSections: Array<{ key: ConsoleSectionKey; label: string; description: string; icon: LucideIcon; pane: () => React.JSX.Element }> = [
     { key: "dashboard", label: "仪表盘", description: "用户、调用量与存储读数", icon: LayoutDashboard, pane: () => <DashboardPane /> },
@@ -41,6 +42,8 @@ const consoleSections: Array<{ key: ConsoleSectionKey; label: string; descriptio
     // 「渠道与模型」里落成的 system channel，顺序反过来会让人以为要手填裸地址。
     { key: "vendors", label: "模型厂商", description: "上游厂商、凭据与模型目录", icon: Boxes, pane: () => <VendorsPane /> },
     { key: "channels", label: "渠道与模型", description: "上游地址、密钥与可售模型", icon: RadioTower, pane: () => <ChannelsPane /> },
+    // 渠道健康紧跟渠道配置：配完渠道要能立刻回答"上游还认不认这些型号、哪条在失败"。
+    { key: "channel-health", label: "渠道健康", description: "上游模型对账与提交失败率", icon: Activity, pane: () => <ChannelHealthPane /> },
     { key: "pricing", label: "模型定价", description: "计费倍率与模型单价", icon: BadgePercent, pane: () => <PricingPane /> },
     { key: "users", label: "用户管理", description: "账号、角色与封禁", icon: Users, pane: () => <UsersPane /> },
     { key: "roles", label: "角色与权限", description: "角色定义与权限点分配", icon: ShieldCheck, pane: () => <RolesPane /> },

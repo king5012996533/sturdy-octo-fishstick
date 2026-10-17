@@ -991,3 +991,74 @@ export function isInsufficientCreditsError(error: unknown) {
     if (!(error instanceof ApiError)) return false;
     return error.reason === "insufficient_credits" || error.code === 40201 || error.status === 402;
 }
+
+// ---------------------------------------------------------------------------
+// 渠道健康：上游目录对账 + 提交失败看板
+// ---------------------------------------------------------------------------
+
+export type AdminChannelReconcileModel = {
+    modelKey: string;
+    providerModelKey: string;
+    displayName: string;
+    /** ok | missing | partial | unknown */
+    status: string;
+    upstreamKeys: string[];
+    missingKeys: string[];
+};
+
+export type AdminChannelReconcileRow = {
+    channelId: string;
+    channelName: string;
+    baseUrl: string;
+    enabled: boolean;
+    /** ok | drift | error | unsupported | empty */
+    status: string;
+    error?: string;
+    upstreamCount: number;
+    missingCount: number;
+    models: AdminChannelReconcileModel[];
+};
+
+export type AdminChannelReconcileResult = {
+    checkedAt: string;
+    summary: { checked: number; drifted: number; failed: number; unsupported: number; empty: number };
+    rows: AdminChannelReconcileRow[];
+};
+
+export type AdminChannelHealthErrorCode = { code: string; statusCode: number; count: number };
+
+export type AdminChannelHealthRow = {
+    channelId: string;
+    channelName: string;
+    model: string;
+    total: number;
+    succeeded: number;
+    failed: number;
+    /** 0–1，前端自己乘 100 展示。 */
+    failureRate: number;
+    errorCodes: AdminChannelHealthErrorCode[];
+    lastError?: string;
+    lastErrorAt?: string;
+};
+
+export type AdminChannelHealthResult = {
+    days: number;
+    from: string;
+    totals: { total: number; succeeded: number; failed: number };
+    rows: AdminChannelHealthRow[];
+    generatedAt: string;
+};
+
+/**
+ * 上游目录对账。
+ *
+ * 一条渠道最多要等 20 秒（服务端并发 4 条），远超全局 4 秒的默认超时，
+ * 所以这里必须显式放宽，否则运营看到的是"请求超时"而不是对账结果。
+ */
+export function reconcileAdminChannelModels() {
+    return http.post<AdminChannelReconcileResult>("/admin/channel-health/reconcile", {}, { timeout: 90_000 });
+}
+
+export function getAdminChannelHealth(days = 7) {
+    return http.get<AdminChannelHealthResult>("/admin/channel-health/stats", { params: { days }, timeout: 30_000 });
+}
