@@ -1004,6 +1004,8 @@ export type AdminChannelReconcileModel = {
     status: string;
     upstreamKeys: string[];
     missingKeys: string[];
+    /** 目录里没翻到、但单模型接口也没能确认的标识。 */
+    unverifiedKeys: string[];
 };
 
 export type AdminChannelReconcileRow = {

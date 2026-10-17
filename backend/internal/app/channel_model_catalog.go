@@ -13,6 +13,10 @@ import (
 	"infinite-canvas/backend/internal/model"
 )
 
+// ErrChannelModelsUnsupported 表示这条上游根本不提供模型目录接口（例如 fal 的
+// REST 网关）。对账必须把它和"读取失败"分开：前者不是故障，后者才是。
+var ErrChannelModelsUnsupported = errors.New("上游不提供模型目录接口")
+
 type ChannelModelsRequest struct {
 	BaseURL       string           `json:"baseUrl"`
 	APIKey        string           `json:"apiKey"`
@@ -288,7 +292,7 @@ func channelModelsUpstreamError(err error) error {
 	case http.StatusUnauthorized, http.StatusForbidden:
 		return NewAppError(http.StatusBadGateway, "模型服务鉴权失败，请检查 API Key")
 	case http.StatusNotFound:
-		return NewAppError(http.StatusBadGateway, "模型服务未提供 /models 接口")
+		return WrapAppError(http.StatusBadGateway, "模型服务未提供 /models 接口", ErrChannelModelsUnsupported)
 	case http.StatusTooManyRequests:
 		return NewAppError(http.StatusBadGateway, "模型服务请求过于频繁或额度不足")
 	default:

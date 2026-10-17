@@ -16,10 +16,18 @@ import (
 
 func TestReconcileAdminChannelModelsFlagsMissingUpstreamModel(t *testing.T) {
 	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		// Fseadanco2.0mini 还在授权目录里，kksedanco2.5 已经消失——这正是要抓的换货。
-		_, _ = w.Write([]byte(`{"data":[{"id":"Fseadanco2.0mini"},{"id":"other-model"}]}`))
+		switch r.URL.Path {
+		case "/v1/models":
+			// Fseadanco2.0mini 还在授权目录里，kksedanco2.5 已经消失——这正是要抓的换货。
+			_, _ = w.Write([]byte(`{"data":[{"id":"Fseadanco2.0mini"},{"id":"other-model"}]}`))
+		case "/v1/models/kksedanco2.5":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":{"message":"model not found"}}`))
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
 	}))
 	defer upstream.Close()
 
@@ -99,6 +107,73 @@ func TestReconcileAdminChannelModelsChecksVariantKeys(t *testing.T) {
 	}
 	if len(result.Rows) != 1 || result.Rows[0].Status != ChannelReconcileOK {
 		t.Fatalf("rows = %+v, want one ok row", result.Rows)
+	}
+}
+
+// 目录接口分页（Replicate 一页 25 条）会把没翻到的模型报成缺失；单模型接口
+// 说它还在，就不能算漂移。
+func TestReconcileAdminChannelModelsIgnoresPaginatedCatalogGaps(t *testing.T) {
+	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/models" {
+			_, _ = w.Write([]byte(`{"results":[{"owner":"black-forest-labs","name":"flux-schnell"}]}`))
+			return
+		}
+		// 单模型接口命中：说明只是目录分页没覆盖到。
+		_, _ = w.Write([]byte(`{"id":"openai/gpt-image-2"}`))
+	}))
+	defer upstream.Close()
+
+	svc, db := newChannelHealthTestService(t)
+	admin := &model.User{ID: "admin", Role: model.UserRoleAdmin}
+	channel := model.ModelChannel{ID: "channel-3", Scope: model.ChannelScopeSystem, Enabled: true, Name: "Replicate", BaseURL: upstream.URL + "/v1", APIKey: "key", APIFormat: "openai"}
+	if err := db.Create(&channel).Error; err != nil {
+		t.Fatal(err)
+	}
+	item := model.ChannelModel{ID: "model-gpt-image", ChannelID: channel.ID, ModelKey: "openai/gpt-image-2", ProviderModelKey: "openai/gpt-image-2", Enabled: true}
+	if err := db.Create(&item).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := svc.ReconcileAdminChannelModels(context.Background(), admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Rows) != 1 || result.Rows[0].Status != ChannelReconcileOK || result.Rows[0].MissingCount != 0 {
+		t.Fatalf("rows = %+v, want one ok row without drift", result.Rows)
+	}
+}
+
+// 上游根本没有 /models 接口（fal）时是"不支持对账"，不是渠道故障。
+func TestReconcileAdminChannelModelsMarksMissingCatalogAsUnsupported(t *testing.T) {
+	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"detail":"not found"}`))
+	}))
+	defer upstream.Close()
+
+	svc, db := newChannelHealthTestService(t)
+	admin := &model.User{ID: "admin", Role: model.UserRoleAdmin}
+	channel := model.ModelChannel{ID: "channel-4", Scope: model.ChannelScopeSystem, Enabled: true, Name: "fal.ai", BaseURL: upstream.URL + "/v1", APIKey: "key", APIFormat: "openai"}
+	if err := db.Create(&channel).Error; err != nil {
+		t.Fatal(err)
+	}
+	item := model.ChannelModel{ID: "model-fal", ChannelID: channel.ID, ModelKey: "openai/gpt-image-2", ProviderModelKey: "openai/gpt-image-2", Enabled: true}
+	if err := db.Create(&item).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := svc.ReconcileAdminChannelModels(context.Background(), admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Rows) != 1 || result.Rows[0].Status != ChannelReconcileUnsupported {
+		t.Fatalf("rows = %+v, want unsupported", result.Rows)
+	}
+	if result.Summary.Unsupported != 1 || result.Summary.Failed != 0 {
+		t.Fatalf("summary = %+v, want unsupported=1 failed=0", result.Summary)
 	}
 }
 

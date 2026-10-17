@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -16,6 +18,9 @@ import (
 const (
 	channelReconcileConcurrency = 4
 	channelReconcileTimeout     = 20 * time.Second
+	// 目录分页会让正常模型被误报成缺失；单模型核对只针对这些"疑似缺失"，
+	// 一次巡检里给每条渠道设上限，避免把上游打成压测。
+	maxModelVerificationsPerChannel = 20
 )
 
 // 对账里单个模型的状态。
@@ -43,6 +48,7 @@ type ChannelReconcileModel struct {
 	Status           string   `json:"status"`
 	UpstreamKeys     []string `json:"upstreamKeys"`
 	MissingKeys      []string `json:"missingKeys"`
+	UnverifiedKeys   []string `json:"unverifiedKeys"`
 }
 
 // ChannelReconcileRow 是一条渠道的对账结果。
@@ -182,25 +188,36 @@ func (s *Service) reconcileChannelModels(ctx context.Context, actor *model.User,
 		row.Error = "渠道请求头无法解析：" + err.Error()
 		return row
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, channelReconcileTimeout)
-	defer cancel()
-	upstream, err := s.FetchChannelModels(probeCtx, actor, ChannelModelsRequest{
+	request := ChannelModelsRequest{
 		BaseURL:   channel.BaseURL,
 		APIKey:    channel.APIKey,
 		APIFormat: channel.APIFormat,
 		Headers:   headers,
-	})
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, channelReconcileTimeout)
+	defer cancel()
+	upstream, err := s.FetchChannelModels(probeCtx, actor, request)
+	if err != nil && !errors.Is(err, ErrChannelModelsUnsupported) {
+		// 逆向渠道的出网抖动是常态：一次 TLS 握手失败不代表货架坏了，重试一次再下结论。
+		upstream, err = s.FetchChannelModels(probeCtx, actor, request)
+	}
+	if errors.Is(err, ErrChannelModelsUnsupported) {
+		row.Status = ChannelReconcileUnsupported
+		row.Error = "该渠道不提供模型目录接口，无法对账（只能靠连通性测试）"
+		return row
+	}
 	if err != nil {
 		row.Status = ChannelReconcileError
 		row.Error = reconcileProbeError(err)
 		for _, item := range items {
-			keys := channelModelUpstreamKeys(item)
 			row.Models = append(row.Models, ChannelReconcileModel{
 				ModelKey:         item.ModelKey,
 				ProviderModelKey: item.ProviderModelKey,
 				DisplayName:      firstNonEmpty(item.DisplayName, item.ModelKey),
 				Status:           ChannelReconcileModelUnknown,
-				UpstreamKeys:     keys,
+				UpstreamKeys:     channelModelUpstreamKeys(item),
+				MissingKeys:      []string{},
+				UnverifiedKeys:   []string{},
 			})
 		}
 		return row
@@ -211,6 +228,7 @@ func (s *Service) reconcileChannelModels(ctx context.Context, actor *model.User,
 	}
 	row.UpstreamCount = len(upstream)
 	missing := 0
+	verifications := 0
 	for _, item := range items {
 		view := ChannelReconcileModel{
 			ModelKey:         item.ModelKey,
@@ -218,9 +236,26 @@ func (s *Service) reconcileChannelModels(ctx context.Context, actor *model.User,
 			DisplayName:      firstNonEmpty(item.DisplayName, item.ModelKey),
 			UpstreamKeys:     channelModelUpstreamKeys(item),
 			MissingKeys:      []string{},
+			UnverifiedKeys:   []string{},
 		}
 		for _, key := range view.UpstreamKeys {
-			if _, ok := available[channelModelCatalogKey(key)]; !ok {
+			if _, ok := available[channelModelCatalogKey(key)]; ok {
+				continue
+			}
+			// 目录接口普遍分页（Replicate 一页只有 25 条），"翻不到"不等于"被撤掉"。
+			// 单模型接口是唯一权威：它回 404 才算缺失，其他失败只记"无法确认"。
+			if verifications >= maxModelVerificationsPerChannel {
+				view.UnverifiedKeys = append(view.UnverifiedKeys, key)
+				continue
+			}
+			verifications++
+			exists, verifyErr := s.verifyReconcileModel(probeCtx, request, key)
+			switch {
+			case verifyErr != nil:
+				view.UnverifiedKeys = append(view.UnverifiedKeys, key)
+			case exists:
+				// 目录里没翻到、单模型接口说得通：说明只是分页没覆盖到。
+			default:
 				view.MissingKeys = append(view.MissingKeys, key)
 			}
 		}
@@ -229,14 +264,16 @@ func (s *Service) reconcileChannelModels(ctx context.Context, actor *model.User,
 			// 既没有 providerModelKey 也没有规格映射的模型无法对账，标成未知而不是
 			// 假装它一致——这种行本身就是要补配置的信号。
 			view.Status = ChannelReconcileModelUnknown
-		case len(view.MissingKeys) == 0:
-			view.Status = ChannelReconcileModelOK
 		case len(view.MissingKeys) == len(view.UpstreamKeys):
 			view.Status = ChannelReconcileModelMissing
 			missing++
-		default:
+		case len(view.MissingKeys) > 0:
 			view.Status = ChannelReconcileModelPartial
 			missing++
+		case len(view.UnverifiedKeys) > 0:
+			view.Status = ChannelReconcileModelUnknown
+		default:
+			view.Status = ChannelReconcileModelOK
 		}
 		row.Models = append(row.Models, view)
 	}
@@ -246,8 +283,33 @@ func (s *Service) reconcileChannelModels(ctx context.Context, actor *model.User,
 		row.Error = fmt.Sprintf("%d 个在售模型的上游标识已不在授权目录里", missing)
 		return row
 	}
+	unknown := 0
+	for _, view := range row.Models {
+		if view.Status == ChannelReconcileModelUnknown {
+			unknown++
+		}
+	}
+	if unknown > 0 {
+		row.Error = fmt.Sprintf("%d 个模型暂时无法核对", unknown)
+	}
 	row.Status = ChannelReconcileOK
 	return row
+}
+
+// verifyReconcileModel 用单模型接口确认一个标识是否真的不存在。
+//
+// 只有 404 才回 false；网络抖动、限流、5xx 一律回错误，让调用方标"无法确认"，
+// 而不是把一条好货报成已下架。
+func (s *Service) verifyReconcileModel(ctx context.Context, request ChannelModelsRequest, modelID string) (bool, error) {
+	err := s.VerifyUpstreamChannelModel(ctx, request, modelID)
+	if err == nil {
+		return true, nil
+	}
+	var appErr *AppError
+	if errors.As(err, &appErr) && appErr.Status == http.StatusBadRequest && strings.Contains(appErr.Message, "上游没有模型") {
+		return false, nil
+	}
+	return false, err
 }
 
 // channelModelUpstreamKeys 列出一个模型真正会打到上游的标识。

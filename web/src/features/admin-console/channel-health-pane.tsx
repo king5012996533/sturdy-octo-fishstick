@@ -153,9 +153,21 @@ export function ChannelHealthPane() {
             render: (value: string) => statusTag(modelStatusMeta, value),
         },
         {
-            title: "缺失标识",
+            title: "缺失 / 无法确认",
             key: "missingKeys",
-            render: (_, row) => (row.missingKeys.length ? <span className="admin-console-mono">{row.missingKeys.join(" / ")}</span> : <span className="admin-user-sub">—</span>),
+            render: (_, row) => (
+                <span className="flex flex-wrap gap-1">
+                    {row.missingKeys.map((key) => (
+                        <Tag key={`missing-${key}`} color="red">
+                            {key}
+                        </Tag>
+                    ))}
+                    {row.unverifiedKeys.map((key) => (
+                        <Tag key={`unverified-${key}`}>{key}（无法确认）</Tag>
+                    ))}
+                    {!row.missingKeys.length && !row.unverifiedKeys.length ? <span className="admin-user-sub">—</span> : null}
+                </span>
+            ),
         },
     ];
 
