@@ -284,3 +284,73 @@ func TestFalImageMuseUsesAspectRatioWithoutQuality(t *testing.T) {
 		t.Fatalf("aspect_ratio = %#v", body["aspect_ratio"])
 	}
 }
+
+// google/nano-banana-2.1 的入参是 aspect_ratio + resolution（1K/2K/4K），
+// 没有 image_size 也没有 quality；它的文生图端点就是基名本身，试 /text-to-image 会 404。
+// 平台侧用 `宽x高` 表达"比例 × 分辨率"，插件在这里翻译成上游的两个字段：
+// 比例由宽高比落到最接近的档，分辨率按像素面积分档（与计费档位同一套边界）。
+func TestFalImageNanoBananaMapsSizeToAspectRatioAndResolution(t *testing.T) {
+	adapter := officialPackageAdapter(t, "fal-image.beeftv-plugin", "fal-image")
+	cases := []struct {
+		size       string
+		aspect     string
+		resolution string
+	}{
+		{"1024x1024", "1:1", "1K"},
+		{"1824x1024", "16:9", "1K"},
+		{"2752x1536", "16:9", "2K"},
+		{"2304x1728", "4:3", "2K"},
+		{"3840x2160", "16:9", "4K"},
+		{"2160x3840", "9:16", "4K"},
+		{"3136x1344", "21:9", "2K"},
+	}
+	for _, tc := range cases {
+		create, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+			Model:       "google/nano-banana-2.1",
+			Prompt:      "一只橘猫",
+			AspectRatio: tc.size,
+			Quality:     "high",
+			ImageCount:  1,
+		}})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.size, err)
+		}
+		if create.Path != "/google/nano-banana-2.1" {
+			t.Fatalf("create.Path = %q，这个模型的文生图端点就是基名", create.Path)
+		}
+		body := manifestTestBody(t, create)
+		if body["aspect_ratio"] != tc.aspect {
+			t.Fatalf("%s: aspect_ratio = %#v，期望 %s", tc.size, body["aspect_ratio"], tc.aspect)
+		}
+		if body["resolution"] != tc.resolution {
+			t.Fatalf("%s: resolution = %#v，期望 %s", tc.size, body["resolution"], tc.resolution)
+		}
+		if _, present := body["image_size"]; present {
+			t.Fatalf("%s: body = %#v，上游不收 image_size", tc.size, body)
+		}
+		if _, present := body["quality"]; present {
+			t.Fatalf("%s: body = %#v，上游没有 quality 字段", tc.size, body)
+		}
+	}
+
+	// 带参考图走 /edit；没有合法尺寸时两个字段都不下发，交给上游默认值。
+	create, err := adapter.BuildCreate(context.Background(), RequestContext{Request: GenerationRequest{
+		Model:       "google/nano-banana-2.1",
+		Prompt:      "换成蓝色背景",
+		AspectRatio: "auto",
+		Images:      []MediaReference{{URL: "https://cdn.example/anchor.png", Role: "edit_source"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if create.Path != "/google/nano-banana-2.1/edit" {
+		t.Fatalf("create.Path = %q，带参考图时必须走 /edit", create.Path)
+	}
+	body := manifestTestBody(t, create)
+	if _, present := body["aspect_ratio"]; present {
+		t.Fatalf("body = %#v，尺寸无法解析时不应猜一个比例", body)
+	}
+	if _, present := body["resolution"]; present {
+		t.Fatalf("body = %#v，尺寸无法解析时不应猜一个分辨率", body)
+	}
+}

@@ -98,6 +98,18 @@ Muse 的入参是 `aspect_ratio`（`"16:9"` 这样的字符串），不是 `imag
 其余模型仍走上面的 `image_size` 映射表。Muse 按固定约 2.5MP 渲染，比例只决定画幅形状，不决定像素数；
 因此登记这个模型时 `size.parameter` 用 `aspect_ratio`，`quality.supported` 保持关。
 
+### `google/nano-banana-2.1` 的字段差异
+
+它把"比例"和"分辨率"拆成两个入参：`aspect_ratio`（`"16:9"`）与 `resolution`（`1K` / `2K` / `4K`），
+既没有 `image_size` 也没有 `quality`。平台侧用一个尺寸值表达"比例 × 分辨率"，
+所以登记时 `size.parameter` 用 `size`、值是 `宽x高`（与 seedream 同一套，前端会渲染成「16:9 · 2K」）。
+
+插件按宽高比把 `宽x高` 折成最接近的 `aspect_ratio`，按像素面积折成 `resolution`：
+≤ 200 万像素是 1K、≤ 500 万是 2K、更大是 4K——与计费尺寸档（`SIZE_1K` / `SIZE_2K` / `SIZE_4K`）用同一组边界，
+所以"选了 2K 却按 1K 收钱"这种事不会发生。尺寸解析不出宽高时不猜，两个字段都不下发，交给上游默认值。
+
+另外它的文生图端点就是基名本身（`/google/nano-banana-2.1`，`/text-to-image` 回 404），已列入基名名单。
+
 ## 上游请求模板逐字段清单
 
 下表由插件请求模板生成，覆盖 body、query、headers 和 multipart 文件声明中的每个字段。
@@ -261,7 +273,8 @@ fal 各模型的入参名并不统一（`image_urls` / `images`、`num_images` /
                                 "$ref": "request.model"
                               },
                               [
-                                "openai/gpt-image-2"
+                                "openai/gpt-image-2",
+                                "google/nano-banana-2.1"
                               ]
                             ]
                           },
@@ -318,11 +331,14 @@ fal 各模型的入参名并不统一（`image_urls` / `images`、`num_images` /
               {
                 "$if": {
                   "condition": {
-                    "$eq": [
+                    "$in": [
                       {
                         "$ref": "request.model"
                       },
-                      "meta/muse-image"
+                      [
+                        "meta/muse-image",
+                        "google/nano-banana-2.1"
+                      ]
                     ]
                   },
                   "then": {},
@@ -367,6 +383,853 @@ fal 各模型的入参名并不统一（`image_urls` / `images`、`num_images` /
                 }
               },
               {
+                "$if": {
+                  "condition": {
+                    "$eq": [
+                      {
+                        "$ref": "request.model"
+                      },
+                      "google/nano-banana-2.1"
+                    ]
+                  },
+                  "then": {
+                    "$if": {
+                      "condition": {
+                        "$and": [
+                          {
+                            "$gt": [
+                              {
+                                "$len": {
+                                  "$split": [
+                                    {
+                                      "$trim": {
+                                        "$ref": "request.aspectRatio"
+                                      }
+                                    },
+                                    "x"
+                                  ]
+                                }
+                              },
+                              1
+                            ]
+                          },
+                          {
+                            "$gt": [
+                              {
+                                "$toInt": {
+                                  "$at": [
+                                    {
+                                      "$split": [
+                                        {
+                                          "$trim": {
+                                            "$ref": "request.aspectRatio"
+                                          }
+                                        },
+                                        "x"
+                                      ]
+                                    },
+                                    0
+                                  ]
+                                }
+                              },
+                              0
+                            ]
+                          },
+                          {
+                            "$gt": [
+                              {
+                                "$toInt": {
+                                  "$at": [
+                                    {
+                                      "$split": [
+                                        {
+                                          "$trim": {
+                                            "$ref": "request.aspectRatio"
+                                          }
+                                        },
+                                        "x"
+                                      ]
+                                    },
+                                    1
+                                  ]
+                                }
+                              },
+                              0
+                            ]
+                          }
+                        ]
+                      },
+                      "then": {
+                        "$merge": [
+                          {
+                            "aspect_ratio": {
+                              "$switch": {
+                                "cases": [
+                                  {
+                                    "when": {
+                                      "$gt": [
+                                        {
+                                          "$divide": [
+                                            {
+                                              "$toInt": {
+                                                "$at": [
+                                                  {
+                                                    "$split": [
+                                                      {
+                                                        "$trim": {
+                                                          "$ref": "request.aspectRatio"
+                                                        }
+                                                      },
+                                                      "x"
+                                                    ]
+                                                  },
+                                                  0
+                                                ]
+                                              }
+                                            },
+                                            {
+                                              "$toInt": {
+                                                "$at": [
+                                                  {
+                                                    "$split": [
+                                                      {
+                                                        "$trim": {
+                                                          "$ref": "request.aspectRatio"
+                                                        }
+                                                      },
+                                                      "x"
+                                                    ]
+                                                  },
+                                                  1
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        2.25
+                                      ]
+                                    },
+                                    "then": "21:9"
+                                  },
+                                  {
+                                    "when": {
+                                      "$and": [
+                                        {
+                                          "$gt": [
+                                            {
+                                              "$divide": [
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      0
+                                                    ]
+                                                  }
+                                                },
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      1
+                                                    ]
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            1.7
+                                          ]
+                                        },
+                                        {
+                                          "$lt": [
+                                            {
+                                              "$divide": [
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      0
+                                                    ]
+                                                  }
+                                                },
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      1
+                                                    ]
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            2.25
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "then": "16:9"
+                                  },
+                                  {
+                                    "when": {
+                                      "$and": [
+                                        {
+                                          "$gte": [
+                                            {
+                                              "$divide": [
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      0
+                                                    ]
+                                                  }
+                                                },
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      1
+                                                    ]
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            1.46
+                                          ]
+                                        },
+                                        {
+                                          "$lte": [
+                                            {
+                                              "$divide": [
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      0
+                                                    ]
+                                                  }
+                                                },
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      1
+                                                    ]
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            1.7
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "then": "3:2"
+                                  },
+                                  {
+                                    "when": {
+                                      "$and": [
+                                        {
+                                          "$gte": [
+                                            {
+                                              "$divide": [
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      0
+                                                    ]
+                                                  }
+                                                },
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      1
+                                                    ]
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            1.3
+                                          ]
+                                        },
+                                        {
+                                          "$lt": [
+                                            {
+                                              "$divide": [
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      0
+                                                    ]
+                                                  }
+                                                },
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      1
+                                                    ]
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            1.46
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "then": "4:3"
+                                  },
+                                  {
+                                    "when": {
+                                      "$and": [
+                                        {
+                                          "$gt": [
+                                            {
+                                              "$divide": [
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      0
+                                                    ]
+                                                  }
+                                                },
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      1
+                                                    ]
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            0.9
+                                          ]
+                                        },
+                                        {
+                                          "$lt": [
+                                            {
+                                              "$divide": [
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      0
+                                                    ]
+                                                  }
+                                                },
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      1
+                                                    ]
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            1.1
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "then": "1:1"
+                                  },
+                                  {
+                                    "when": {
+                                      "$and": [
+                                        {
+                                          "$gte": [
+                                            {
+                                              "$divide": [
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      0
+                                                    ]
+                                                  }
+                                                },
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      1
+                                                    ]
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            0.73
+                                          ]
+                                        },
+                                        {
+                                          "$lte": [
+                                            {
+                                              "$divide": [
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      0
+                                                    ]
+                                                  }
+                                                },
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      1
+                                                    ]
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            0.9
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "then": "3:4"
+                                  },
+                                  {
+                                    "when": {
+                                      "$and": [
+                                        {
+                                          "$gte": [
+                                            {
+                                              "$divide": [
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      0
+                                                    ]
+                                                  }
+                                                },
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      1
+                                                    ]
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            0.64
+                                          ]
+                                        },
+                                        {
+                                          "$lt": [
+                                            {
+                                              "$divide": [
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      0
+                                                    ]
+                                                  }
+                                                },
+                                                {
+                                                  "$toInt": {
+                                                    "$at": [
+                                                      {
+                                                        "$split": [
+                                                          {
+                                                            "$trim": {
+                                                              "$ref": "request.aspectRatio"
+                                                            }
+                                                          },
+                                                          "x"
+                                                        ]
+                                                      },
+                                                      1
+                                                    ]
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            0.73
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "then": "2:3"
+                                  },
+                                  {
+                                    "when": {
+                                      "$lt": [
+                                        {
+                                          "$divide": [
+                                            {
+                                              "$toInt": {
+                                                "$at": [
+                                                  {
+                                                    "$split": [
+                                                      {
+                                                        "$trim": {
+                                                          "$ref": "request.aspectRatio"
+                                                        }
+                                                      },
+                                                      "x"
+                                                    ]
+                                                  },
+                                                  0
+                                                ]
+                                              }
+                                            },
+                                            {
+                                              "$toInt": {
+                                                "$at": [
+                                                  {
+                                                    "$split": [
+                                                      {
+                                                        "$trim": {
+                                                          "$ref": "request.aspectRatio"
+                                                        }
+                                                      },
+                                                      "x"
+                                                    ]
+                                                  },
+                                                  1
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        0.64
+                                      ]
+                                    },
+                                    "then": "9:16"
+                                  }
+                                ],
+                                "default": "auto"
+                              }
+                            }
+                          },
+                          {
+                            "resolution": {
+                              "$switch": {
+                                "cases": [
+                                  {
+                                    "when": {
+                                      "$gt": [
+                                        {
+                                          "$multiply": [
+                                            {
+                                              "$toInt": {
+                                                "$at": [
+                                                  {
+                                                    "$split": [
+                                                      {
+                                                        "$trim": {
+                                                          "$ref": "request.aspectRatio"
+                                                        }
+                                                      },
+                                                      "x"
+                                                    ]
+                                                  },
+                                                  0
+                                                ]
+                                              }
+                                            },
+                                            {
+                                              "$toInt": {
+                                                "$at": [
+                                                  {
+                                                    "$split": [
+                                                      {
+                                                        "$trim": {
+                                                          "$ref": "request.aspectRatio"
+                                                        }
+                                                      },
+                                                      "x"
+                                                    ]
+                                                  },
+                                                  1
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        5000000
+                                      ]
+                                    },
+                                    "then": "4K"
+                                  },
+                                  {
+                                    "when": {
+                                      "$gt": [
+                                        {
+                                          "$multiply": [
+                                            {
+                                              "$toInt": {
+                                                "$at": [
+                                                  {
+                                                    "$split": [
+                                                      {
+                                                        "$trim": {
+                                                          "$ref": "request.aspectRatio"
+                                                        }
+                                                      },
+                                                      "x"
+                                                    ]
+                                                  },
+                                                  0
+                                                ]
+                                              }
+                                            },
+                                            {
+                                              "$toInt": {
+                                                "$at": [
+                                                  {
+                                                    "$split": [
+                                                      {
+                                                        "$trim": {
+                                                          "$ref": "request.aspectRatio"
+                                                        }
+                                                      },
+                                                      "x"
+                                                    ]
+                                                  },
+                                                  1
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        2000000
+                                      ]
+                                    },
+                                    "then": "2K"
+                                  }
+                                ],
+                                "default": "1K"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "else": {}
+                    }
+                  },
+                  "else": {}
+                }
+              },
+              {
                 "$switch": {
                   "cases": [
                     {
@@ -399,6 +1262,17 @@ fal 各模型的入参名并不统一（`image_urls` / `images`、`num_images` /
                           }
                         }
                       }
+                    },
+                    {
+                      "when": {
+                        "$eq": [
+                          {
+                            "$ref": "request.model"
+                          },
+                          "google/nano-banana-2.1"
+                        ]
+                      },
+                      "then": {}
                     }
                   ],
                   "default": {
