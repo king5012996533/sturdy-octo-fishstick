@@ -30,6 +30,10 @@ func OutboundHTTPClient(timeout time.Duration) *http.Client {
 	return outbound.OutboundHTTPClient(timeout)
 }
 
+func OutboundSynchronousMediaHTTPClient(timeout time.Duration) *http.Client {
+	return outbound.OutboundSynchronousMediaHTTPClient(timeout)
+}
+
 func ApplyDefaultOutboundHeaders(req *http.Request) {
 	outbound.ApplyDefaultOutboundHeaders(req)
 }

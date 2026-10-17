@@ -926,6 +926,7 @@ func (s *Service) hydrateProviderMedia(userID string, media *providerMedia, poli
 		return fmt.Errorf("任务参考资源超过 %dMB", runtimePolicy.Resource.ResourceUploadMB)
 	}
 	mimeType := normalizedMediaMimeType(firstNonEmpty(media.MimeType, resource.MimeType), data)
+	data, mimeType = compactInlineImageData(data, mimeType)
 	media.DataURL = dataURL(mimeType, data)
 	media.MimeType = mimeType
 	media.Bytes = int64(len(data))

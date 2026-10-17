@@ -286,6 +286,28 @@ func TestOutboundTransportBoundsStalledResponseHeaders(t *testing.T) {
 	}
 }
 
+// 同步生图接口的响应头要等整张图生成完才回来，必须比异步提交接口的 60 秒更宽；
+// 但异步提交路径仍要保留原来的上限，不能一起放宽。
+func TestSynchronousMediaClientUsesRelaxedResponseHeaderTimeout(t *testing.T) {
+	mediaTransport, ok := OutboundSynchronousMediaHTTPClient(time.Minute).Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("同步生图客户端没有使用 *http.Transport")
+	}
+	if mediaTransport.ResponseHeaderTimeout != synchronousMediaResponseHeaderTimeout {
+		t.Fatalf("同步生图响应头超时 = %s，期望 %s", mediaTransport.ResponseHeaderTimeout, synchronousMediaResponseHeaderTimeout)
+	}
+	if synchronousMediaResponseHeaderTimeout <= outboundResponseHeaderTimeout {
+		t.Fatalf("同步生图超时 %s 必须大于异步提交的 %s", synchronousMediaResponseHeaderTimeout, outboundResponseHeaderTimeout)
+	}
+	defaultTransport, ok := OutboundHTTPClient(time.Minute).Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("默认客户端没有使用 *http.Transport")
+	}
+	if defaultTransport.ResponseHeaderTimeout != outboundResponseHeaderTimeout {
+		t.Fatalf("默认响应头超时 = %s，期望 %s", defaultTransport.ResponseHeaderTimeout, outboundResponseHeaderTimeout)
+	}
+}
+
 // TestPreferIPv4Order 覆盖拨号顺序：IPv4 在前，同族内保持解析顺序。
 func TestPreferIPv4Order(t *testing.T) {
 	ordered := preferIPv4Order([]net.IP{

@@ -87,6 +87,24 @@ func TestProtocolQwenImagePluginMapsCanvasRatio(t *testing.T) {
 	}
 }
 
+// 同步生图协议（没有 poll 阶段）要放宽响应头超时；异步提交协议保持 60 秒，
+// 避免把"连接被黑洞"拖到几分钟才暴露。
+func TestWithSynchronousMediaResponseMarksOnlySyncImageAdapters(t *testing.T) {
+	syncAdapter := officialSourceProviderAdapter(t, "volcengine-ark-seedream", "volcengine-ark-image")
+	if !synchronousMediaResponseRequested(withSynchronousMediaResponse(context.Background(), syncAdapter)) {
+		t.Fatal("火山方舟同步生图应使用放宽的响应头超时")
+	}
+
+	asyncAdapter := officialSourceProviderAdapter(t, "fal-queue-video", "fal-queue-video")
+	if synchronousMediaResponseRequested(withSynchronousMediaResponse(context.Background(), asyncAdapter)) {
+		t.Fatal("带 poll 阶段的异步协议不应放宽响应头超时")
+	}
+
+	if synchronousMediaResponseRequested(context.Background()) {
+		t.Fatal("没有标记的上下文不应放宽响应头超时")
+	}
+}
+
 func TestProtocolGeminiImageKeepsAspectRatio(t *testing.T) {
 	adapter := officialSourceProviderAdapter(t, "google-gemini-image", "gemini-image")
 	profile := DefaultImageCapabilityConfig("gemini-image", "gemini-3-pro-image-preview")

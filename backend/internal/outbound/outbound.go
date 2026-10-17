@@ -32,6 +32,7 @@ type OutboundHeader struct {
 
 var (
 	outboundTransport          = newOutboundTransport(resolveOutboundHost)
+	synchronousMediaTransport  = newOutboundTransportWithResponseHeaderTimeout(resolveOutboundHost, synchronousMediaResponseHeaderTimeout)
 	customRelayTransport       = newOutboundTransport(resolveCustomRelayHost)
 	blockedCustomRelayPrefixes = []netip.Prefix{
 		netip.MustParsePrefix("0.0.0.0/8"),
@@ -94,8 +95,21 @@ func ValidateCustomRelayURL(rawURL string) (*url.URL, error) {
 }
 
 func OutboundHTTPClient(timeout time.Duration) *http.Client {
+	return newOutboundHTTPClient(outboundTransport, timeout)
+}
+
+// OutboundSynchronousMediaHTTPClient 用于"创建请求一直阻塞到成品生成完"的同步生图接口。
+//
+// 这类接口的响应头天然要等图片生成完才回来：一次带多张参考图的 2K 出图在 60 秒内
+// 收不到响应头是常态，用异步提交接口的 60 秒上限会把本该成功、上游仍在执行的请求
+// 判成失败。请求总时长仍由 client.Timeout 与任务上下文约束。
+func OutboundSynchronousMediaHTTPClient(timeout time.Duration) *http.Client {
+	return newOutboundHTTPClient(synchronousMediaTransport, timeout)
+}
+
+func newOutboundHTTPClient(transport *http.Transport, timeout time.Duration) *http.Client {
 	return &http.Client{
-		Transport: outboundTransport,
+		Transport: transport,
 		Timeout:   timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= maxOutboundRedirects {
@@ -258,7 +272,16 @@ func blockedOutboundHeader(name string) bool {
 // 用变量而不是常量：测试要把它压到毫秒级来覆盖这条约束。
 var outboundResponseHeaderTimeout = 60 * time.Second
 
+// synchronousMediaResponseHeaderTimeout 用于同步生图/改图接口：上游要先把图生成完
+// 才会写响应头，60 秒不足以覆盖带多张参考图的慢任务。5 分钟与宿主的上游请求预算
+// 一致，连接被黑洞时也仍由内核外的请求总超时兜底，不会无限挂住。
+const synchronousMediaResponseHeaderTimeout = 5 * time.Minute
+
 func newOutboundTransport(resolveHost func(context.Context, string) ([]net.IP, error)) *http.Transport {
+	return newOutboundTransportWithResponseHeaderTimeout(resolveHost, outboundResponseHeaderTimeout)
+}
+
+func newOutboundTransportWithResponseHeaderTimeout(resolveHost func(context.Context, string) ([]net.IP, error), responseHeaderTimeout time.Duration) *http.Transport {
 	dialer := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
 	return &http.Transport{
 		Proxy: outboundProxyFromEnvironment,
@@ -282,7 +305,7 @@ func newOutboundTransport(resolveHost func(context.Context, string) ([]net.IP, e
 		MaxIdleConnsPerHost:   20,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   15 * time.Second,
-		ResponseHeaderTimeout: outboundResponseHeaderTimeout,
+		ResponseHeaderTimeout: responseHeaderTimeout,
 		ExpectContinueTimeout: time.Second,
 	}
 }

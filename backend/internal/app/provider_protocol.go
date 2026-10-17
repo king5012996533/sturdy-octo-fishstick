@@ -60,6 +60,7 @@ func declarativeProtocolPollPolicy(mode string) videoPollPolicy {
 func runProtocolAdapterTaskWithPolicy(ctx context.Context, input canvasGenerationInput, adapter protocol.Adapter, policy videoPollPolicy) (map[string]interface{}, error) {
 	// create、poll、download 是同一个外部任务的三个阶段：任一阶段失败都向上返回真实错误，
 	// 不把“已提交但结果未知”伪装成成功，也不把下载失败降级成空结果。
+	ctx = withSynchronousMediaResponse(ctx, adapter)
 	request := protocolRequestFromInput(input)
 	taskID := resumedProviderRequestID(ctx)
 	var created protocol.CreateResult
@@ -147,6 +148,29 @@ func runProtocolAdapterTaskWithPolicy(ctx context.Context, input canvasGeneratio
 		}
 		return videoPollOutcome{}, nil
 	})
+}
+
+type providerSynchronousMediaContext struct{}
+
+// withSynchronousMediaResponse 标记"创建请求会一直阻塞到成品生成完"的协议。
+// 判据是适配器声明的能力里有 image 且没有 poll 阶段：有 poll 的是异步提交，
+// 响应头毫秒级返回，继续沿用出站的 60 秒上限；同步生图要等整张图渲染完，
+// 必须放宽到与上游请求预算一致。
+func withSynchronousMediaResponse(ctx context.Context, adapter protocol.Adapter) context.Context {
+	if adapter == nil || strings.TrimSpace(adapter.Metadata().Poll) != "" {
+		return ctx
+	}
+	for _, capability := range adapter.Metadata().Categories {
+		if capability == protocol.CapabilityImage {
+			return context.WithValue(ctx, providerSynchronousMediaContext{}, true)
+		}
+	}
+	return ctx
+}
+
+func synchronousMediaResponseRequested(ctx context.Context) bool {
+	relaxed, _ := ctx.Value(providerSynchronousMediaContext{}).(bool)
+	return relaxed
 }
 
 func extractProviderTaskID(body []byte) (string, error) {
