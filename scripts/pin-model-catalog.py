@@ -65,6 +65,7 @@ CATALOG: dict[str, set[str]] = {
         # fal 主账号（带斜杠的上游标识）
         "openai/gpt-image-2.5/sunburst",
         "openai/gpt-image-2.5/flare",
+        "openai/gpt-image-2.6/sunburst",
         # Replicate 备用（连字符标识，与上面两条是同一个逻辑模型的两条通路）
         "openai/gpt-image-2.5-sunburst",
         "openai/gpt-image-2.5-flare",

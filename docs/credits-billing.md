@@ -258,6 +258,7 @@ KINO_ADMIN_COOKIE='<Cookie>' KINO_BASE_URL=https://kinotv.xingtudesign.com/api \
 | `openai/gpt-image-2.5-sunburst` / `-flare` | `XHIGH` | $0.25 | 900 分（¥9.00） | 80.0% |
 | `openai/gpt-image-2.5-sunburst` / `-flare` | `MAX` | $0.50 | 1800 分（¥18.00） | 80.0% |
 | `openai/gpt-image-2.5-sunburst` / `-flare` | 空档（未指定质量） | $0.25 | 900 分（¥9.00） | 80.0% |
+| `openai/gpt-image-2.6/sunburst`（fal） | `LOW` | $0.02469 | 45 分（¥0.45） | 约 60% |
 | `google/imagen-4` | 不区分档位 | $0.04 | 145 分（¥1.45） | 80.0% |
 | `google/imagen-4-fast` | 不区分档位 | $0.02 | 75 分（¥0.75） | 80.0% |
 
@@ -265,6 +266,8 @@ KINO_ADMIN_COOKIE='<Cookie>' KINO_BASE_URL=https://kinotv.xingtudesign.com/api \
 上游没有这两档，能力合同按 `gpt-image-2.5` 前缀区分，2.0 仍然只有 `LOW` / `MEDIUM` / `HIGH`。
 `xhigh` 与 2.5 系的空档（auto）同价，但语义不同：空档是"面板没传质量"，`xhigh` 是用户主动选的，
 两者必须各占一行，任何一种"取不到就退回别档"的实现都会在这里算错钱。
+2.6 只开放 `LOW` 一档，能力合同的默认档也写死 `low`，请求一定显式带 `quality=low`，
+因此不设空档价目；若漏传，上游按 high（$0.05268）出图，按 45 分卖就是倒贴。
 
 图片线的倍率是 **×5**，比文本线的 ×2 高：视频按走量定价、几乎不赚钱，图片承担这套价目
 的毛利。倍率是产品决策，不是算出来的，改 `scripts/seed-image-model-prices.py` 里的

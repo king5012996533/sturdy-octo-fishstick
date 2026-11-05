@@ -26,18 +26,24 @@ REPLICATE_SELL_FEN = {
     "openai/gpt-image-2.5/sunburst": {"LOW": 45, "MEDIUM": 170, "HIGH": 465, "XHIGH": 900, "MAX": 1800, "": 900},
     "openai/gpt-image-2.5/flare": {"LOW": 45, "MEDIUM": 170, "HIGH": 465, "XHIGH": 900, "MAX": 1800, "": 900},
     "openai/gpt-image-2": {"LOW": 45, "MEDIUM": 170, "HIGH": 465, "": 465},
+    # 2.6 只开 low 一档：售价按 45 分/张，与 2.5、gpt-image-2 的 LOW 同价。
+    "openai/gpt-image-2.6/sunburst": {"LOW": 45},
 }
 # Replicate 渠道同名模型的上游成本（分/张），用于确认"对齐之后仍然赚钱"。
 REPLICATE_UPSTREAM_FEN = {
     "openai/gpt-image-2.5/sunburst": {"LOW": 9, "MEDIUM": 34, "HIGH": 93, "XHIGH": 180, "MAX": 360, "": 180},
     "openai/gpt-image-2.5/flare": {"LOW": 9, "MEDIUM": 34, "HIGH": 93, "XHIGH": 180, "MAX": 360, "": 180},
     "openai/gpt-image-2": {"LOW": 9, "MEDIUM": 34, "HIGH": 93, "": 93},
+    # fal 2.6 low 是 $0.02469，按 7.2 汇率向上取整到 18 分/张。
+    "openai/gpt-image-2.6/sunburst": {"LOW": 18},
 }
 # 能力合同里开放的质量档，也与 Replicate 渠道逐档一致。
 REPLICATE_QUALITY_TIERS = {
     "openai/gpt-image-2.5/sunburst": ["low", "medium", "high", "xhigh", "max"],
     "openai/gpt-image-2.5/flare": ["low", "medium", "high", "xhigh", "max"],
     "openai/gpt-image-2": ["low", "medium", "high"],
+    # 2.6 只开放 low：贵档不放出来，也避免漏传 quality 时上游按 high 计费。
+    "openai/gpt-image-2.6/sunburst": ["low"],
 }
 
 
@@ -65,7 +71,12 @@ class FalImageSeedTest(unittest.TestCase):
         # fal 把文生图与图生图拆成两条端点，渠道上只能登记基名，端点由参考图决定。
         self.assertEqual(
             sorted(model.model_key for model in seed.MODELS),
-            ["openai/gpt-image-2", "openai/gpt-image-2.5/flare", "openai/gpt-image-2.5/sunburst"],
+            [
+                "openai/gpt-image-2",
+                "openai/gpt-image-2.5/flare",
+                "openai/gpt-image-2.5/sunburst",
+                "openai/gpt-image-2.6/sunburst",
+            ],
         )
         for model in seed.MODELS:
             self.assertFalse(model.model_key.endswith("/edit"))
@@ -90,7 +101,12 @@ class FalImageSeedTest(unittest.TestCase):
                 model.model_key in base_models,
                 f"{model.model_key} 的文生图路径与插件名单不一致（插件名单：{base_models}）",
             )
+        # 反方向只校验本脚本负责的 GPT Image 族：同一个插件还服务 google/nano-banana-2.1，
+        # 它是按其它方式上架的，不在 seed.MODELS 里。要求名单里每个模型都由本脚本登记，
+        # 会把这条无关的模型误判成"漏上架"。
         for model_key in base_models:
+            if not model_key.startswith("openai/gpt-image-2"):
+                continue
             self.assertIsNotNone(model_by_key(model_key), f"插件名单里的 {model_key} 没有在本脚本上架")
 
     def test_display_names_are_byte_identical_to_the_replicate_channel(self):
@@ -98,6 +114,7 @@ class FalImageSeedTest(unittest.TestCase):
         self.assertEqual(model_by_key("openai/gpt-image-2.5/sunburst").display_name, "GPT Image 2.5 Sunburst")
         self.assertEqual(model_by_key("openai/gpt-image-2.5/flare").display_name, "GPT Image 2.5 Flare")
         self.assertEqual(model_by_key("openai/gpt-image-2").display_name, "GPT Image 2")
+        self.assertEqual(model_by_key("openai/gpt-image-2.6/sunburst").display_name, "GPT Image 2.6 Sunburst")
 
     def test_sell_prices_match_the_replicate_tiers(self):
         for model in seed.MODELS:
@@ -118,9 +135,18 @@ class FalImageSeedTest(unittest.TestCase):
     def test_blank_tier_is_costed_as_high(self):
         # fal 没收到 quality 时按 high 出图，空档必须按 high 的成本兜底，否则这一档在倒贴。
         # 售价不跟着 HIGH 走：空档价对齐的是 Replicate 那边空档的成本，2.5 落在 900、gpt-image-2 落在 465。
+        # 2.6 没有空档：能力合同把默认质量 fixed 在 low 且一定下发，空档价目反而会掩盖 high 的真实成本。
         for model in seed.MODELS:
             costs = dict(model.price_tiers)
+            if "" not in costs:
+                continue
             self.assertEqual(costs[""], costs["HIGH"], model.model_key)
+
+    def test_low_only_model_has_no_blank_tier(self):
+        # 只开放 low 的模型必须"只有一档价目、没有空档"：默认档写死 low 后请求不会漏传 quality。
+        model = model_by_key("openai/gpt-image-2.6/sunburst")
+        self.assertEqual(list(model.quality_tiers), ["low"])
+        self.assertEqual(list(model.price_tiers), [("LOW", "0.02469")])
 
     def test_gpt_image_2_costs_more_than_replicate_at_high_quality(self):
         # 记录一个反直觉的事实：这个模型上游比 Replicate 贵，别把"fal 就一定更便宜"当成前提。
@@ -146,6 +172,8 @@ class FalImageSeedTest(unittest.TestCase):
         # gpt-image-2 实测对 xhigh 回 422 literal_error（只认 auto/low/medium/high），
         # 能力合同里多一档，用户就会拿到一个必然失败的选项。
         self.assertEqual(list(model_by_key("openai/gpt-image-2").quality_tiers), ["low", "medium", "high"])
+        # 2.6 是我们主动只卖 low，不是上游拒绝；多开一档会让用户选到成本翻倍的档位。
+        self.assertEqual(list(model_by_key("openai/gpt-image-2.6/sunburst").quality_tiers), ["low"])
         for model in seed.MODELS:
             self.assertNotIn("auto", model.quality_tiers)
 

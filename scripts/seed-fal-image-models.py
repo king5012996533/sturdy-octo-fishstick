@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""上架 fal.ai 的 GPT Image 生图模型（`openai/gpt-image-2.5/{sunburst,flare}`、`openai/gpt-image-2`）。
+"""上架 fal.ai 的 GPT Image 生图模型（`openai/gpt-image-2.5/{sunburst,flare}`、`openai/gpt-image-2`、
+`openai/gpt-image-2.6/sunburst`）。
 
 fal 把同一个模型的文生图与图生图拆成两条端点：一条只吃 prompt，
 一条（`{model}/edit`）必填参考图（实测缺字段与空数组都是 422）。插件按请求里有没有参考图自动选端点，
@@ -76,8 +77,23 @@ Replicate 与 fal 是两个独立的生图账号：域名、鉴权、报文结�
 低价档 fal 更划算（LOW $0.006 对 $0.0125），中高价档反而更贵——所以"fal 优先"对 2.5 成立，
 对 gpt-image-2 只在 LOW 档成立。
 
-空档都单独留一行，价等于该模型的 HIGH：fal 在没收到 `quality` 时按 `high` 出图，
-空档按 HIGH 兜底才不会倒贴。
+### GPT Image 2.6 Sunburst
+
+只开放 `low` 一档：2.6 的 low 成本是 $0.02469，是 2.5 的 low（$0.00588）的 4.2 倍；medium
+$0.04347 也远高于 2.5 的 $0.01317，只有 high 及以上与 2.5 同价。若把中高档一起放出来，
+用户很容易选到"成本翻倍、画质提升不明显"的档位。售价按 low 档 45 分/张（与 2.5、gpt-image-2
+的 LOW 同价），毛利约 60%：
+
+| 档位 | 上游成本 | 售价 |
+| --- | --- | --- |
+| LOW | $0.02469 | 45 分 |
+
+能力合同里 quality 只有 `["low"]` 且 `default=low`：不只是"不给用户选贵的"，也保证请求里一定显式
+带 `quality=low`。fal 在没收到 quality 时按 high 出图（$0.05268），不写默认档就等于每单倒贴。
+因为默认档必定下发，这个模型不设空档价目。
+
+2.5 与 gpt-image-2 的空档都单独留一行，价等于该模型的 HIGH：fal 在没收到 `quality` 时按
+`high` 出图，空档按 HIGH 兜底才不会倒贴。
 
 本插件只开放比例（不开自定义像素），不同比例落到 fal 的命名档位（`landscape_16_9` 这类）
 或显式像素（3:2 → 1536×1024）。比例里像素最多的是 1536×1024，但按上游那张表它比 1024×1024
@@ -108,7 +124,7 @@ PROTOCOL = "fal-image"
 CONCURRENCY_LIMIT = 5
 
 # 能力合同与 Replicate 渠道的同型号逐字段一致，前端切换渠道时参数不缩水。
-# 比例是七个共享档；质量档跟着模型走（2.5 五档，gpt-image-2 只有三档，见 MODELS）。
+# 比例是七个共享档；质量档跟着模型走（2.5 五档，gpt-image-2 三档，2.6 只开 low，见 MODELS）。
 RATIOS = ["1:1", "16:9", "9:16", "3:2", "2:3", "4:3", "3:4"]
 QUALITY_DEFAULT = "low"
 MAX_IMAGES = 4
@@ -193,6 +209,18 @@ PRICE_TIERS_2: tuple[tuple[str, str], ...] = (
     ("", "0.211"),
 )
 
+# 2.6 只卖 low 一档：45 分/张，与 2.5、gpt-image-2 的 LOW 同价。
+# 上游成本取自 fal 模型页 "pricing of ChatGPT Images 2.6" 的 1024×1024 列：low $0.02469。
+GPT_IMAGE_26_SELL_FEN: dict[str, int] = {
+    "LOW": 45,
+}
+QUALITY_TIERS_26 = ("low",)
+# 默认档 fixed 在 low 且一定会下发，所以没有空档价目；多写一行空档反而会让漏传 quality 时按 45 分
+# 覆盖 high（$0.05268）的真实成本。
+PRICE_TIERS_26: tuple[tuple[str, str], ...] = (
+    ("LOW", "0.02469"),
+)
+
 MODELS: list[FalImageModel] = [
     FalImageModel(
         model_key="openai/gpt-image-2.5/sunburst",
@@ -218,11 +246,19 @@ MODELS: list[FalImageModel] = [
         price_tiers=PRICE_TIERS_2,
         aligned_sell_fen=GPT_IMAGE_2_SELL_FEN,
     ),
+    FalImageModel(
+        # 与 2.5 一样，文生图走 {model}/text-to-image，图生图走 {model}/edit。
+        model_key="openai/gpt-image-2.6/sunburst",
+        display_name="GPT Image 2.6 Sunburst",
+        quality_tiers=QUALITY_TIERS_26,
+        price_tiers=PRICE_TIERS_26,
+        aligned_sell_fen=GPT_IMAGE_26_SELL_FEN,
+    ),
 ]
 
 
 def capability_config(model: FalImageModel) -> dict:
-    """图片能力合同：比例七档是共享的，质量档跟着模型（2.5 五档、gpt-image-2 三档）。"""
+    """图片能力合同：比例七档是共享的，质量档跟着模型（2.5 五档、gpt-image-2 三档、2.6 仅 low）。"""
     return {
         "version": 1,
         "image": {
@@ -375,7 +411,7 @@ def read_prices(base_url: str, cookie: str) -> list[dict]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="上架 fal.ai GPT Image 2.5 生图模型（默认只预览）")
+    parser = argparse.ArgumentParser(description="上架 fal.ai GPT Image 生图模型（默认只预览）")
     parser.add_argument("--apply", action="store_true", help="真正写入；不加则只打印将要做的变更")
     parser.add_argument("--base-url", default=os.environ.get("KINO_BASE_URL", "http://127.0.0.1:8080/api"))
     parser.add_argument("--cookie", default=os.environ.get("KINO_ADMIN_COOKIE", ""))
