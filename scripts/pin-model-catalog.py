@@ -76,6 +76,10 @@ CATALOG: dict[str, set[str]] = {
         "doubao-seedream-5-0-flash-260915",
         # 腾讯 TokenHub 混元生图 3.5：中文人物质感到位，补齐国内直连的一条生图线路。
         "hy-image-v3.5-preview",
+        # fal 主账号的 Meta Muse 与 Nano Banana 2.1：2026-10 上架并已在售，售价分别
+        # 45 分与 60/90/200 分。漏登记会让货架脚本把它们当成"超纲"下架，前台静默少卖。
+        "meta/muse-image",
+        "google/nano-banana-2.1",
         # AI 超分（fal Recraft Crisp）：能力上是图片，但它是画布工具的固定端点，
         # 不是给用户在下拉里挑的模型（capabilityConfig.toolOnly=true）。仍必须列在这里：
         # 它要按张计价，而货架是"能不能卖"的唯一开关，漏了就等于按钮点不动。
@@ -88,19 +92,13 @@ CATALOG: dict[str, set[str]] = {
     "video": {
         # 已退役、不要再加回来：Aigen 的 seedance-2.0 / seedance-2.5（CHANNEL_000007）。
         # 2026-10 起不再对外出售，渠道模型保持停用。
+        # 2026-11 起视频线只保留秘塔 H3：grok-imagine-video/v1.5 与纵横 seadan 族
+        # （seadanco2.0mini / seadanco2.5）不再对外出售，渠道模型保持停用，价目与
+        # 上游标识都留着，需要时改回白名单即可恢复。
         # 秘塔 MiniMax-H3：同一模型的两个分辨率档各占一条货架记录，
         # 漏一个就会被这个脚本当成"超纲"下架，前台少一档。
         "MiniMax-H3",
         "MiniMax-H3-2K",
-        # 纵横科技 TTP-grok：按分辨率分档定价，两档价挂在同一条货架记录下
-        # （价目表的视频档位就是分辨率本身），因此这里只有一条。
-        "grok-imagine-video/v1.5",
-        # 纵横科技 seadan 族，由 scripts/seed-zongheng-seadanco-video.py 维护：
-        # 这两个是平台对外的名字，渠道里挂的上游标识是 Fseadanco2.0mini 与 kksedanco2.5。
-        # 同一个上游在改名换货时只换 providerModelKey，货架记录与价目都跟着这条 key 走，
-        # 所以白名单里认的是对外名，不是上游名。
-        "seadanco2.0mini",
-        "seadanco2.5",
     },
 }
 
