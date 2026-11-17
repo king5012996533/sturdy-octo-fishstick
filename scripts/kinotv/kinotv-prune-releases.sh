@@ -240,8 +240,11 @@ prune_category() {
 # 从一个文件里捞出它引用的静态资源名。宁可多认（多保留），不可漏认（误删）：
 # 白名单只用来"免删"，多列几个最坏是少清几个文件，漏一个就是线上 404。
 referenced_static_names() {
-    grep -oE '[A-Za-z0-9_@./-]+\.(js|mjs|css|wasm|json|woff2?|ttf|png|jpe?g|svg|gif|webp|avif|mp4|webm)' "$1" 2>/dev/null \
-        | sed -E 's|^\./||; s|^/static/||; s|^/||; s|[?#].*$||' \
+    # 字符集必须带上 ~：Vite 的 manualChunks 分组名形如
+    # `vendor-antd~application~...~vqnzyzp4-BsEvIeaf.js`，漏了 ~ 只能截到最后一个
+    # 波浪号之后的半截名字，白名单匹配不到真实文件，于是把在用的 chunk 当旧文件删掉。
+    grep -oE '[A-Za-z0-9_@./~-]+\.(js|mjs|css|wasm|json|woff2?|ttf|png|jpe?g|svg|gif|webp|avif|mp4|webm)' "$1" 2>/dev/null \
+        | sed -E 's|^\./||; s|^/static/||; s|^static/||; s|^/||; s|[?#].*$||' \
         | grep -vE '^(https?:)?//' \
         | sort -u || true
 }
@@ -264,8 +267,13 @@ collect_live_web_assets() {
     referenced_static_names "$index" > "$round_in"
     cp "$round_in" "$out"
 
+    # 轮数不能写死成 3：Vite 的懒加载 chunk 从入口到叶子经常超过 3 跳
+    # （入口 → 路由 → 组件 → 工具 → ...）。少走一跳，就会把仍在用的叶子 chunk
+    # 当成"旧文件"删掉——2026-11-17 就是这样删掉了当前构建的 36 个依赖，页面报
+    # "Failed to fetch dynamically imported module"。跑 50 轮只是防死循环，
+    # 正常情况下没有新增就会 break。
     local round name file
-    for round in 1 2 3; do
+    for round in $(seq 1 50); do
         : > "$round_out"
         while IFS= read -r name; do
             [ -n "$name" ] || continue
