@@ -15,7 +15,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm/logger"
 
 	"infinite-canvas/backend/internal/bootstrap"
 )
@@ -33,11 +35,93 @@ type rpcResponse struct {
 	Error   any    `json:"error,omitempty"`
 }
 
-func main() {
-	dataDir := os.Getenv("CANVAS_DATA_DIR")
+// mcpLocalRuntime is true when the adapter boots its own desktop-profile
+// backend. Hosted remotes can execute system-relay channels; local runtimes
+// deliberately cannot.
+var mcpLocalRuntime = true
+
+type authTransport struct {
+	base   http.RoundTripper
+	token  string
+	bearer string
+	cookie string
+}
+
+func (t authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.Header.Del("X-Desktop-Token")
+	switch {
+	case t.cookie != "":
+		clone.Header.Set("Cookie", t.cookie)
+	case t.bearer != "":
+		clone.Header.Set("Authorization", "Bearer "+t.bearer)
+	case t.token != "":
+		clone.Header.Set("X-Desktop-Token", t.token)
+	}
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(clone)
+}
+
+func normalizeMCPBaseURL(raw string) string {
+	value := strings.TrimRight(strings.TrimSpace(raw), "/")
+	if strings.HasSuffix(value, "/api") {
+		return value
+	}
+	return value + "/api"
+}
+
+// resolveMCPLocalRuntime decides whether system-relay channels are executable.
+// A session cookie implies a hosted service; a desktop launch token implies a
+// local desktop backend. KINOTV_MCP_PROFILE overrides both when a deployment
+// uses a different auth combination.
+func resolveMCPLocalRuntime(profile, token, bearer, cookie string) bool {
+	switch strings.ToLower(strings.TrimSpace(profile)) {
+	case "local", "desktop":
+		return true
+	case "hosted", "server":
+		return false
+	}
+	if bearer != "" || cookie != "" {
+		return false
+	}
+	return token != ""
+}
+
+// resolveRuntime returns the base URL, auth material and cleanup function for
+// either an existing Kinotv service or an embedded desktop runtime.
+func resolveRuntime() (string, string, string, string, func()) {
+	if remote := strings.TrimSpace(os.Getenv("KINOTV_MCP_BASE_URL")); remote != "" {
+		token := strings.TrimSpace(os.Getenv("KINOTV_MCP_TOKEN"))
+		bearer := strings.TrimSpace(os.Getenv("KINOTV_MCP_ACCESS_TOKEN"))
+		if bearer == "" {
+			bearer = strings.TrimSpace(os.Getenv("KINOTV_MCP_BEARER_TOKEN"))
+		}
+		cookie := strings.TrimSpace(os.Getenv("KINOTV_MCP_COOKIE"))
+		if cookie == "" {
+			cookie = strings.TrimSpace(os.Getenv("KINOTV_MCP_SESSION_COOKIE"))
+		}
+		mcpLocalRuntime = resolveMCPLocalRuntime(os.Getenv("KINOTV_MCP_PROFILE"), token, bearer, cookie)
+		base := normalizeMCPBaseURL(remote)
+		fmt.Fprintf(os.Stderr, "kinotv mcp: remote mode %s\n", base)
+		if token == "" && bearer == "" && cookie == "" {
+			fmt.Fprintln(os.Stderr, "kinotv mcp: warning: no KINOTV_MCP_ACCESS_TOKEN, KINOTV_MCP_COOKIE or KINOTV_MCP_TOKEN set; requests may be rejected")
+		}
+		return base, token, bearer, cookie, func() {}
+	}
+
+	dataDir := strings.TrimSpace(os.Getenv("CANVAS_DATA_DIR"))
 	if dataDir == "" {
-		home, _ := os.UserHomeDir()
-		dataDir = filepath.Join(home, "Library", "Application Support", "BeefTV")
+		dataDir = strings.TrimSpace(os.Getenv("CANVAS_DESKTOP_DATA_DIR"))
+	}
+	if dataDir == "" {
+		root, err := os.UserConfigDir()
+		if err != nil {
+			panic(err)
+		}
+		dataDir = filepath.Join(root, "BeefTV")
 	}
 	rt, err := bootstrap.Open(context.Background(), bootstrap.Config{Profile: bootstrap.ProfileDesktop, DataDir: dataDir, ListenAddr: "127.0.0.1:0", AutoMigrate: true})
 	if err != nil {
@@ -46,15 +130,38 @@ func main() {
 	if err = rt.Start(); err != nil {
 		panic(err)
 	}
-	defer rt.Close(context.Background())
-	client := &http.Client{}
+	// The desktop profile does not start the Agent scheduler with its normal
+	// worker. An external MCP client has no UI to drive that loop, so the
+	// adapter starts it here for headless Agent runs.
+	rt.StartAgentScheduler()
+	return rt.BaseURL(), rt.LaunchToken(), "", "", func() { _ = rt.Close(context.Background()) }
+}
+
+func main() {
+	// stdout is the JSON-RPC transport. Gin's access log and GORM's default
+	// logger also target stdout, which would corrupt every tool response.
+	gin.DefaultWriter = os.Stderr
+	gin.DefaultErrorWriter = os.Stderr
+	logger.Default = logger.Default.LogMode(logger.Silent)
+
+	baseURL, token, bearer, cookie, cleanup := resolveRuntime()
+	defer cleanup()
+	client := &http.Client{Timeout: 30 * time.Second, Transport: authTransport{base: http.DefaultTransport, token: token, bearer: bearer, cookie: cookie}}
+
 	s := bufio.NewScanner(os.Stdin)
+	// MCP tool arguments can carry large canvas batches or long prompts. The
+	// default 64KB scanner limit silently ends the server on a big request.
+	s.Buffer(make([]byte, 0, 1<<20), 16<<20)
 	for s.Scan() {
 		var req rpcRequest
 		if json.Unmarshal(s.Bytes(), &req) != nil {
 			continue
 		}
-		resp := handle(req, rt.BaseURL(), rt.LaunchToken(), client)
+		resp := handle(req, baseURL, token, client)
+		if req.ID == nil {
+			// JSON-RPC notifications never receive a response.
+			continue
+		}
 		b, _ := json.Marshal(resp)
 		fmt.Println(string(b))
 	}
@@ -65,7 +172,9 @@ func handle(req rpcRequest, base, token string, client *http.Client) rpcResponse
 	switch req.Method {
 	case "initialize":
 		r.Result = map[string]any{"protocolVersion": "2025-03-26", "serverInfo": map[string]any{"name": "beeftv-canvas", "version": "0.1.0"}, "capabilities": map[string]any{"tools": map[string]any{}}}
-	case "notifications/initialized":
+	case "notifications/initialized", "notifications/cancelled":
+		r.Result = map[string]any{}
+	case "ping":
 		r.Result = map[string]any{}
 	case "tools/list":
 		r.Result = map[string]any{"tools": []any{map[string]any{"name": "canvas_list", "description": "List local BeefTV canvases", "inputSchema": map[string]any{"type": "object"}}, map[string]any{"name": "canvas_get", "description": "Read one local canvas by id", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"canvasId": map[string]any{"type": "string"}}, "required": []string{"canvasId"}}}, map[string]any{"name": "canvas_add_text_node", "description": "Add a text node; defaults to isolated MCP test data", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"canvasId": map[string]any{"type": "string"}, "title": map[string]any{"type": "string"}, "content": map[string]any{"type": "string"}, "scope": map[string]any{"type": "string", "enum": []string{"test", "production"}}, "runId": map[string]any{"type": "string"}}, "required": []string{"canvasId", "title", "content"}}}, map[string]any{"name": "canvas_add_node", "description": "Add an image, video, or text node; defaults to isolated MCP test data", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"canvasId": map[string]any{"type": "string"}, "type": map[string]any{"type": "string", "enum": []string{"text", "image", "video"}}, "title": map[string]any{"type": "string"}, "content": map[string]any{"type": "string"}, "scope": map[string]any{"type": "string", "enum": []string{"test", "production"}}, "runId": map[string]any{"type": "string"}}, "required": []string{"canvasId", "type", "title"}}}, map[string]any{"name": "canvas_delete_node", "description": "Delete one node atomically by id", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"canvasId": map[string]any{"type": "string"}, "nodeId": map[string]any{"type": "string"}}, "required": []string{"canvasId", "nodeId"}}}, map[string]any{"name": "canvas_update_node", "description": "Update a node title, position, or metadata atomically", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"canvasId": map[string]any{"type": "string"}, "nodeId": map[string]any{"type": "string"}, "title": map[string]any{"type": "string"}, "position": map[string]any{"type": "object"}, "metadata": map[string]any{"type": "object"}}, "required": []string{"canvasId", "nodeId"}}}, map[string]any{"name": "canvas_connect_nodes", "description": "Connect two nodes atomically", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"canvasId": map[string]any{"type": "string"}, "fromNodeId": map[string]any{"type": "string"}, "toNodeId": map[string]any{"type": "string"}}, "required": []string{"canvasId", "fromNodeId", "toNodeId"}}}, map[string]any{"name": "canvas_clear_test_nodes", "description": "Remove MCP test nodes from a canvas, optionally by runId", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"canvasId": map[string]any{"type": "string"}, "runId": map[string]any{"type": "string"}}, "required": []string{"canvasId"}}}}}
@@ -77,7 +186,8 @@ func handle(req rpcRequest, base, token string, client *http.Client) rpcResponse
 	if req.Method == "tools/list" {
 		if result, ok := r.Result.(map[string]any); ok {
 			if tools, ok := result["tools"].([]any); ok {
-				result["tools"] = append(tools, map[string]any{"name": "canvas_batch_apply", "description": "Apply multiple atomic canvas operations in one MCP call", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"canvasId": map[string]any{"type": "string"}, "operations": map[string]any{"type": "array"}}, "required": []string{"canvasId", "operations"}}})
+				tools = append(tools, map[string]any{"name": "canvas_batch_apply", "description": "Apply multiple atomic canvas operations in one MCP call", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"canvasId": map[string]any{"type": "string"}, "operations": map[string]any{"type": "array"}}, "required": []string{"canvasId", "operations"}}})
+				result["tools"] = append(tools, agentToolDefinitions()...)
 			}
 		}
 	}
@@ -90,6 +200,11 @@ func callTool(raw json.RawMessage, base, token string, client *http.Client) any 
 		Arguments map[string]any `json:"arguments"`
 	}
 	_ = json.Unmarshal(raw, &p)
+	if encoded, err := json.Marshal(p.Arguments); err == nil {
+		if result, handled := callAgentTool(p.Name, encoded, base, token, client); handled {
+			return result
+		}
+	}
 	path := "/canvas-projects"
 	if p.Name == "canvas_add_text_node" {
 		return addTextNode(p.Arguments, base, token, client)

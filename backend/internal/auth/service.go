@@ -416,6 +416,16 @@ func (s *Service) SessionUser(ctx context.Context, token string) (*AuthUser, err
 	return toAuthUser(user, session.AuthMethodType, expiresAt), nil
 }
 
+// UserByID resolves an active account for non-session authentication paths such
+// as MCP access tokens. Disabled or deleted accounts are rejected.
+func (s *Service) UserByID(userID string) (*AuthUser, error) {
+	user, err := s.accountForSelfService(userID)
+	if err != nil {
+		return nil, err
+	}
+	return toAuthUser(user, "", time.Time{}), nil
+}
+
 // Logout 吊销当前会话。
 func (s *Service) Logout(token string) error {
 	normalized := strings.TrimSpace(token)

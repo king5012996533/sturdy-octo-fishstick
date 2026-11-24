@@ -22,7 +22,7 @@ func RegisterAgentRoutes(r *gin.RouterGroup, svc *app.Service) {
 			return
 		}
 		capabilities := app.CloudAgentCapabilitySetInfo()
-		ok(c, gin.H{"version": 2, "permissionModes": []string{"read_only", "request_approval", "auto"}, "contextScopes": []string{"canvas"}, "skills": true, "writeTools": true, "maxHistoryPairs": 10, "maxHistoryBytes": 64000, "maxSteps": 0, "tools": app.CloudAgentSupportedToolNames(), "capabilitySetVersion": capabilities.Version, "capabilitySetHash": capabilities.Hash, "nodeTypes": capabilities.Nodes})
+		ok(c, gin.H{"version": 2, "permissionModes": []string{"read_only", "request_approval", "auto"}, "contextScopes": []string{"canvas"}, "skills": true, "writeTools": true, "maxHistoryPairs": 10, "maxHistoryBytes": 64000, "maxSteps": 200, "tools": app.CloudAgentSupportedToolNames(), "capabilitySetVersion": capabilities.Version, "capabilitySetHash": capabilities.Hash, "nodeTypes": capabilities.Nodes})
 	})
 	// Profiles are durable preference data, not an authorization surface. The
 	// service validates scope ownership and the compiler injects the effective
@@ -120,6 +120,8 @@ func RegisterAgentRoutes(r *gin.RouterGroup, svc *app.Service) {
 			fail(c, http.StatusBadRequest, errors.New("请求必须只包含一个 JSON 对象"))
 			return
 		}
+		// Never trust the body: only the authenticated access token can tag a run.
+		req.MCPTokenID = MCPTokenID(c)
 		run, err := svc.CreateCloudAgentRun(user.ID, req, c.Param("id"))
 		if err != nil {
 			failService(c, err)
@@ -130,6 +132,58 @@ func RegisterAgentRoutes(r *gin.RouterGroup, svc *app.Service) {
 	r.POST("/agent/runs", create)
 	// Each additional message starts a new immutable turn and returns its ID.
 	r.POST("/agent/runs/:id/messages", create)
+	// Agent 可以申请提高额度，但这里只落一条待用户批准的申请；批准接口只挂
+	// 在用户会话下（见下面 /agent/budget-requests），MCP 令牌访问不到。
+	r.POST("/agent/runs/:id/budget-request", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 8<<10)
+		var input struct {
+			RequestedCredits int64  `json:"requestedCredits"`
+			Reason           string `json:"reason"`
+		}
+		decoder := json.NewDecoder(c.Request.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		request, err := svc.RequestCloudAgentBudget(user.ID, c.Param("id"), input.RequestedCredits, input.Reason)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"request": request})
+	})
+	r.GET("/agent/budget-requests", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		requests, err := svc.CloudAgentBudgetRequests(user.ID, 20)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"requests": requests})
+	})
+	r.POST("/agent/budget-requests/:id/approve", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		grant, err := svc.ApproveCloudAgentBudget(user.ID, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"grant": grant, "resumeRequired": true})
+	})
 	r.POST("/agent/runs/:id/interjections", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

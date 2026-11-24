@@ -14,6 +14,7 @@ import (
 type fakeCreditLedger struct {
 	requests      []TaskChargeRequest
 	chargeErr     error
+	quoteErr      error
 	charges       int64
 	refunds       []string
 	refundCredits int64
@@ -37,8 +38,8 @@ func (f *fakeCreditLedger) ChargeTask(request TaskChargeRequest) (TaskChargeOutc
 // QuoteTask 试算复用与 ChargeTask 同一份假数据：试算用例关心的是"编排层有没有把同一组
 // 入参交出去"，金额由账号域决定，这里没有可分辨的差异。
 func (f *fakeCreditLedger) QuoteTask(request TaskChargeRequest) (TaskChargeOutcome, error) {
-	if f.chargeErr != nil {
-		return TaskChargeOutcome{}, f.chargeErr
+	if f.quoteErr != nil {
+		return TaskChargeOutcome{}, f.quoteErr
 	}
 	f.requests = append(f.requests, request)
 	return TaskChargeOutcome{Credits: f.charges, Priced: true, Quantity: 1}, nil

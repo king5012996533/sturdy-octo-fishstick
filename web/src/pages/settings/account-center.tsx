@@ -1,5 +1,6 @@
 import { AccountBindingsCard } from "./account-bindings-card";
 import { AccountCreditsCard } from "./account-credits-card";
+import { AgentConnectionCard } from "./agent-connection-card";
 import { AccountDeletionCard } from "./account-deletion-card";
 import { AccountDevicesCard } from "./account-devices-card";
 import { AccountMoreSection } from "./account-more-section";
@@ -27,6 +28,7 @@ export function AccountCenter() {
             <AccountCreditsCard />
             <AccountProfileCard />
             <AccountPasswordCard />
+            <AgentConnectionCard />
             <AccountMoreSection>
                 <AccountDevicesCard />
                 <AccountBindingsCard />

@@ -59,8 +59,8 @@ func TestProtocolSeedreamPluginMapsCanvasRatioNotHostPixels(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := marshalProtocolBody(t, spec.Body)
-	if body["size"] != "2560x1440" {
-		t.Fatalf("seedream size = %#v, want 2560x1440", body["size"])
+	if body["size"] != "2816x1584" {
+		t.Fatalf("seedream size = %#v, want 2816x1584", body["size"])
 	}
 }
 

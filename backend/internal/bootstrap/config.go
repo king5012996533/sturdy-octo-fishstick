@@ -6,6 +6,7 @@ import (
 	"infinite-canvas/backend/internal/app"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type Profile string
@@ -37,6 +38,10 @@ type Config struct {
 type HostedDeps struct {
 	DataDir string
 	Service *app.Service
+	// CanvasDB lets hosted-only credentials (MCP access tokens) live in the
+	// BeefTV-owned canvas database instead of requiring a Prisma migration in
+	// the shared account database.
+	CanvasDB *gorm.DB
 }
 
 // HostedExtension 是托管能力的生命周期接口。

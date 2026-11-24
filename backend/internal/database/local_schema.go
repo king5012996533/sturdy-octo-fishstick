@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 3
+const CurrentSchemaVersion int64 = 5
 
 type localSchemaMigration struct {
 	Version   int64 `gorm:"primaryKey;autoIncrement:false"`
@@ -59,6 +59,7 @@ func LocalModels() []any {
 		&model.CanvasProject{}, &model.CanvasSnapshot{}, &model.CanvasSnapshotResource{},
 		&model.PromptTemplate{}, &model.UserPromptCustomization{},
 		&model.Task{}, &model.CreationRun{}, &model.CreationSubmission{}, &model.TaskTextDelta{}, &model.TaskLog{}, &model.Result{},
+		&model.MCPToken{}, &model.AgentGrant{}, &model.AgentCreditReservation{}, &model.AgentCreditBucket{}, &model.AgentBudgetRequest{},
 	}
 }
 
@@ -74,6 +75,8 @@ func migrateLocalSchema(db *gorm.DB, beforeApply func(int64) error) error {
 		{version: 1, name: "local-core-schema", apply: migrateLocalCoreSchema},
 		{version: 2, name: "retire-hosted-schema", destructive: true, apply: migrateRetiredHostedSchema},
 		{version: 3, name: "resource-provenance", apply: migrateResourceProvenance},
+		{version: 4, name: "mcp-tokens", apply: migrateMCPTokens},
+		{version: 5, name: "agent-grants", apply: migrateAgentGrants},
 	}
 	current, err := currentSchemaVersion(db)
 	if err != nil {
@@ -121,6 +124,24 @@ func migrateLocalCoreSchema(tx *gorm.DB) error {
 // 单独一次版本化迁移而不是靠核心迁移里的 AutoMigrate：那条只在首次建库时执行，
 // 已上线的库不会再跑，字段会静默缺失——写入报错还算好的，对账读到的全是"未关联任务"
 // 才是真正难查的那种故障。
+// migrateMCPTokens 添加外部 MCP 客户端的个人访问令牌表。令牌只存哈希，明文
+// 仅在创建响应里出现一次。
+func migrateMCPTokens(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.MCPToken{}); err != nil {
+		return fmt.Errorf("迁移 MCP 连接令牌: %w", err)
+	}
+	return nil
+}
+
+// migrateAgentGrants 添加 Agent 授权、额度预留与加额申请。桌面端也会跑本地
+// Agent，因此这些表不能只建在托管库上；额度桶同样需要 Task 级别的幂等键。
+func migrateAgentGrants(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.AgentGrant{}, &model.AgentCreditReservation{}, &model.AgentCreditBucket{}, &model.AgentBudgetRequest{}); err != nil {
+		return fmt.Errorf("迁移 Agent 授权与额度: %w", err)
+	}
+	return nil
+}
+
 func migrateResourceProvenance(tx *gorm.DB) error {
 	if err := tx.AutoMigrate(&model.Resource{}); err != nil {
 		return fmt.Errorf("迁移资源溯源列: %w", err)

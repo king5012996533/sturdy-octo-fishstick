@@ -31,7 +31,7 @@ func TestCloudAgentCanvasPatchesPersistDraftSubmissionAndAllTerminalStates(t *te
 	for _, status := range []model.TaskStatus{model.TaskStatusSucceeded, model.TaskStatusFailed, model.TaskStatusCancelled} {
 		t.Run(string(status), func(t *testing.T) {
 			s, db, args := agentMediaFixture(t)
-			run, _ := agentMediaRun(t, s, args, "auto")
+			run, _ := agentMediaRun(t, s, args, "request_approval")
 			if err := s.advanceCloudAgentByID("user", run.ID); err != nil {
 				t.Fatal(err)
 			}
@@ -226,7 +226,7 @@ func TestCloudAgentCanvasOperationTraceSharesToolCallID(t *testing.T) {
 
 func TestCloudAgentMissingCanvasStillCheckpointsMediaFailure(t *testing.T) {
 	s, db, args := agentMediaFixture(t)
-	run, _ := agentMediaRun(t, s, args, "auto")
+	run, _ := agentMediaRun(t, s, args, "request_approval")
 	if err := s.advanceCloudAgentByID("user", run.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +259,7 @@ func TestCloudAgentMediaPolicyAllowsDefaultsWithoutBypassingApproval(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, text := range []string{"安全默认", "不要求四项逐个确认", "一次性询问", "界面独立审批", "失败不得自动重提"} {
+	for _, text := range []string{"安全默认", "不要求四项逐个确认", "一次性询问", "auto 模式", "不能自己给自己加额度", "失败不得自动重提"} {
 		if !strings.Contains(media.Text, text) {
 			t.Fatalf("media policy lost %q", text)
 		}

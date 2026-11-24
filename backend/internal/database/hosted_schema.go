@@ -40,6 +40,10 @@ func MigrateHostedSharedSchema(db *gorm.DB) error {
 		&model.VendorCredential{},
 		&model.CreationInspiration{},
 		&model.ModelShowcaseEntry{},
+		&model.AgentGrant{},
+		&model.AgentCreditReservation{},
+		&model.AgentCreditBucket{},
+		&model.AgentBudgetRequest{},
 	); err != nil {
 		return fmt.Errorf("迁移托管共享结构: %w", err)
 	}
@@ -75,6 +79,10 @@ func RequireHostedSharedSchema(db *gorm.DB) error {
 		{&model.ModelVendor{}, "model_vendors"},
 		{&model.VendorCredential{}, "vendor_credentials"},
 		{&model.CreationInspiration{}, "creation_inspirations"},
+		{&model.AgentGrant{}, "agent_grants"},
+		{&model.AgentCreditReservation{}, "agent_credit_reservations"},
+		{&model.AgentCreditBucket{}, "agent_credit_buckets"},
+		{&model.AgentBudgetRequest{}, "agent_budget_requests"},
 	} {
 		if !db.Migrator().HasTable(entry.table) {
 			return fmt.Errorf("托管共享结构缺失 %s，请启用自动迁移或先建表", entry.name)

@@ -41,23 +41,7 @@ func (w *taskWorkerCoordinator) start(ctx context.Context) {
 	s.startProviderSubmissionReconciliation(ctx)
 	s.startAgentMemoryCompactScheduler()
 	if !s.IsLocalMode() {
-		s.runWorkerLoop(func(ctx context.Context) {
-			ticker := time.NewTicker(2 * time.Second)
-			defer ticker.Stop()
-			for {
-				if ctx.Err() != nil {
-					return
-				}
-				if !s.IsDraining() {
-					s.advanceCloudAgents()
-				}
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-				}
-			}
-		})
+		w.startAgentScheduler()
 	}
 	s.runWorkerLoop(func(ctx context.Context) {
 		slots := make(chan struct{}, maxChannelConcurrencyLimit)
@@ -115,6 +99,31 @@ func (w *taskWorkerCoordinator) start(ctx context.Context) {
 				return
 			case <-ticker.C:
 				dispatch()
+			}
+		}
+	})
+}
+
+// startAgentScheduler runs one bounded Agent transition every two seconds.
+// Hosted deployments start it with the normal worker. The desktop profile
+// does not start it by default, so headless callers such as the stdio MCP
+// adapter start it explicitly through StartAgentScheduler.
+func (w *taskWorkerCoordinator) startAgentScheduler() {
+	s := w.service
+	s.runWorkerLoop(func(ctx context.Context) {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			if !s.IsDraining() {
+				s.advanceCloudAgents()
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
 			}
 		}
 	})

@@ -240,7 +240,7 @@ func compileCloudAgentTools(req CloudAgentRequest, includeProfileTool bool) []ma
 		add("canvas_apply_ops", "创建节点或建立引用连线；先读取画布并传 snapshotHash。媒体生成使用 generate_media；每次最多20项，禁止删除、任意 metadata 和媒体 URL。每项都需要 type 和 id：add_node 还需要 nodeType，update_node 还需要按节点能力清单填写 patch，connect_nodes 还需要 fromNodeId 与 toNodeId。连线是实际生成输入关系，不是排版、归档或任意节点关联；来源须 canSource，目标须 canTarget 且接受来源 inputKind，能力以注册表为准。", map[string]any{"snapshotHash": str("canvas_get_state返回的snapshotHash"), "ops": map[string]any{"type": "array", "maxItems": 20, "items": opItem}}, "snapshotHash", "ops")
 	}
 	if req.PermissionMode != "read_only" && len(req.ContextScope) > 0 {
-		add("generate_media", "创建或续用未提交媒体草稿及引用连线，独立审批通过后才提交收费任务，auto也不能跳过审批。用户要求生成且参数齐备时应直接调用本工具进入审批，不能只填提示词就结束。先读取画布与按本次素材筛选的模型目录。可复用当前草稿、无任务的空白媒体占位节点，以及已结束且清理完成运行留下的未提交草稿；重新读取快照并重新审批。仍在其他运行审批中的草稿、已绑定任务或已有成品不能覆盖，不得循环换ID绕过限制。sourceNodeId仅文本/镜头提示词节点；图片/视频/音频只放referenceNodeIds，参考顺序对应提示词编号，不接受URL。校验错误须针对错误修正；已提交任务失败把原因告诉用户，不得再次收费生成。", map[string]any{
+		add("generate_media", "创建或续用未提交媒体草稿及引用连线并提交收费任务。auto 模式在用户授权额度内直接提交，不再逐次审批；request_approval 模式先进入审批。用户要求生成且参数齐备时应直接调用本工具，不能只填提示词就结束。先读取画布与按本次素材筛选的模型目录。可复用当前草稿、无任务的空白媒体占位节点，以及已结束且清理完成运行留下的未提交草稿；重新读取快照。仍在其他运行审批中的草稿、已绑定任务或已有成品不能覆盖，不得循环换ID绕过限制。sourceNodeId仅文本/镜头提示词节点；图片/视频/音频只放referenceNodeIds，参考顺序对应提示词编号，不接受URL。校验错误须针对错误修正；已提交任务失败把原因告诉用户，不得再次收费生成。", map[string]any{
 			"mode": map[string]any{"type": "string", "enum": cloudAgentGenerationModeNames()}, "prompt": str("完整生成提示词"),
 			"logicalModelId": str("selection.logicalModelId；与channelId/channelModelKey互斥"), "channelId": str("selection.channelId"), "channelModelKey": str("selection.channelModelKey"),
 			"durationSeconds": map[string]any{"type": "integer", "minimum": 0}, "size": str("模型支持的画幅，例如9:16"), "quality": str("目录支持的分辨率或质量"), "videoGenerateAudio": map[string]any{"type": "boolean", "description": "是否生成音频，仅视频可用"},
@@ -290,7 +290,35 @@ func cloudAgentToolAllowed(req CloudAgentRequest, name string) bool {
 	return false
 }
 func cloudAgentWrite(name string) bool {
-	return name == "canvas_apply_ops" || name == "generate_media" || name == "canvas_create_storyboard" || name == "canvas_edit_storyboard" || name == "canvas_edit_batch_table"
+	return name == "canvas_apply_ops" || name == "generate_media" || name == "canvas_create_storyboard" || name == "canvas_edit_storyboard" || name == "canvas_edit_batch_table" || cloudAgentDestructiveTool(name)
+}
+
+// cloudAgentApprovalWhitelist 是"无论哪种权限模式都必须明确确认"的操作。
+//
+// 生成媒体、普通画布编辑虽然在消耗积分/改数据，但在已授权预算内属于自主创作；
+// 把它们逐次拦下来正是用户要摆脱的审批疲劳。真正不可逆、或越出用户原本授权
+// 边界的操作才进这张表。加额申请不在这里——它只能由用户在可信界面批准。
+var cloudAgentApprovalWhitelist = map[string]bool{
+	"canvas_delete_project":  true,
+	"canvas_history_restore": true,
+	"publish":                true,
+}
+
+func cloudAgentDestructiveTool(name string) bool {
+	return cloudAgentApprovalWhitelist[name]
+}
+
+// cloudAgentNeedsApproval 决定一次工具调用是否要停下来等用户。
+//
+// request_approval 保留"写入与生成前确认"的既有语义；auto 只在白名单操作上停。
+func cloudAgentNeedsApproval(mode, name string) bool {
+	if cloudAgentDestructiveTool(name) {
+		return true
+	}
+	if !cloudAgentWrite(name) {
+		return false
+	}
+	return mode == "request_approval"
 }
 
 func cloudAgentReadTool(repo *repository.Repository, userID string, state *cloudAgentRuntime, call cloudAgentCall, services ...*Service) (any, error) {

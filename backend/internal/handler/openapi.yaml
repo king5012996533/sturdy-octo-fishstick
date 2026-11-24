@@ -10,6 +10,9 @@ info:
     （例如 40301 配额、42901 限流）。机器判断请用 `reason`，不要解析 `msg`。
 
     TypeScript 调用面仍是 `web/src/services/api` 的 `http` 模块，不从本规范生成客户端。
+
+    除会话 Cookie 外，业务接口还支持 MCP 个人访问令牌：`Authorization: Bearer ktv_mcp_...`。
+    令牌只放行 Agent 运行、画布、任务查询和模型目录读取；其他路径返回 403。
 servers:
   - url: /api
 security:
@@ -25,7 +28,109 @@ tags:
   - name: agent
   - name: admin
   - name: beefapi
+  - name: integrations
 paths:
+  /integrations/mcp/status:
+    get:
+      tags: [integrations]
+      summary: 读取当前账号的 MCP 连接状态
+      responses:
+        "200":
+          description: 信封 data 包含 baseUrl、enabled 与有效令牌数
+  /integrations/mcp/tokens:
+    get:
+      tags: [integrations]
+      summary: 列出当前账号的 MCP 访问令牌
+      responses:
+        "200":
+          description: 信封 data.tokens 为令牌元数据，不含明文
+    post:
+      tags: [integrations]
+      summary: 创建 MCP 访问令牌
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, expiresInDays]
+              properties:
+                name: { type: string, maxLength: 100 }
+                expiresInDays: { type: integer, minimum: 1, maximum: 365 }
+                permissionMode:
+                  type: string
+                  enum: [read_only, request_approval, auto]
+                  description: 省略时默认 auto。auto 必须同时设置单轮与每日积分上限。
+                maxCreditsPerRun: { type: integer, minimum: 0, maximum: 10000000 }
+                maxCreditsPerDay: { type: integer, minimum: 0, maximum: 10000000 }
+      responses:
+        "200":
+          description: 信封 data.token 为一次性明文，data.tokenView 为令牌元数据
+        "400":
+          description: 名称或有效期无效
+        "409":
+          description: 有效令牌数量已达上限
+  /integrations/mcp/tokens/{id}:
+    delete:
+      tags: [integrations]
+      summary: 吊销 MCP 访问令牌
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: 已吊销
+        "404":
+          description: 令牌不存在或不属于当前账号
+  /integrations/mcp/grants:
+    get:
+      tags: [integrations]
+      summary: 列出当前账号的 Agent 授权、权限模式与积分额度
+      responses:
+        "200":
+          description: 信封 data.grants 为授权列表
+  /integrations/mcp/grants/{id}:
+    delete:
+      tags: [integrations]
+      summary: 撤销 Agent 授权
+      description: 撤销后旧 Run 在下一次额度预留时因版本过期被拒绝；令牌本身不再能发起 Agent 运行。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: 已撤销
+        "404":
+          description: 授权不存在或不属于当前账号
+  /agent/budget-requests:
+    get:
+      tags: [agent]
+      summary: 列出当前账号的 Agent 加额申请
+      description: 仅用户会话可访问；MCP 令牌返回 403。
+      responses:
+        "200":
+          description: 信封 data.requests 为最近的加额申请
+  /agent/budget-requests/{id}/approve:
+    post:
+      tags: [agent]
+      summary: 用户批准 Agent 加额申请
+      description: 提高 Grant 的单轮额度，并按相同增量提高每日池，同时递增版本；Agent 不能调用此接口自行批准。旧 Run 需重新开始一轮。
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: 信封 data.grant 为更新后的授权，resumeRequired 为 true
+        "403":
+          description: 使用 MCP 令牌调用
+        "409":
+          description: 申请已处理、授权已撤销或额度不合法
   /beefapi/connection:
     get:
       tags: [beefapi]
@@ -456,7 +561,7 @@ paths:
               $ref: "#/components/schemas/CloudAgentRequest"
       responses:
         "200":
-          description: 信封 data.run，包含新一轮 id、canvasId、status、permissionMode、model 及时间
+          description: 信封 data.run，包含新一轮 id、conversationId、canvasId、status、permissionMode、model 及时间
         "400":
           description: 参数、能力、模型或预算不符合要求，未创建任务
         "409":

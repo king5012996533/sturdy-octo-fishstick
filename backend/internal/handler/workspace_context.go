@@ -69,6 +69,38 @@ func AbortUnauthorized(c *gin.Context, message string) {
 	c.Abort()
 }
 
+// SetMCPTokenID records the personal access token used for this request.
+// Agent runs persist it so the backend can attribute MCP-originated work.
+const mcpTokenContextKey = "canvas.mcpTokenID"
+
+func SetMCPTokenID(c *gin.Context, tokenID string) {
+	if c == nil {
+		return
+	}
+	c.Set(mcpTokenContextKey, tokenID)
+}
+
+func MCPTokenID(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	value, exists := c.Get(mcpTokenContextKey)
+	if !exists {
+		return ""
+	}
+	tokenID, _ := value.(string)
+	return tokenID
+}
+
+// AbortForbidden 输出统一信封的 403 并中止请求。
+func AbortForbidden(c *gin.Context, message string) {
+	if c == nil {
+		return
+	}
+	fail(c, http.StatusForbidden, errors.New(message))
+	c.Abort()
+}
+
 // AbortInternal 输出统一信封的 500 并中止请求，不向客户端回显原始错误。
 func AbortInternal(c *gin.Context, err error) {
 	if c == nil {

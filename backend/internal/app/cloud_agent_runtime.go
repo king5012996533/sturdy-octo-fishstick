@@ -78,7 +78,13 @@ type cloudAgentRuntime struct {
 	PendingInterjections []cloudAgentInterjection  `json:"pendingInterjections,omitempty"`
 	InterjectionIDs      []string                  `json:"interjectionIds,omitempty"`
 	Events               []CloudAgentEvent         `json:"events"`
+	Credit               cloudAgentCreditScope     `json:"credit,omitempty"`
+	// ConsecutiveFailures 是连续工具失败次数，成功一次即清零。达到阈值后本轮
+	// 自动熔断，避免 Agent 在同一个错误上耗光积分。
+	ConsecutiveFailures int `json:"consecutiveFailures,omitempty"`
 }
+
+const cloudAgentFailureBreakerThreshold = 3
 
 func (s *Service) ensureCloudAgentExecution(task *model.Task, initial cloudAgentState) error {
 	var input struct {
@@ -93,7 +99,7 @@ func (s *Service) ensureCloudAgentExecution(task *model.Task, initial cloudAgent
 	canonical := input.Requests.Canonical
 	canonical.SystemPrompt = stripCloudAgentPlanBlock(canonical.SystemPrompt)
 	canonical.Messages = stripCloudAgentRuntimeContext(canonical.Messages)
-	state := cloudAgentRuntime{Request: initial.Request, Policy: initial.Policy, ParentID: initial.ParentID, Fingerprint: initial.Fingerprint, CreativeAnchor: initial.CreativeAnchor, TextHistory: input.TextHistory, Skills: initial.Skills, Profile: initial.Profile, Canonical: canonical, ActiveTaskID: task.ID, TaskIDs: []string{task.ID}, Step: 1, Decisions: map[string]string{}, Plan: initial.Plan, Events: []CloudAgentEvent{}}
+	state := cloudAgentRuntime{Request: initial.Request, Policy: initial.Policy, ParentID: initial.ParentID, Fingerprint: initial.Fingerprint, CreativeAnchor: initial.CreativeAnchor, TextHistory: input.TextHistory, Skills: initial.Skills, Profile: initial.Profile, Canonical: canonical, ActiveTaskID: task.ID, TaskIDs: []string{task.ID}, Step: 1, Decisions: map[string]string{}, Plan: initial.Plan, Events: []CloudAgentEvent{}, Credit: initial.Credit}
 	if len(initial.Skills) > 0 {
 		state.event(task.ID, "tool_completed", map[string]any{"toolName": "skills_load", "text": fmt.Sprintf("已启用 %d 个技能，正文将按需读取", len(initial.Skills))})
 	}
@@ -166,8 +172,11 @@ func validateCloudAgentRuntime(run *model.CloudAgentExecution, state *cloudAgent
 			return errors.New("Agent runtime profile read history is invalid")
 		}
 	}
-	if state.Step < 0 || state.Generations < 0 || state.VideoSeconds < 0 {
+	if state.Step < 0 || state.Generations < 0 || state.VideoSeconds < 0 || state.ConsecutiveFailures < 0 {
 		return errors.New("Agent runtime budget or step is invalid")
+	}
+	if state.Credit.GrantID != "" && (state.Credit.GrantVersion <= 0 || state.Credit.MaxCreditsPerDay < 0) {
+		return errors.New("Agent runtime credit scope is invalid")
 	}
 	if (state.Request.Budget.MaxGenerationTasks > 0 && state.Generations > state.Request.Budget.MaxGenerationTasks) || (state.Request.Budget.MaxVideoSeconds > 0 && state.VideoSeconds > state.Request.Budget.MaxVideoSeconds) {
 		return errors.New("Agent runtime generation budget is invalid")
@@ -427,6 +436,17 @@ func (s *Service) advanceCloudAgentByID(userID, id string) error {
 	}
 	return s.advanceCloudAgent(run)
 }
+
+// StartAgentScheduler starts the durable Agent transition loop for runtimes
+// that do not start it with the standard worker. The desktop stdio MCP adapter
+// uses this so external clients can execute Agent runs without a UI.
+func (s *Service) StartAgentScheduler() {
+	if s == nil {
+		return
+	}
+	s.taskWorker().startAgentScheduler()
+}
+
 func (s *Service) advanceCloudAgents() {
 	s.agentSchedulerMu.Lock()
 	defer s.agentSchedulerMu.Unlock()
@@ -484,6 +504,9 @@ func (s *Service) advanceCloudAgent(run *model.CloudAgentExecution) (err error) 
 		return nil
 	}
 	state, err := cloudAgentDecodeForExecution(run)
+	if err == nil && state.ConsecutiveFailures >= cloudAgentFailureBreakerThreshold {
+		return s.failCloudAgent(run, &state, "连续 3 次工具失败，本轮已自动熔断；请检查失败原因后再继续")
+	}
 	if err != nil {
 		var appErr *AppError
 		if errors.As(err, &appErr) && appErr != nil {
@@ -823,6 +846,7 @@ func cloudAgentToolResult(runID string, state *cloudAgentRuntime, call cloudAgen
 	}
 	kind := "tool_completed"
 	if err != nil {
+		state.ConsecutiveFailures++
 		detail, ok := result.(map[string]any)
 		if !ok {
 			detail = map[string]any{}
@@ -849,6 +873,7 @@ func cloudAgentToolResult(runID string, state *cloudAgentRuntime, call cloudAgen
 		kind = "tool_failed"
 		payload["text"] = message
 	} else {
+		state.ConsecutiveFailures = 0
 		payload["text"] = "工具执行成功"
 	}
 	raw, _ := json.Marshal(result)
@@ -884,7 +909,7 @@ func (s *Service) advanceCloudAgentTool(run *model.CloudAgentExecution, state *c
 		return s.terminateCloudAgent(run, "审批内容与待执行操作不一致，本轮已停止")
 	}
 	allowed := cloudAgentToolAllowed(state.Request, call.Function.Name)
-	if allowed && cloudAgentWrite(call.Function.Name) && (state.Request.PermissionMode == "request_approval" || call.Function.Name == "generate_media") && state.Approval == nil {
+	if allowed && cloudAgentNeedsApproval(state.Request.PermissionMode, call.Function.Name) && state.Approval == nil {
 		var plan *cloudAgentMediaPlan
 		var modelName string
 		policy, err := s.RuntimePolicy()
@@ -992,6 +1017,12 @@ func (s *Service) advanceCloudAgentTool(run *model.CloudAgentExecution, state *c
 	if allowed && call.Function.Name == "generate_media" && state.Approval != nil && state.Approval.Decision == "approve" {
 		return s.advanceCloudAgentMedia(run, state, call)
 	}
+	// auto 模式在授权额度内自主执行：没有审批单也要真正提交媒体任务，
+	// 否则调用会落到下面的只读工具分发，被当成"未知工具"。
+	if allowed && call.Function.Name == "generate_media" && state.Approval == nil &&
+		!cloudAgentNeedsApproval(state.Request.PermissionMode, call.Function.Name) {
+		return s.advanceCloudAgentMedia(run, state, call)
+	}
 	policy, err := s.RuntimePolicy()
 	if err != nil {
 		return s.terminateCloudAgent(run, "Agent 运行策略不可用，本轮已停止")
@@ -1073,7 +1104,17 @@ func (s *Service) enqueueCloudAgentTask(run *model.CloudAgentExecution, state *c
 		if media != nil && media.CallID != "" {
 			key = fmt.Sprintf("%s:mcp-media:%s", run.ID, media.CallID)
 		}
-		req.admission = &taskAdmission{ID: cloudAgentID(run.UserID, key)}
+		admission := &taskAdmission{ID: cloudAgentID(run.UserID, key)}
+		if state.Request.Budget.MaxCredits > 0 {
+			admission.credit = &agentTaskCredit{
+				RunID:            run.ID,
+				GrantID:          state.Credit.GrantID,
+				GrantVersion:     state.Credit.GrantVersion,
+				MaxCreditsPerRun: state.Request.Budget.MaxCredits,
+				MaxCreditsPerDay: state.Credit.MaxCreditsPerDay,
+			}
+		}
+		req.admission = admission
 	}
 	req.creationPrepare = &creationTaskPreparation{}
 	task, err := s.CreateTask(run.UserID, req)

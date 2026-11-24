@@ -9,6 +9,7 @@ import (
 
 	"infinite-canvas/backend/internal/generation"
 	"infinite-canvas/backend/internal/model"
+	"infinite-canvas/backend/internal/repository"
 )
 
 // 任务计费的编排层。
@@ -138,6 +139,22 @@ func (s *Service) TaskBillingEnabled() bool {
 // 失败，而这条任务可能已经被 worker 捡走开始调上游了。反过来，扣费成功但落库失败，
 // 由调用方立刻退回，窗口只有一次写库的时间。
 func (s *Service) chargeTaskCredits(task *model.Task, normalizedInput map[string]any) error {
+	return s.chargeTaskCreditsWithCredit(task, normalizedInput, nil)
+}
+
+// agentTaskCredit 是一次 Agent 任务所属 Run 的授权上下文。
+//
+// 它不是用户输入，只由服务端在 Run 创建/推进时填充：GrantID 与 Version 用来
+// 在每次预留时确认授权仍然有效，MaxCredits 是开始本轮时冻结的上限。
+type agentTaskCredit struct {
+	RunID            string
+	GrantID          string
+	GrantVersion     int64
+	MaxCreditsPerRun int64
+	MaxCreditsPerDay int64
+}
+
+func (s *Service) chargeTaskCreditsWithCredit(task *model.Task, normalizedInput map[string]any, admission *taskAdmission) error {
 	if s == nil || s.taskCreditLedger == nil || task == nil {
 		return nil
 	}
@@ -149,9 +166,51 @@ func (s *Service) chargeTaskCredits(task *model.Task, normalizedInput map[string
 			return err
 		}
 	}
+	var credit *agentTaskCredit
+	if admission != nil {
+		credit = admission.credit
+	}
+	reserved := false
+	if credit != nil && s.repo != nil {
+		// 先报价再预留：额度控制要拦在真正扣款之前。报价与扣款走同一条取价路径，
+		// 正常情况下两个数相等；若渠道价格在两步之间改变，ChargeTask 仍是权威金额，
+		// 预留会按实际成交价在下面结算。
+		quote, err := s.taskCreditLedger.QuoteTask(request)
+		if err != nil {
+			return err
+		}
+		if quote.Credits > 0 {
+			reserveErr := s.repo.ReserveAgentCredits(repository.AgentCreditReserve{
+				UserID:           task.UserID,
+				GrantID:          credit.GrantID,
+				GrantVersion:     credit.GrantVersion,
+				RunID:            credit.RunID,
+				TaskID:           task.ID,
+				Credits:          quote.Credits,
+				MaxCreditsPerRun: credit.MaxCreditsPerRun,
+				MaxCreditsPerDay: credit.MaxCreditsPerDay,
+			})
+			if reserveErr != nil {
+				return agentCreditError(reserveErr)
+			}
+			reserved = true
+		}
+	}
 	outcome, err := s.taskCreditLedger.ChargeTask(request)
 	if err != nil {
+		if reserved {
+			// 扣款没成功，预留必须立刻还回去；否则一次余额不足就会永久占住额度。
+			if releaseErr := s.repo.ReleaseAgentReservation(task.UserID, task.ID); releaseErr != nil {
+				_ = s.log(task.UserID, task.ID, "error", "释放 Agent 额度预留失败："+releaseErr.Error(), "")
+			}
+		}
 		return err
+	}
+	if reserved {
+		if settleErr := s.repo.SettleAgentReservation(task.UserID, task.ID, outcome.Credits); settleErr != nil {
+			// 任务已经扣费成功，这里失败不能让任务失败；记痕迹后由对账按预留行核对。
+			_ = s.log(task.UserID, task.ID, "error", "结算 Agent 额度预留失败："+settleErr.Error(), "")
+		}
 	}
 	// 金额不落在任务行上：流水是唯一的账，任务行再存一份就有两个真相，退款也就失去了
 	// "退的就是当初扣的那笔"这个保证。这里只留一条可查的日志。
@@ -159,6 +218,25 @@ func (s *Service) chargeTaskCredits(task *model.Task, normalizedInput map[string
 		_ = s.log(task.UserID, task.ID, "info", "已预扣积分 "+strconv.FormatInt(outcome.Credits, 10), "")
 	}
 	return nil
+}
+
+func agentCreditError(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, repository.ErrAgentBudgetExceeded):
+		appErr := NewAppError(402, "本轮授权积分额度已用尽，已停止继续提交。请让用户提高预算或开始新一轮创作")
+		appErr.Reason = "agent_budget_exceeded"
+		appErr.Cause = err
+		return appErr
+	case errors.Is(err, repository.ErrAgentGrantRevoked):
+		return WrapAppError(403, "Agent 授权已撤销，后续操作已拒绝", err)
+	case errors.Is(err, repository.ErrAgentGrantStale):
+		return WrapAppError(403, "Agent 授权已更新，本轮不能继续使用旧权限；请重新开始一轮", err)
+	default:
+		return WrapAppError(500, "校验 Agent 授权额度失败", err)
+	}
 }
 
 // taskChargesTextMinimumBalance 判断这次提交要不要先满足文本的最低余额水位。
@@ -253,6 +331,11 @@ func (s *Service) refundTaskCreditsUnchecked(task *model.Task, note string) {
 	if !refunded {
 		return
 	}
+	if s.repo != nil {
+		if err := s.repo.ReleaseAgentReservation(task.UserID, task.ID); err != nil {
+			_ = s.log(task.UserID, task.ID, "error", "释放 Agent 额度预留失败："+err.Error(), "")
+		}
+	}
 	_ = s.log(task.UserID, task.ID, "info", "已退回预扣积分 "+strconv.FormatInt(credits, 10), "")
 }
 
@@ -317,6 +400,15 @@ func (s *Service) settleTextTaskCredits(task *model.Task) {
 	}
 	if len(outcome.MissingTiers) > 0 {
 		_ = s.log(task.UserID, task.ID, "warn", "文本结算缺少价目档位："+strings.Join(outcome.MissingTiers, "、")+"，这部分未计费", "")
+	}
+	// 预扣时只按起步价占了 Run/每日额度；token 的真实用量只有结算时才知道。
+	// 这里把预留抬到实际总价，否则一段长对话会按起步价占用额度，后续任务继续放行，
+	// maxCredits 只挡住了第一句话。未收部分也计入消耗：上游成本已经发生，而且额度
+	// 是授权上限，不是欠款账本——收不回来的钱不能在额度里再放行一次。
+	if s.repo != nil {
+		if err := s.repo.SettleAgentReservation(task.UserID, task.ID, outcome.Credits); err != nil {
+			_ = s.log(task.UserID, task.ID, "error", "结算 Agent 文本额度预留失败："+err.Error(), "")
+		}
 	}
 	if outcome.Delta <= 0 {
 		// 起步价已经盖住实际用量，没有差额可补。仍然记一条 info：它回答了"为什么这次

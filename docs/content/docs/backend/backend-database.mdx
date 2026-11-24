@@ -63,6 +63,14 @@ description: BeefTV后端核心持久化表与状态边界
 
 邮件系统设置还保存电子邮件域名白名单。新配置默认填入 Gmail、163、126、QQ、Outlook、Hotmail、iCloud、Yahoo 和 Foxmail；管理员可按行编辑完整域名。白名单为空时不限制邮箱域名，非空时只有精确匹配的域名可注册。该规则只作用于新用户注册和注册验证码，不限制 SMTP 发件邮箱，也不影响已有账号找回密码。
 
+### MCP 访问令牌
+
+| 表 | 用途 | 关键边界 |
+| --- | --- | --- |
+| `mcp_tokens` | 保存外部 MCP 客户端的个人访问令牌 | 只保存 SHA-256 哈希与可识别前缀；按 `user_id` 归属；支持过期、吊销和最近使用时间；明文只在创建响应出现一次 |
+
+本地结构迁移版本 4 `mcp-tokens` 创建该表，`MigrateLocalSchema` 同时用于 SQLite 与 PostgreSQL。Bearer 令牌只放行 `/api/agent/runs`、`/api/canvas-projects`、`/api/tasks`（只读）、`/api/workspace/model-config`（只读）和 `/api/model-catalog`（只读），其他路径返回 403；通过令牌创建的 Agent 运行在 `state_json` 中记录 `mcpTokenId`。
+
 ## 技能包与版本
 
 | 表 | 用途 | 关键边界 |

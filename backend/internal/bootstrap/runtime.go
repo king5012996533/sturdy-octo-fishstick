@@ -122,7 +122,7 @@ func Open(_ context.Context, raw Config) (*Runtime, error) {
 	}
 	var hosted HostedExtension
 	if cfg.HostedFactory != nil {
-		hosted, err = cfg.HostedFactory(HostedDeps{DataDir: cfg.DataDir, Service: svc})
+		hosted, err = cfg.HostedFactory(HostedDeps{DataDir: cfg.DataDir, Service: svc, CanvasDB: db})
 		if err != nil {
 			cleanupService()
 			return nil, err
@@ -360,6 +360,16 @@ func (r *Runtime) LaunchToken() string {
 		return ""
 	}
 	return r.launchToken
+}
+
+// StartAgentScheduler starts the durable Agent transition loop for headless
+// callers such as the stdio MCP adapter. The desktop profile's normal startup
+// intentionally does not schedule Agent runs by itself.
+func (r *Runtime) StartAgentScheduler() {
+	if r == nil || r.service == nil {
+		return
+	}
+	r.service.StartAgentScheduler()
 }
 
 func (r *Runtime) Errors() <-chan error {

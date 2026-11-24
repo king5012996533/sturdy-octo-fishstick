@@ -51,7 +51,7 @@ func newTestExtensionWithPaths(t *testing.T, dir string, authPath string) (boots
 	if authPath == "" {
 		authPath = filepath.Join(dir, "auth.db")
 	}
-	extension, err := New(bootstrap.HostedDeps{DataDir: dir, Service: service}, Options{
+	extension, err := New(bootstrap.HostedDeps{DataDir: dir, Service: service, CanvasDB: canvasDB}, Options{
 		DatabaseDriver: "sqlite",
 		DatabaseURL:    authPath,
 		StateSecret:    "test-state-secret",

@@ -217,6 +217,35 @@
     color: var(--destructive);
 }
 
+.account-code {
+    border: 1px solid var(--user-border);
+    border-radius: 6px;
+    background: var(--user-surface-muted);
+    padding: 1px 5px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--user-ink);
+    word-break: break-all;
+}
+
+/* MCP 连接的一次性令牌与客户端配置：等宽、可滚动、保留换行，
+   不能让长 token 把卡片撑破，也不能让 JSON 被折成不可复制的碎片。 */
+.mcp-token-code {
+    margin: 0;
+    max-height: 240px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    border: 1px solid var(--user-border);
+    border-radius: var(--user-radius-card);
+    background: var(--user-surface-muted);
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--user-ink);
+}
+
 /* ---------- 更多设置：一条分隔线 + 一个展开行，不是又一张卡片 ---------- */
 
 .account-more {

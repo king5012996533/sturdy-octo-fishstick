@@ -130,21 +130,39 @@ func (s *Service) mcpSubmitMedia(raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if state.Approval == nil || state.Approval.Decision != "approve" {
-		return nil, Forbidden("媒体生成尚未批准")
-	}
-	call := state.Approval.Call
-	if args.CallID != "" && call.ID != "" && args.CallID != call.ID {
-		return nil, Forbidden("审批内容与待执行操作不一致")
-	}
-	if state.Approval.CallHash != "" && state.Approval.CallHash != cloudAgentApprovalCallHash(call) {
-		return nil, Forbidden("审批内容与待执行操作不一致")
-	}
-	if len(args.Arguments) > 0 && strings.TrimSpace(string(args.Arguments)) != "" && string(args.Arguments) != "null" {
-		caller := call
-		caller.Function.Arguments = string(args.Arguments)
-		if cloudAgentApprovalCallHash(caller) != cloudAgentApprovalCallHash(call) {
-			return nil, Forbidden("不能替换已批准的生成参数")
+	var call cloudAgentCall
+	if state.Approval != nil && state.Approval.Decision == "approve" {
+		call = state.Approval.Call
+		if args.CallID != "" && call.ID != "" && args.CallID != call.ID {
+			return nil, Forbidden("审批内容与待执行操作不一致")
+		}
+		if state.Approval.CallHash != "" && state.Approval.CallHash != cloudAgentApprovalCallHash(call) {
+			return nil, Forbidden("审批内容与待执行操作不一致")
+		}
+		if len(args.Arguments) > 0 && strings.TrimSpace(string(args.Arguments)) != "" && string(args.Arguments) != "null" {
+			caller := call
+			caller.Function.Arguments = string(args.Arguments)
+			if cloudAgentApprovalCallHash(caller) != cloudAgentApprovalCallHash(call) {
+				return nil, Forbidden("不能替换已批准的生成参数")
+			}
+		}
+	} else {
+		// auto 模式在授权额度内不需要逐次审批；仍然只允许提交当前这一步的
+		// generate_media 调用，不能借内部工具替换参数或提交别的工具。
+		autoWithinBudget := state.Request.PermissionMode == "auto" && state.Request.Budget.MaxCredits > 0 &&
+			!cloudAgentNeedsApproval(state.Request.PermissionMode, "generate_media")
+		if !autoWithinBudget || state.CallIndex < 0 || state.CallIndex >= len(state.Calls) {
+			return nil, Forbidden("媒体生成尚未批准")
+		}
+		call = state.Calls[state.CallIndex]
+		if call.Function.Name != "generate_media" {
+			return nil, Forbidden("当前步骤不是媒体生成")
+		}
+		if args.CallID != "" && call.ID != "" && args.CallID != call.ID {
+			return nil, Forbidden("当前步骤与待执行的媒体生成不一致")
+		}
+		if len(args.Arguments) > 0 && strings.TrimSpace(string(args.Arguments)) != "" && string(args.Arguments) != "null" {
+			return nil, Forbidden("自主执行不能替换当前步骤的生成参数")
 		}
 	}
 	admissionID := cloudAgentMediaExecutionID(run.UserID, run.ID, call.ID)

@@ -42,9 +42,10 @@ type Options struct {
 type Extension struct {
 	service *auth.Service
 	// canvas 是画布侧服务：账号管理要合并"作品数/调用量"，审计也必须落在画布库。
-	canvas  *app.Service
-	db      *gorm.DB
-	dataDir string
+	canvas   *app.Service
+	db       *gorm.DB
+	canvasDB *gorm.DB
+	dataDir  string
 	// avatars 是账号头像的文件存储。刻意与 canvas 的资源存储分开，理由见
 	// internal/avatar：资源管线会回收没有画布引用的对象，而头像的引用不在画布库里。
 	avatars *avatar.Store
@@ -122,12 +123,13 @@ func New(deps bootstrap.HostedDeps, options Options) (bootstrap.HostedExtension,
 	}
 	gift.service = service
 	extension := &Extension{
-		service: service,
-		canvas:  deps.Service,
-		db:      db,
-		dataDir: deps.DataDir,
-		avatars: avatar.NewStore(deps.DataDir),
-		cookie:  auth.CookieOptions{Secure: options.CookieSecure},
+		service:  service,
+		canvas:   deps.Service,
+		db:       db,
+		canvasDB: deps.CanvasDB,
+		dataDir:  deps.DataDir,
+		avatars:  avatar.NewStore(deps.DataDir),
+		cookie:   auth.CookieOptions{Secure: options.CookieSecure},
 	}
 	if deps.Service != nil {
 		extension.ensure = deps.Service.EnsureWorkspace
@@ -209,10 +211,21 @@ func (e *Extension) WorkspaceMiddleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		user, err := e.service.SessionUser(c.Request.Context(), auth.ReadSessionToken(c.Request))
-		if err != nil {
-			handler.AbortUnauthorized(c, "当前未登录或登录已失效")
-			return
+		var user *auth.AuthUser
+		tokenID := ""
+		if tokenUser, token, handled := e.mcpRequestToken(c); handled {
+			if token == nil {
+				return
+			}
+			user = tokenUser
+			tokenID = token.ID
+		} else {
+			sessionUser, err := e.service.SessionUser(c.Request.Context(), auth.ReadSessionToken(c.Request))
+			if err != nil {
+				handler.AbortUnauthorized(c, "当前未登录或登录已失效")
+				return
+			}
+			user = sessionUser
 		}
 		if e.ensure != nil {
 			if _, done := prepared.Load(user.ID); !done {
@@ -225,6 +238,9 @@ func (e *Extension) WorkspaceMiddleware() gin.HandlerFunc {
 		}
 		handler.SetWorkspaceScope(c, workspace.Context{ID: user.ID, DataDir: e.dataDir})
 		handler.SetSessionUser(c, sessionPrincipal(user))
+		if tokenID != "" {
+			handler.SetMCPTokenID(c, tokenID)
+		}
 		c.Next()
 	}
 }
@@ -250,6 +266,7 @@ func (e *Extension) RegisterRoutes(api *gin.RouterGroup) {
 	auth.RegisterRoutes(api, e.service, e.cookie)
 	e.registerAdminRoutes(api)
 	e.registerAccountRoutes(api)
+	e.registerMCPIntegrationRoutes(api)
 	// 资源下载：供模型上游拉取参考素材，准入靠签名而非会话。
 	e.registerPublicResourceRoutes(api)
 	// 头像：地址按账号寻址、不带签名，准入是"该账号当前还在用平台头像"。

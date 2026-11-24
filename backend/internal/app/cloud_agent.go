@@ -39,19 +39,43 @@ type CloudAgentRequest struct {
 	Budget          struct {
 		MaxGenerationTasks int `json:"maxGenerationTasks,omitempty"`
 		MaxVideoSeconds    int `json:"maxVideoSeconds,omitempty"`
-		// 0 = 不限制模型调用步数（与官方取消固定截断一致）。正数时夹到上限。
+		// MaxCredits 是本轮授权的积分上限，0 表示未显式设置。auto 模式没有上限
+		// 会被服务端降级为 request_approval；MCP 令牌会从 Grant 补齐默认值。
+		MaxCredits int64 `json:"maxCredits,omitempty"`
+		// 0 = 使用默认步数上限；正数时夹到硬上限。
 		MaxSteps int `json:"maxSteps,omitempty"`
 	} `json:"budget"`
 	IdempotencyKey string `json:"idempotencyKey"`
+	// MCPTokenID is set by the HTTP boundary from the authenticated access
+	// token, never trusted from the request body.
+	MCPTokenID string `json:"mcpTokenId,omitempty"`
 }
 
-const cloudAgentMaxStepsLimit = 9999
+const (
+	cloudAgentMaxStepsLimit = 9999
+	// cloudAgentDefaultMaxSteps 是未显式设置时的初始值。无限步数会让一次授权
+	// 变成没有边界的支出；200 足够完成多镜头创作，也能被测试和运营经验继续调整。
+	cloudAgentDefaultMaxSteps = 200
+	// cloudAgentMaxCreditsLimit 是单轮授权的硬上限，防止客户端传入一个把
+	// int64 撑爆或让运营失去感知的额度。
+	cloudAgentMaxCreditsLimit int64 = 10_000_000
+)
 
 func cloudAgentStepLimit(req CloudAgentRequest) int {
 	if req.Budget.MaxSteps > 0 {
 		return min(req.Budget.MaxSteps, cloudAgentMaxStepsLimit)
 	}
-	return 0
+	return cloudAgentDefaultMaxSteps
+}
+
+// cloudAgentCreditScope 是 Run 开始时冻结的授权快照。
+//
+// GrantVersion 为 0 表示这次 Run 不挂在 Grant 上（网页端只带单轮预算）。
+// 后续每个任务预留都会带上它，用户撤销或修改授权后旧 Run 会被拒绝。
+type cloudAgentCreditScope struct {
+	GrantID          string `json:"grantId,omitempty"`
+	GrantVersion     int64  `json:"grantVersion,omitempty"`
+	MaxCreditsPerDay int64  `json:"maxCreditsPerDay,omitempty"`
 }
 
 type cloudAgentState struct {
@@ -64,10 +88,14 @@ type cloudAgentState struct {
 	Skills         []cloudAgentSkill         `json:"skills,omitempty"`
 	Profile        cloudAgentProfileSnapshot `json:"profile"`
 	Policy         cloudAgentPolicySnapshot  `json:"policy"`
+	Credit         cloudAgentCreditScope     `json:"credit,omitempty"`
 }
 
 type CloudAgentRun struct {
 	ID             string              `json:"id"`
+	ConversationID string              `json:"conversationId,omitempty"`
+	MCPTokenID     string              `json:"mcpTokenId,omitempty"`
+	Source         string              `json:"source,omitempty"`
 	CanvasID       string              `json:"canvasId"`
 	ParentID       string              `json:"parentId,omitempty"`
 	Status         string              `json:"status"`
@@ -160,8 +188,11 @@ func validateCloudAgentRequest(req *CloudAgentRequest) error {
 	} else if req.Model != "" && req.Model != req.ChannelModelKey {
 		return BadAuthRequest("渠道模型标识与 model 不一致")
 	}
-	if req.Budget.MaxGenerationTasks < 0 || req.Budget.MaxVideoSeconds < 0 || req.Budget.MaxSteps < 0 {
-		return BadAuthRequest("生成任务、视频秒数和模型调用步数预算不能为负数")
+	if req.Budget.MaxGenerationTasks < 0 || req.Budget.MaxVideoSeconds < 0 || req.Budget.MaxSteps < 0 || req.Budget.MaxCredits < 0 {
+		return BadAuthRequest("生成任务、视频秒数、积分和模型调用步数预算不能为负数")
+	}
+	if req.Budget.MaxCredits > cloudAgentMaxCreditsLimit {
+		req.Budget.MaxCredits = cloudAgentMaxCreditsLimit
 	}
 	seen := map[string]bool{}
 	for i, id := range req.SkillIDs {
@@ -200,6 +231,75 @@ func (s *Service) validateCloudAgentRequestForService(req *CloudAgentRequest) er
 	return validateCloudAgentRequest(req)
 }
 
+// applyCloudAgentGrant 把 Run 的权限与额度校准到服务端授权。
+//
+// 客户端传来的 permissionMode / budget 只是"申请"，真正的边界来自 Grant：
+// 令牌绑定的授权被撤销时直接拒绝；额度超过 Grant 时在服务端夹住，不能靠
+// 浏览器或 Agent 自己报一个更大的数。没有 Grant 的网页端保留单轮预算，但
+// auto 模式必须带额度，否则降级为 request_approval——不能让 auto 等于无限。
+func (s *Service) applyCloudAgentGrant(userID string, req *CloudAgentRequest) (cloudAgentCreditScope, error) {
+	if req == nil {
+		return cloudAgentCreditScope{}, BadAuthRequest("请求不能为空")
+	}
+	var grant *model.AgentGrant
+	if req.MCPTokenID != "" {
+		loaded, err := s.repo.AgentGrantForToken(userID, req.MCPTokenID)
+		if err != nil {
+			return cloudAgentCreditScope{}, WrapAppError(500, "读取 Agent 授权失败", err)
+		}
+		if loaded != nil {
+			if loaded.Status != model.AgentGrantStatusActive {
+				return cloudAgentCreditScope{}, Forbidden("Agent 授权已撤销，请重新授权后再试")
+			}
+			if !cloudAgentGrantHasScope(loaded, "agent") {
+				return cloudAgentCreditScope{}, Forbidden("当前授权不包含 Agent 调用权限")
+			}
+			grant = loaded
+		}
+	}
+	scope := cloudAgentCreditScope{}
+	if grant != nil {
+		if strings.TrimSpace(req.PermissionMode) == "" {
+			req.PermissionMode = grant.PermissionMode
+		}
+		if req.Budget.MaxCredits <= 0 {
+			req.Budget.MaxCredits = grant.MaxCreditsPerRun
+		}
+		if grant.MaxCreditsPerRun > 0 && req.Budget.MaxCredits > grant.MaxCreditsPerRun {
+			req.Budget.MaxCredits = grant.MaxCreditsPerRun
+		}
+		scope = cloudAgentCreditScope{GrantID: grant.ID, GrantVersion: grant.Version, MaxCreditsPerDay: grant.MaxCreditsPerDay}
+	}
+	if strings.TrimSpace(req.PermissionMode) == "" {
+		req.PermissionMode = "request_approval"
+	}
+	if req.PermissionMode == "auto" && req.Budget.MaxCredits <= 0 {
+		// auto 不能没有额度：无上限的自主执行不是授权，是把积分账户交给 Agent。
+		// 降级而不是报错，是为了让老客户端仍能用，只是需要逐个确认。
+		req.PermissionMode = "request_approval"
+	}
+	if req.PermissionMode == "read_only" {
+		scope.MaxCreditsPerDay = 0
+	}
+	return scope, nil
+}
+
+func cloudAgentGrantHasScope(grant *model.AgentGrant, scope string) bool {
+	if grant == nil {
+		return false
+	}
+	var scopes []string
+	if err := json.Unmarshal([]byte(grant.ScopesJSON), &scopes); err != nil {
+		return false
+	}
+	for _, value := range scopes {
+		if value == scope {
+			return true
+		}
+	}
+	return false
+}
+
 func validateCloudAgentPrompt(value string, maxRunes int) error {
 	if !utf8.ValidString(value) || strings.TrimSpace(value) == "" || utf8.RuneCountInString(strings.TrimSpace(value)) > maxRunes {
 		return BadAuthRequest("需要有效画布和 1–16000 个字符的提示词")
@@ -231,7 +331,11 @@ func agentRunOutput(task *model.Task, state cloudAgentState) *CloudAgentRun {
 	if task.Status == model.TaskStatusSucceeded {
 		status = "completed"
 	}
-	return &CloudAgentRun{ID: task.ID, CanvasID: task.ProjectID, ParentID: state.ParentID, Status: status, PermissionMode: state.Request.PermissionMode, Model: task.Model, CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt, Skills: state.Skills}
+	source := ""
+	if state.Request.MCPTokenID != "" {
+		source = "mcp"
+	}
+	return &CloudAgentRun{ID: task.ID, ConversationID: state.Request.ConversationID, MCPTokenID: state.Request.MCPTokenID, Source: source, CanvasID: task.ProjectID, ParentID: state.ParentID, Status: status, PermissionMode: state.Request.PermissionMode, Model: task.Model, CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt, Skills: state.Skills}
 }
 
 func (s *Service) cloudAgentTask(userID, id string) (*model.Task, cloudAgentState, error) {
@@ -327,6 +431,10 @@ func (s *Service) CloudAgentRunIfChanged(userID, id string, revision int64) (*Cl
 // is deterministic per user/key. Competing requests may race, but task creation
 // and credit reservation share a transaction: only one can commit.
 func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, parentID string) (*CloudAgentRun, error) {
+	creditScope, err := s.applyCloudAgentGrant(userID, &req)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.validateCloudAgentRequestForService(&req); err != nil {
 		return nil, err
 	}
@@ -469,7 +577,7 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 	if err != nil {
 		return nil, err
 	}
-	state := cloudAgentState{Version: 1, Request: req, ParentID: parentID, Fingerprint: fingerprint, CreativeAnchor: creativeAnchor, Plan: inheritedPlan, Skills: skillSnapshots, Profile: profile, Policy: policy}
+	state := cloudAgentState{Version: 1, Request: req, ParentID: parentID, Fingerprint: fingerprint, CreativeAnchor: creativeAnchor, Plan: inheritedPlan, Skills: skillSnapshots, Profile: profile, Policy: policy, Credit: creditScope}
 	canonical := cloudAgentCanonicalFor(system, history, req.Prompt, req, len(profile.Layers) > 0)
 	s.attachCloudAgentLessons(&canonical, userID, req.Prompt)
 	canonical.PromptCacheKey = cloudAgentPromptCacheKey(req.CanvasID, canonical.SystemPrompt)
@@ -486,8 +594,12 @@ func (s *Service) CreateCloudAgentRun(userID string, req CloudAgentRequest, pare
 	input := map[string]any{"mode": "text", "prompt": req.Prompt, "textHistory": history, "textOptions": map[string]any{"stream": true, "thinking": cloudAgentReasoningEnabled(policy.ReasoningMode)}, "cloudAgent": state,
 		"agentRequests": map[string]any{"canonical": canonical},
 		"config":        config}
+	credit := (*agentTaskCredit)(nil)
+	if req.Budget.MaxCredits > 0 {
+		credit = &agentTaskCredit{RunID: id, GrantID: creditScope.GrantID, GrantVersion: creditScope.GrantVersion, MaxCreditsPerRun: req.Budget.MaxCredits, MaxCreditsPerDay: creditScope.MaxCreditsPerDay}
+	}
 	task, err := s.CreateTask(userID, CreateTaskRequest{ProjectID: req.CanvasID, Type: "canvas_text", Operation: cloudAgentOperation, Prompt: req.Prompt, Model: req.Model, LogicalModelID: req.LogicalModelID, Input: input,
-		admission: &taskAdmission{ID: id}})
+		admission: &taskAdmission{ID: id, credit: credit}})
 	if err != nil {
 		// A concurrent identical request may have won the transaction. Never
 		// replace its result or start a duplicate provider task.

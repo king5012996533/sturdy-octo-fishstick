@@ -4,6 +4,10 @@ All notable public changes to BeefTV are documented in this file.
 
 ## Unreleased
 
+- The desktop stdio MCP adapter can now start Kinotv Agent runs, wait for approvals, continue conversations, inspect generation tasks and list usable models. It starts the Agent scheduler so runs execute without the desktop UI driving them.
+- The MCP adapter can also run in remote mode against an existing local or hosted Kinotv service through `KINOTV_MCP_BASE_URL` plus a session cookie or desktop token, so Agent runs, tasks, credits and canvas writes land in that service's backend.
+- Hosted accounts can create scoped MCP personal access tokens from Settings, copy Claude Code / Claude Desktop connection snippets, and revoke access. MCP runs created with a token are tagged with `source=mcp` and the originating token ID.
+- MCP tokens now carry an Agent grant with per-run and per-day credit budgets. Reservations are atomic across concurrent runs, text token top-ups count against the same budget, autonomous runs stop at the grant limit, and budget increases require user approval in the authorization center.
 - Built-in BeefAPI can be connected from the desktop app without pasting a key.
 - Prepared the first audited public source snapshot.
 - Added reproducible local builds, automated quality checks, and multi-architecture container publishing.

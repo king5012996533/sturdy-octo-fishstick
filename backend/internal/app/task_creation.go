@@ -14,6 +14,8 @@ import (
 // task ID or bypass the quoted-charge ceiling through the public tasks API.
 type taskAdmission struct {
 	ID string
+	// credit 是 Agent 任务的额度上下文；普通生成任务为 nil，不走授权额度。
+	credit *agentTaskCredit
 }
 
 // CreateTask 收敛任务进入系统前的 admission 流程：输入标准化、逻辑模型路由、
@@ -61,7 +63,7 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 	task.InputJSON = string(inputJSON)
 	// 先扣费再落库：反过来做的话，扣费失败时任务已经入队，worker 可能已经调上游了。
 	// 扣费在落库前失败只会让这次提交整体失败，用户重试即可，不存在半成品任务。
-	if err := s.chargeTaskCredits(task, normalizedInput); err != nil {
+	if err := s.chargeTaskCreditsWithCredit(task, normalizedInput, req.admission); err != nil {
 		return nil, err
 	}
 	err = s.createTaskWithinStorageQuota(task, policy)

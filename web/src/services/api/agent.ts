@@ -63,6 +63,9 @@ export type AgentApproval = {
 
 export type AgentRun = {
     id: string;
+    conversationId?: string;
+    mcpTokenId?: string;
+    source?: "mcp";
     canvasId?: string;
     status: "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled" | "rejected";
     permissionMode: AgentPermissionMode;
