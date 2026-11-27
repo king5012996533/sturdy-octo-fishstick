@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -238,6 +239,54 @@ func TestAgentReservationIsReleasedWhenChargeFailsOrIsRefunded(t *testing.T) {
 	}
 	if used := agentBudgetTestBucket(t, db, model.AgentCreditScopeRun, "run-release", "all"); used != 0 {
 		t.Fatalf("run bucket after refund = %d, want 0", used)
+	}
+}
+
+// 用户取消一个"请求还没发出去"的任务时，预扣会退回，Agent 额度预留必须同时释放；
+// 否则一次取消就会把 Run 与当日额度永久占住。
+func TestCancelledTaskReleasesAgentReservation(t *testing.T) {
+	s, db, _, _ := creationTestService(t)
+	grant := createAgentBudgetTestGrant(t, db, "grant-cancel", 1000, 2000)
+	ledger := &fakeCreditLedger{charges: 120, refunded: true, refundCredits: 120}
+	s.UseTaskCreditLedger(ledger)
+
+	task := &model.Task{
+		ID:     "task-cancel",
+		UserID: "user",
+		Type:   "canvas_image",
+		Status: model.TaskStatusQueued,
+	}
+	if err := db.Create(task).Error; err != nil {
+		t.Fatal(err)
+	}
+	admission := &taskAdmission{credit: &agentTaskCredit{
+		RunID: "run-cancel", GrantID: grant.ID, GrantVersion: grant.Version,
+		MaxCreditsPerRun: 1000, MaxCreditsPerDay: 2000,
+	}}
+	if err := s.chargeTaskCreditsWithCredit(task, map[string]any{"mode": "image"}, admission); err != nil {
+		t.Fatalf("charge before cancel: %v", err)
+	}
+	day := model.AgentCreditDay(time.Now().UTC())
+	if used := agentBudgetTestBucket(t, db, model.AgentCreditScopeRun, "run-cancel", "all"); used != 120 {
+		t.Fatalf("run bucket after charge = %d, want 120", used)
+	}
+
+	cancelled, err := s.CancelTask(context.Background(), task.UserID, task.ID)
+	if err != nil {
+		t.Fatalf("CancelTask() error = %v", err)
+	}
+	if cancelled.Status != model.TaskStatusCancelled {
+		t.Fatalf("CancelTask() status = %s, want cancelled", cancelled.Status)
+	}
+	reservation := agentBudgetTestReservation(t, db, task.ID)
+	if reservation.Status != model.AgentReservationReleased {
+		t.Fatalf("reservation after cancel = %q, want released", reservation.Status)
+	}
+	if used := agentBudgetTestBucket(t, db, model.AgentCreditScopeRun, "run-cancel", "all"); used != 0 {
+		t.Fatalf("run bucket after cancel = %d, want 0", used)
+	}
+	if used := agentBudgetTestBucket(t, db, model.AgentCreditScopeDaily, "user", day); used != 0 {
+		t.Fatalf("daily bucket after cancel = %d, want 0", used)
 	}
 }
 

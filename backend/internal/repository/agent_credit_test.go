@@ -29,6 +29,7 @@ func newAgentCreditTestRepository(t *testing.T) (*Repository, *gorm.DB) {
 		&model.AgentCreditReservation{},
 		&model.AgentCreditBucket{},
 		&model.AgentBudgetRequest{},
+		&model.MCPToken{},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -135,6 +136,102 @@ func TestAgentDailyLimitIsSharedAcrossConcurrentRunsAndGrants(t *testing.T) {
 	day := model.AgentCreditDay(time.Now().UTC())
 	if used := agentCreditBucketUsed(t, db, model.AgentCreditScopeDaily, "user", day); used != 600 {
 		t.Fatalf("daily bucket = %d, want 600 (at most one run)", used)
+	}
+}
+
+// 两个不同的 MCP 客户端（Codex 与 Claude Code 各持一枚令牌）并发提交时，额度必须
+// 落在同一个"用户"日桶里。令牌只是连接身份，不是额度边界。
+func TestMCPTokensShareOneDailyBudgetAcrossClients(t *testing.T) {
+	repo, db := newAgentCreditTestRepository(t)
+	tokens := make([]*model.MCPToken, 0, 2)
+	for index, client := range []string{"Codex", "Claude Code"} {
+		grant := agentCreditTestGrant(t, db, fmt.Sprintf("grant-%d", index), 1000, 1000)
+		token := &model.MCPToken{
+			ID:         fmt.Sprintf("token-%d", index),
+			UserID:     "user",
+			Name:       client,
+			TokenHash:  fmt.Sprintf("%064d", index+1),
+			Prefix:     "ktv_mcp_test",
+			GrantID:    grant.ID,
+			ScopesJSON: `["agent","canvas"]`,
+			CreatedAt:  time.Now().UTC(),
+			UpdatedAt:  time.Now().UTC(),
+		}
+		if err := db.Create(token).Error; err != nil {
+			t.Fatal(err)
+		}
+		tokens = append(tokens, token)
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, len(tokens))
+	for index, token := range tokens {
+		grant, err := repo.AgentGrantForToken("user", token.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wg.Add(1)
+		go func(index int, grant *model.AgentGrant) {
+			defer wg.Done()
+			errs[index] = repo.ReserveAgentCredits(AgentCreditReserve{
+				UserID: "user", GrantID: grant.ID, GrantVersion: grant.Version,
+				RunID: fmt.Sprintf("run-%d", index), TaskID: fmt.Sprintf("task-%d", index),
+				Credits: 600, MaxCreditsPerRun: 1000, MaxCreditsPerDay: 1000,
+			})
+		}(index, grant)
+	}
+	wg.Wait()
+
+	succeeded := 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, ErrAgentBudgetExceeded):
+		default:
+			t.Fatalf("unexpected reserve error: %v", err)
+		}
+	}
+	if succeeded != 1 {
+		t.Fatalf("succeeded = %d, want exactly 1 across two MCP clients sharing a daily cap", succeeded)
+	}
+	day := model.AgentCreditDay(time.Now().UTC())
+	if used := agentCreditBucketUsed(t, db, model.AgentCreditScopeDaily, "user", day); used != 600 {
+		t.Fatalf("daily bucket = %d, want 600", used)
+	}
+}
+
+// 额度桶与授权都按 user_id 隔离：用户 B 拿着用户 A 的 Grant ID 不能预占任何额度。
+func TestAgentCreditsRejectCrossUserGrant(t *testing.T) {
+	repo, db := newAgentCreditTestRepository(t)
+	grantA := agentCreditTestGrant(t, db, "grant-user-a", 1000, 2000)
+
+	err := repo.ReserveAgentCredits(AgentCreditReserve{
+		UserID: "user-b", GrantID: grantA.ID, GrantVersion: grantA.Version,
+		RunID: "run-b", TaskID: "task-b", Credits: 100,
+		MaxCreditsPerRun: 1000, MaxCreditsPerDay: 2000,
+	})
+	if err == nil {
+		t.Fatal("user B must not reserve credits against user A's grant")
+	}
+	if errors.Is(err, ErrAgentBudgetExceeded) {
+		t.Fatalf("cross-user reservation must fail on ownership, not on budget: %v", err)
+	}
+
+	var reservations int64
+	if err := db.Model(&model.AgentCreditReservation{}).Where("user_id = ?", "user-b").Count(&reservations).Error; err != nil {
+		t.Fatal(err)
+	}
+	if reservations != 0 {
+		t.Fatalf("cross-user reservation rows = %d, want 0", reservations)
+	}
+
+	var buckets int64
+	if err := db.Model(&model.AgentCreditBucket{}).Where("scope_key = ?", "user-b").Count(&buckets).Error; err != nil {
+		t.Fatal(err)
+	}
+	if buckets != 0 {
+		t.Fatalf("cross-user buckets = %d, want 0", buckets)
 	}
 }
 
